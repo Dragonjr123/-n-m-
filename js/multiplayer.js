@@ -305,7 +305,7 @@ const multiplayerSystem = {
             startBtn.style.display = 'block';
             
             // Setup game settings listeners
-            ['mp-game-mode', 'mp-difficulty', 'mp-level', 'mp-one-life'].forEach(id => {
+            ['mp-game-mode', 'mp-difficulty', 'mp-level', 'mp-one-life', 'mp-shared-level-progression'].forEach(id => {
                 const elem = document.getElementById(id);
                 elem.addEventListener('change', () => this.updateGameSettings());
             });
@@ -314,7 +314,7 @@ const multiplayerSystem = {
             startBtn.style.display = 'none';
             
             // Disable inputs for non-hosts
-            ['mp-game-mode', 'mp-difficulty', 'mp-level', 'mp-one-life'].forEach(id => {
+            ['mp-game-mode', 'mp-difficulty', 'mp-level', 'mp-one-life', 'mp-shared-level-progression'].forEach(id => {
                 document.getElementById(id).disabled = true;
             });
         }
@@ -327,7 +327,8 @@ const multiplayerSystem = {
             mode: document.getElementById('mp-game-mode').value,
             difficulty: parseInt(document.getElementById('mp-difficulty').value),
             level: parseInt(document.getElementById('mp-level').value),
-            oneLife: document.getElementById('mp-one-life').checked
+            oneLife: document.getElementById('mp-one-life').checked,
+            sharedLevelProgression: document.getElementById('mp-shared-level-progression').checked
         };
         
         try {
@@ -424,6 +425,9 @@ const multiplayerSystem = {
         
         // Initialize level synchronization
         this.initLevelSync();
+        
+        // Initialize tech and physics synchronization
+        this.initTechAndPhysicsSync();
         
         console.log('✅ Multiplayer initialized successfully');
     },
@@ -997,6 +1001,15 @@ const multiplayerSystem = {
             if (powerUp.length < powerUpLengthBefore) {
                 // A powerup was collected, notify other players
                 this.notifyPowerupCollection();
+                
+                // Also notify about physics effects (knockback, etc.)
+                const currentVel = { x: player.velocity.x, y: player.velocity.y };
+                this.notifyPowerupPhysicsEffect({
+                    playerId: this.playerId,
+                    velocity: currentVel,
+                    position: { x: player.position.x, y: player.position.y },
+                    timestamp: Date.now()
+                });
             }
         };
     },
@@ -1118,11 +1131,16 @@ const multiplayerSystem = {
                 // Call original function
                 originalStart.call(level);
                 
-                // Notify other players about level change
-                this.notifyLevelChange({
-                    currentLevel: level.onLevel || 0,
-                    levelsCleared: level.levelsCleared || 0,
-                    timestamp: Date.now()
+                // Only notify if we have permission to progress
+                this.checkLevelProgressionPermission().then(hasPermission => {
+                    if (hasPermission) {
+                        // Notify other players about level change
+                        this.notifyLevelChange({
+                            currentLevel: level.onLevel || 0,
+                            levelsCleared: level.levelsCleared || 0,
+                            timestamp: Date.now()
+                        });
+                    }
                 });
             };
         }
@@ -1156,8 +1174,15 @@ const multiplayerSystem = {
                 roomData.levelTimestamp && 
                 Date.now() - roomData.levelTimestamp < 5000) { // Only process recent changes
                 
-                // Sync to the new level
-                this.syncToLevel(roomData.currentLevel, roomData.levelsCleared);
+                // Check permissions before syncing
+                this.checkLevelProgressionPermission().then(hasPermission => {
+                    if (hasPermission) {
+                        // Sync to the new level
+                        this.syncToLevel(roomData.currentLevel, roomData.levelsCleared);
+                    } else {
+                        console.log('Level progression denied - shared progression is disabled');
+                    }
+                });
             }
         });
     },
@@ -1175,6 +1200,177 @@ const multiplayerSystem = {
         if (typeof simulation !== 'undefined' && simulation.clearNow !== undefined) {
             simulation.clearNow = true;
         }
+    },
+    
+    // ===== TECH AND PHYSICS SYNCHRONIZATION =====
+    initTechAndPhysicsSync() {
+        // Monitor tech ability usage and sync effects
+        this.monitorTechAbilities();
+        
+        // Monitor portal teleportation
+        this.monitorPortalTeleportation();
+        
+        // Listen for tech/physics events from other players
+        this.listenToTechAndPhysicsEvents();
+    },
+    
+    monitorTechAbilities() {
+        // Hook into tech ability usage to sync visual/audio effects
+        // This is a placeholder for now - would need to hook into specific tech functions
+        console.log('Monitoring tech abilities for synchronization');
+    },
+    
+    
+    async notifyPowerupPhysicsEffect(effectData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const effectRef = push(ref(database, `rooms/${this.currentRoomId}/physicsEffects`));
+            await set(effectRef, effectData);
+        } catch (error) {
+            console.error('Failed to notify powerup physics effect:', error);
+        }
+    },
+    
+    monitorPortalTeleportation() {
+        // Hook into portal system to sync teleportation
+        if (typeof level !== 'undefined') {
+            // Monitor player position for large jumps (indicating teleportation)
+            let lastPlayerPosition = { x: 0, y: 0 };
+            
+            setInterval(() => {
+                if (!player || !player.position) return;
+                
+                const currentPos = { x: player.position.x, y: player.position.y };
+                const distance = Math.sqrt(
+                    Math.pow(currentPos.x - lastPlayerPosition.x, 2) + 
+                    Math.pow(currentPos.y - lastPlayerPosition.y, 2)
+                );
+                
+                // If player moved more than 1000 units in one update, it's likely a teleportation
+                if (distance > 1000 && lastPlayerPosition.x !== 0 && lastPlayerPosition.y !== 0) {
+                    this.checkLevelProgressionPermission().then(hasPermission => {
+                        if (hasPermission) {
+                            // Notify other players about teleportation
+                            this.notifyTeleportation({
+                                playerId: this.playerId,
+                                fromPosition: lastPlayerPosition,
+                                toPosition: currentPos,
+                                timestamp: Date.now()
+                            });
+                        }
+                    });
+                }
+                
+                lastPlayerPosition = currentPos;
+            }, 500); // Check every 500ms
+        }
+    },
+    
+    async notifyTeleportation(teleportData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const teleportRef = push(ref(database, `rooms/${this.currentRoomId}/teleportations`));
+            await set(teleportRef, teleportData);
+        } catch (error) {
+            console.error('Failed to notify teleportation:', error);
+        }
+    },
+    
+    listenToTechAndPhysicsEvents() {
+        if (!this.currentRoomId) return;
+        
+        // Listen for physics effects from other players
+        const physicsRef = ref(database, `rooms/${this.currentRoomId}/physicsEffects`);
+        onValue(physicsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const effects = snapshot.val();
+            for (const [effectId, effect] of Object.entries(effects)) {
+                if (effect.playerId !== this.playerId && 
+                    Date.now() - effect.timestamp < 1000) { // Only process recent effects
+                    
+                    // Apply physics effects to remote players visually
+                    this.applyPhysicsEffect(effect);
+                    
+                    // Clean up old effect
+                    remove(ref(database, `rooms/${this.currentRoomId}/physicsEffects/${effectId}`));
+                }
+            }
+        });
+        
+        // Listen for teleportations from other players
+        const teleportRef = ref(database, `rooms/${this.currentRoomId}/teleportations`);
+        onValue(teleportRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const teleports = snapshot.val();
+            for (const [teleportId, teleport] of Object.entries(teleports)) {
+                if (teleport.playerId !== this.playerId && 
+                    Date.now() - teleport.timestamp < 2000) { // Only process recent teleports
+                    
+                    // If shared progression is enabled, teleport local player too
+                    this.checkLevelProgressionPermission().then(hasPermission => {
+                        if (hasPermission && teleport.fromPosition && teleport.toPosition) {
+                            // Teleport local player to the same destination
+                            Matter.Body.setPosition(player, teleport.toPosition);
+                            console.log('Teleporting to follow other player');
+                        }
+                    });
+                    
+                    // Update remote player position
+                    this.applyTeleportation(teleport);
+                    
+                    // Clean up old teleport
+                    remove(ref(database, `rooms/${this.currentRoomId}/teleportations/${teleportId}`));
+                }
+            }
+        });
+    },
+    
+    applyPhysicsEffect(effect) {
+        // Apply visual/physics effects for remote players
+        if (effect.playerId in this.remotePlayers) {
+            const remotePlayer = this.remotePlayers[effect.playerId];
+            // Update remote player position/velocity to show the physics effect
+            remotePlayer.vx = effect.velocity.x;
+            remotePlayer.vy = effect.velocity.y;
+            remotePlayer.x = effect.position.x;
+            remotePlayer.y = effect.position.y;
+        }
+    },
+    
+    applyTeleportation(teleport) {
+        // Update remote player position when they teleport
+        if (teleport.playerId in this.remotePlayers) {
+            const remotePlayer = this.remotePlayers[teleport.playerId];
+            remotePlayer.x = teleport.toPosition.x;
+            remotePlayer.y = teleport.toPosition.y;
+            // Clear velocity on teleportation to prevent sliding
+            remotePlayer.vx = 0;
+            remotePlayer.vy = 0;
+        }
+    },
+    
+    // Enhanced level sync that respects shared level progression setting
+    async checkLevelProgressionPermission() {
+        if (!this.currentRoomId) return false;
+        
+        try {
+            const roomRef = ref(database, `rooms/${this.currentRoomId}/gameSettings`);
+            const snapshot = await get(roomRef);
+            
+            if (snapshot.exists()) {
+                const settings = snapshot.val();
+                // Only allow level progression if you're the host OR if shared progression is enabled
+                return this.isHost || settings.sharedLevelProgression;
+            }
+        } catch (error) {
+            console.error('Error checking level progression permission:', error);
+        }
+        
+        return this.isHost; // Default to host-only if we can't check
     },
     
     listenForPublicRooms() {
