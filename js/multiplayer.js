@@ -383,7 +383,7 @@ const multiplayerSystem = {
             // Wait for player to be properly initialized
             if (player && m && !this.isInitialized) {
                 this.isInitialized = true;
-                this.initMultiplayerGameplay();
+        this.initMultiplayerGameplay();
             } else if (!this.isInitialized) {
                 // Retry after another small delay
                 setTimeout(() => {
@@ -785,7 +785,7 @@ const multiplayerSystem = {
         grd.addColorStop(0, remotePlayer.fillColorDark || '#cc0000');
         grd.addColorStop(1, remotePlayer.fillColor || '#ff0000');
         ctx.fillStyle = grd;
-        ctx.fill();
+            ctx.fill();
         
         // Draw eye/direction indicator
         ctx.beginPath();
@@ -798,33 +798,33 @@ const multiplayerSystem = {
 
         // Draw field effects for this remote player
         this.drawRemotePlayerField(remotePlayer);
-
-        // Draw health bar
+            
+            // Draw health bar
         if (remotePlayer.isAlive && remotePlayer.health && remotePlayer.maxHealth) {
             const barWidth = 60;
-            const barHeight = 5;
+                const barHeight = 5;
             const barX = remotePlayer.x - 30;
             const barY = remotePlayer.y - 50;
-            
-            // Background
-            ctx.fillStyle = '#333';
-            ctx.fillRect(barX, barY, barWidth, barHeight);
-            
-            // Health
-            ctx.fillStyle = '#0f0';
+                
+                // Background
+                ctx.fillStyle = '#333';
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+                
+                // Health
+                ctx.fillStyle = '#0f0';
             ctx.fillRect(barX, barY, barWidth * (remotePlayer.health / remotePlayer.maxHealth), barHeight);
-        }
-        
-        // Draw nametag
+            }
+            
+            // Draw nametag
         const displayName = remotePlayer.name || 'Player';
         const nameY = remotePlayer.y - 55;
         
         ctx.fillStyle = remotePlayer.nameColor || '#ffffff';
         ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 3;
+            ctx.lineWidth = 3;
         ctx.font = 'bold 16px Arial';
-        ctx.textAlign = 'center';
-        
+            ctx.textAlign = 'center';
+            
         // Draw text with outline for better visibility
         ctx.strokeText(displayName, remotePlayer.x, nameY);
         ctx.fillText(displayName, remotePlayer.x, nameY);
@@ -836,55 +836,97 @@ const multiplayerSystem = {
         
         ctx.save();
         
-        // Get the most recent field effect
-        const latestField = remotePlayer.fieldEffects[remotePlayer.fieldEffects.length - 1];
-        if (!latestField || Date.now() - latestField.timestamp > 500) return;
-        
-        // Draw field similar to m.drawField but for remote player
-        const fieldRange = 100; // Approximate field range
-        const energy = Math.min(latestField.energy || 0.5, 1);
-        
-        ctx.fillStyle = `rgba(110,170,200,${0.02 + energy * (0.15 + 0.15 * Math.random())})`;
-        ctx.strokeStyle = `rgba(110, 200, 235, ${0.6 + 0.2 * Math.random()})`;
-        
-        ctx.beginPath();
-        // Draw field arc (simplified version)
-        const fieldArc = 0.8; // Approximate field arc
-        ctx.arc(remotePlayer.x, remotePlayer.y, fieldRange, 
-                latestField.angle - Math.PI * fieldArc, 
-                latestField.angle + Math.PI * fieldArc, false);
-        ctx.lineWidth = 2;
-        ctx.lineCap = "butt";
-        ctx.stroke();
-        
-        // Draw field connections to center (simplified)
-        const eye = 13;
-        const aMag = 0.75 * Math.PI * fieldArc;
-        let a = latestField.angle + aMag;
-        let cp1x = remotePlayer.x + 0.6 * fieldRange * Math.cos(a);
-        let cp1y = remotePlayer.y + 0.6 * fieldRange * Math.sin(a);
-        ctx.quadraticCurveTo(cp1x, cp1y, 
-                           remotePlayer.x + eye * Math.cos(latestField.angle), 
-                           remotePlayer.y + eye * Math.sin(latestField.angle));
-        
-        a = latestField.angle - aMag;
-        cp1x = remotePlayer.x + 0.6 * fieldRange * Math.cos(a);
-        cp1y = remotePlayer.y + 0.6 * fieldRange * Math.sin(a);
-        ctx.quadraticCurveTo(cp1x, cp1y, 
-                           remotePlayer.x + 1 * fieldRange * Math.cos(latestField.angle - Math.PI * fieldArc), 
-                           remotePlayer.y + 1 * fieldRange * Math.sin(latestField.angle - Math.PI * fieldArc));
-        ctx.fill();
-        
-        // If grabbing, add grab effect indicator
-        if (latestField.isGrabbing) {
-            ctx.strokeStyle = '#ffff00';
-            ctx.lineWidth = 3;
+        try {
+            // Get the most recent field effect
+            const latestField = remotePlayer.fieldEffects[remotePlayer.fieldEffects.length - 1];
+            if (!latestField || Date.now() - latestField.timestamp > 500) {
+                ctx.restore();
+                return;
+            }
+            
+            // Validate field data before drawing
+            if (typeof latestField.angle !== 'number' || typeof remotePlayer.x !== 'number' || typeof remotePlayer.y !== 'number') {
+                ctx.restore();
+                return;
+            }
+            
+            // Draw field similar to m.drawField but for remote player
+            const fieldRange = 100; // Approximate field range
+            const energy = Math.min(latestField.energy || 0.5, 1);
+            
+            // Set field colors
+            ctx.fillStyle = `rgba(110,170,200,${0.02 + energy * 0.15})`;
+            ctx.strokeStyle = `rgba(110, 200, 235, 0.6)`;
+            ctx.lineWidth = 2;
+            ctx.lineCap = "butt";
+            
+            // Draw field arc
             ctx.beginPath();
-            ctx.arc(remotePlayer.x, remotePlayer.y, 50, 0, 2 * Math.PI);
-            ctx.stroke();
+            const fieldArc = 0.8; // Approximate field arc
+            const startAngle = latestField.angle - Math.PI * fieldArc;
+            const endAngle = latestField.angle + Math.PI * fieldArc;
+            
+            if (!isNaN(startAngle) && !isNaN(endAngle)) {
+                ctx.arc(remotePlayer.x, remotePlayer.y, fieldRange, startAngle, endAngle, false);
+                ctx.stroke();
+            }
+            
+            // Draw field fill area with proper path management
+            ctx.beginPath();
+            const eye = 13;
+            const aMag = 0.75 * Math.PI * fieldArc;
+            
+            // Start path from center
+            ctx.moveTo(remotePlayer.x, remotePlayer.y);
+            
+            // Add quadratic curves for field shape
+            let a = latestField.angle + aMag;
+            let cp1x = remotePlayer.x + 0.6 * fieldRange * Math.cos(a);
+            let cp1y = remotePlayer.y + 0.6 * fieldRange * Math.sin(a);
+            
+            if (!isNaN(cp1x) && !isNaN(cp1y)) {
+                const endX = remotePlayer.x + eye * Math.cos(latestField.angle);
+                const endY = remotePlayer.y + eye * Math.sin(latestField.angle);
+                
+                if (!isNaN(endX) && !isNaN(endY)) {
+                    ctx.quadraticCurveTo(cp1x, cp1y, endX, endY);
+                }
+            }
+            
+            a = latestField.angle - aMag;
+            cp1x = remotePlayer.x + 0.6 * fieldRange * Math.cos(a);
+            cp1y = remotePlayer.y + 0.6 * fieldRange * Math.sin(a);
+            
+            if (!isNaN(cp1x) && !isNaN(cp1y)) {
+                const endX2 = remotePlayer.x + fieldRange * Math.cos(latestField.angle - Math.PI * fieldArc);
+                const endY2 = remotePlayer.y + fieldRange * Math.sin(latestField.angle - Math.PI * fieldArc);
+                
+                if (!isNaN(endX2) && !isNaN(endY2)) {
+                    ctx.quadraticCurveTo(cp1x, cp1y, endX2, endY2);
+                }
+            }
+            
+            // Close path and fill
+            ctx.closePath();
+            ctx.fill();
+            
+            // If grabbing, add grab effect indicator
+            if (latestField.isGrabbing) {
+                ctx.save();
+                ctx.strokeStyle = '#ffff00';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(remotePlayer.x, remotePlayer.y, 50, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.restore();
+            }
+            
+        } catch (error) {
+            console.error('Error drawing remote player field:', error);
+        } finally {
+            // Ensure canvas state is always restored
+            ctx.restore();
         }
-        
-        ctx.restore();
     },
     
     // Draw legs for remote player (simplified version of m.drawLeg)
@@ -1295,29 +1337,34 @@ const multiplayerSystem = {
                     const fieldActive = m.energy > 0.05 && input.field && m.fieldCDcycle < m.cycle;
                     const fieldGrabbing = fieldActive && m && m.grabPowerUp && typeof powerUp !== 'undefined';
                     
-                    // Notify when field becomes active (throttled to max once per 200ms)
-                    if (fieldActive && (!lastFieldActive || now - lastNotifiedTime > 200)) {
-                        this.notifyFieldUsage({
-                            playerId: this.playerId,
-                            position: { x: player.position.x, y: player.position.y },
-                            angle: m.angle || 0,
-                            energy: m.energy,
-                            timestamp: now
-                        });
-                        lastNotifiedTime = now;
-                    }
-                    
-                    // Notify when field is actively grabbing (throttled to max once per 100ms)
-                    if (fieldGrabbing && (fieldGrabbing !== lastFieldGrabbing || now - lastNotifiedTime > 100)) {
-                        this.notifyFieldUsage({
-                            playerId: this.playerId,
-                            position: { x: player.position.x, y: player.position.y },
-                            angle: m.angle || 0,
-                            energy: m.energy,
-                            isGrabbing: true,
-                            timestamp: now
-                        });
-                        lastNotifiedTime = now;
+                    // Validate data before sending notifications
+                    if (player && player.position && typeof m.angle === 'number' && typeof m.energy === 'number' && 
+                        !isNaN(m.angle) && !isNaN(m.energy) && !isNaN(player.position.x) && !isNaN(player.position.y)) {
+                        
+                        // Notify when field becomes active (throttled to max once per 200ms)
+                        if (fieldActive && (!lastFieldActive || now - lastNotifiedTime > 200)) {
+                            this.notifyFieldUsage({
+                                playerId: this.playerId,
+                                position: { x: player.position.x, y: player.position.y },
+                                angle: m.angle,
+                                energy: Math.max(0, Math.min(m.energy, 1)), // Clamp energy
+                                timestamp: now
+                            });
+                            lastNotifiedTime = now;
+                        }
+                        
+                        // Notify when field is actively grabbing (throttled to max once per 100ms)
+                        if (fieldGrabbing && (fieldGrabbing !== lastFieldGrabbing || now - lastNotifiedTime > 100)) {
+                            this.notifyFieldUsage({
+                                playerId: this.playerId,
+                                position: { x: player.position.x, y: player.position.y },
+                                angle: m.angle,
+                                energy: Math.max(0, Math.min(m.energy, 1)), // Clamp energy
+                                isGrabbing: true,
+                                timestamp: now
+                            });
+                            lastNotifiedTime = now;
+                        }
                     }
                     
                     lastFieldActive = fieldActive;
@@ -1454,39 +1501,78 @@ const multiplayerSystem = {
         onValue(fieldRef, (snapshot) => {
             if (!snapshot.exists()) return;
             
-            const fieldUsages = snapshot.val();
-            for (const [fieldId, fieldData] of Object.entries(fieldUsages)) {
-                if (fieldData.playerId !== this.playerId && 
-                    Date.now() - fieldData.timestamp < 200) { // Field effects are very short-lived
+            try {
+                const fieldUsages = snapshot.val();
+                if (!fieldUsages || typeof fieldUsages !== 'object') return;
+                
+                for (const [fieldId, fieldData] of Object.entries(fieldUsages)) {
+                    // Validate field data before processing
+                    if (fieldData && 
+                        fieldData.playerId && 
+                        fieldData.playerId !== this.playerId && 
+                        fieldData.timestamp && 
+                        Date.now() - fieldData.timestamp < 200 && // Field effects are very short-lived
+                        typeof fieldData.angle === 'number' && 
+                        typeof fieldData.energy === 'number' &&
+                        !isNaN(fieldData.angle) && 
+                        !isNaN(fieldData.energy)) {
+                        
+                        // Store field usage data for rendering
+                        this.applyFieldUsage(fieldData);
+                    }
                     
-                    // Store field usage data for rendering
-                    this.applyFieldUsage(fieldData);
-                    
-                    // Clean up old field usage
-                    remove(ref(database, `rooms/${this.currentRoomId}/fieldUsage/${fieldId}`));
+                    // Clean up field usage data regardless of validity
+                    try {
+                        remove(ref(database, `rooms/${this.currentRoomId}/fieldUsage/${fieldId}`));
+                    } catch (cleanupError) {
+                        console.warn('Failed to clean up field usage data:', cleanupError);
+                    }
                 }
+            } catch (error) {
+                console.error('Error processing field usage data:', error);
             }
         });
     },
     
     applyFieldUsage(fieldData) {
-        // Store field usage data for remote players so we can render the field effect
-        if (fieldData.playerId in this.remotePlayers) {
-            const remotePlayer = this.remotePlayers[fieldData.playerId];
-            if (!remotePlayer.fieldEffects) remotePlayer.fieldEffects = [];
+        try {
+            // Validate field data before applying
+            if (!fieldData || 
+                typeof fieldData.playerId !== 'string' || 
+                typeof fieldData.angle !== 'number' || 
+                typeof fieldData.energy !== 'number' ||
+                isNaN(fieldData.angle) || 
+                isNaN(fieldData.energy) ||
+                fieldData.energy < 0 || 
+                fieldData.energy > 10) { // Reasonable energy range
+                return;
+            }
             
-            // Add field effect data
-            remotePlayer.fieldEffects.push({
-                angle: fieldData.angle,
-                energy: fieldData.energy,
-                isGrabbing: fieldData.isGrabbing || false,
-                timestamp: fieldData.timestamp
-            });
-            
-            // Keep only recent field effects (within last 500ms)
-            remotePlayer.fieldEffects = remotePlayer.fieldEffects.filter(
-                effect => Date.now() - effect.timestamp < 500
-            );
+            // Store field usage data for remote players so we can render the field effect
+            if (fieldData.playerId in this.remotePlayers) {
+                const remotePlayer = this.remotePlayers[fieldData.playerId];
+                if (!remotePlayer.fieldEffects) remotePlayer.fieldEffects = [];
+                
+                // Add validated field effect data
+                remotePlayer.fieldEffects.push({
+                    angle: fieldData.angle,
+                    energy: Math.max(0, Math.min(fieldData.energy, 1)), // Clamp energy between 0 and 1
+                    isGrabbing: Boolean(fieldData.isGrabbing),
+                    timestamp: fieldData.timestamp || Date.now()
+                });
+                
+                // Keep only recent field effects (within last 300ms to avoid buildup)
+                remotePlayer.fieldEffects = remotePlayer.fieldEffects.filter(
+                    effect => Date.now() - effect.timestamp < 300
+                );
+                
+                // Limit max field effects to prevent memory issues
+                if (remotePlayer.fieldEffects.length > 10) {
+                    remotePlayer.fieldEffects = remotePlayer.fieldEffects.slice(-5);
+                }
+            }
+        } catch (error) {
+            console.error('Error applying field usage:', error);
         }
     },
     
