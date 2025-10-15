@@ -370,6 +370,286 @@ const multiplayerSystem = {
         simulation.isMultiplayer = true;
         simulation.multiplayerSettings = settings;
         simulation.multiplayerRoomId = this.currentRoomId;
+        
+        // Initialize multiplayer gameplay
+        this.initMultiplayerGameplay();
+    },
+    
+    // ===== MULTIPLAYER GAMEPLAY SYSTEM =====
+    remotePlayers: {},
+    positionUpdateInterval: null,
+    isGhost: false,
+    
+    initMultiplayerGameplay() {
+        // Start syncing player position
+        this.startPositionSync();
+        
+        // Listen for other players' positions
+        this.listenToPlayerPositions();
+        
+        // Listen for player deaths
+        this.listenToPlayerDeaths();
+        
+        // Add revival powerup to spawn pool
+        this.addRevivalPowerup();
+    },
+    
+    startPositionSync() {
+        // Send position every 50ms (20 times per second)
+        this.positionUpdateInterval = setInterval(() => {
+            if (!m || !m.position || !this.currentRoomId) return;
+            
+            const playerState = {
+                x: m.position.x,
+                y: m.position.y,
+                vx: m.velocity.x,
+                vy: m.velocity.y,
+                radius: m.radius,
+                isAlive: m.alive,
+                health: m.health,
+                maxHealth: m.maxHealth,
+                timestamp: Date.now()
+            };
+            
+            // Update player state in Firebase
+            set(ref(database, `rooms/${this.currentRoomId}/playerStates/${this.playerId}`), playerState)
+                .catch(err => console.error('Position sync error:', err));
+        }, 50);
+    },
+    
+    listenToPlayerPositions() {
+        const statesRef = ref(database, `rooms/${this.currentRoomId}/playerStates`);
+        onValue(statesRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const states = snapshot.val();
+            
+            // Update remote players
+            for (const [playerId, state] of Object.entries(states)) {
+                if (playerId === this.playerId) continue; // Skip self
+                
+                if (!this.remotePlayers[playerId]) {
+                    // Create new remote player
+                    this.remotePlayers[playerId] = {
+                        ...state,
+                        name: this.currentRoom.players[playerId]?.name || 'Player',
+                        color: this.currentRoom.players[playerId]?.color || '#ff0000',
+                        nameColor: this.currentRoom.players[playerId]?.nameColor || '#ffffff'
+                    };
+                } else {
+                    // Update existing remote player
+                    Object.assign(this.remotePlayers[playerId], state);
+                }
+            }
+            
+            // Remove disconnected players
+            for (const playerId in this.remotePlayers) {
+                if (!states[playerId]) {
+                    delete this.remotePlayers[playerId];
+                }
+            }
+        });
+    },
+    
+    listenToPlayerDeaths() {
+        const playersRef = ref(database, `rooms/${this.currentRoomId}/players`);
+        onValue(playersRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const players = snapshot.val();
+            let allDead = true;
+            
+            for (const [playerId, player] of Object.entries(players)) {
+                if (player.isAlive) {
+                    allDead = false;
+                    break;
+                }
+            }
+            
+            // If all players dead and not in one-life mode, show game over
+            if (allDead && !simulation.multiplayerSettings?.oneLife) {
+                this.handleAllPlayersDead();
+            }
+        });
+    },
+    
+    async onLocalPlayerDeath() {
+        if (!this.currentRoomId) return;
+        
+        // Update player status in Firebase
+        await update(ref(database, `rooms/${this.currentRoomId}/players/${this.playerId}`), {
+            isAlive: false
+        });
+        
+        // Enter ghost mode if not one-life
+        if (!simulation.multiplayerSettings?.oneLife) {
+            this.enterGhostMode();
+        }
+    },
+    
+    enterGhostMode() {
+        this.isGhost = true;
+        
+        // Make player semi-transparent
+        if (m && m.draw) {
+            const originalDraw = m.draw;
+            m.draw = function() {
+                ctx.globalAlpha = 0.3;
+                originalDraw.call(this);
+                ctx.globalAlpha = 1.0;
+                
+                // Draw "GHOST" text above player
+                ctx.fillStyle = '#fff';
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 3;
+                ctx.font = '20px Arial';
+                ctx.textAlign = 'center';
+                ctx.strokeText('👻 GHOST', this.position.x, this.position.y - this.radius - 30);
+                ctx.fillText('👻 GHOST', this.position.x, this.position.y - this.radius - 30);
+            };
+        }
+        
+        // Disable damage
+        if (m) {
+            m.immuneCycle = Infinity;
+        }
+    },
+    
+    async revivePlayer(targetPlayerId) {
+        if (!this.currentRoomId) return;
+        
+        // Update player status
+        await update(ref(database, `rooms/${this.currentRoomId}/players/${targetPlayerId}`), {
+            isAlive: true
+        });
+        
+        // If it's the local player, exit ghost mode
+        if (targetPlayerId === this.playerId) {
+            this.exitGhostMode();
+        }
+    },
+    
+    exitGhostMode() {
+        this.isGhost = false;
+        
+        // Restore player
+        if (m) {
+            m.alive = true;
+            m.health = m.maxHealth * 0.5; // Revive with 50% health
+            m.immuneCycle = m.cycle + 60; // 1 second immunity
+            m.displayHealth();
+        }
+    },
+    
+    handleAllPlayersDead() {
+        // Show game over screen
+        alert('All players have fallen! Game Over.');
+        
+        // Return to lobby
+        this.leaveRoom();
+        simulation.isMultiplayer = false;
+    },
+    
+    addRevivalPowerup() {
+        // Add revival powerup to the powerup spawn system
+        if (typeof powerUps !== 'undefined' && powerUps.spawnRandomPowerUp) {
+            const originalSpawn = powerUps.spawnRandomPowerUp;
+            
+            powerUps.spawnRandomPowerUp = (x, y) => {
+                // In multiplayer, 20% chance to spawn revival instead
+                if (simulation.isMultiplayer && Math.random() < 0.2) {
+                    multiplayerSystem.spawnRevivalPowerup(x, y);
+                } else {
+                    originalSpawn.call(powerUps, x, y);
+                }
+            };
+        }
+    },
+    
+    spawnRevivalPowerup(x, y) {
+        // Create revival powerup
+        const revivalPowerup = {
+            position: { x, y },
+            radius: 20,
+            color: '#0f0',
+            effect: () => {
+                // Find a random dead player and revive them
+                const deadPlayers = [];
+                for (const [playerId, player] of Object.entries(this.currentRoom.players)) {
+                    if (!player.isAlive) {
+                        deadPlayers.push(playerId);
+                    }
+                }
+                
+                if (deadPlayers.length > 0) {
+                    const randomDead = deadPlayers[Math.floor(Math.random() * deadPlayers.length)];
+                    this.revivePlayer(randomDead);
+                    
+                    // Show message
+                    const playerName = this.currentRoom.players[randomDead]?.name || 'Player';
+                    console.log(`💚 ${playerName} has been revived!`);
+                }
+            }
+        };
+        
+        // Add to powerups array
+        if (typeof powerUp !== 'undefined' && Array.isArray(powerUp)) {
+            powerUp.push(revivalPowerup);
+        }
+    },
+    
+    // Render other players
+    renderRemotePlayers() {
+        if (!ctx || !simulation.isMultiplayer) return;
+        
+        for (const [playerId, player] of Object.entries(this.remotePlayers)) {
+            if (!player.x || !player.y) continue;
+            
+            // Draw player circle
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius || 30, 0, 2 * Math.PI);
+            
+            if (player.isAlive) {
+                ctx.fillStyle = player.color;
+                ctx.globalAlpha = 0.7;
+            } else {
+                // Ghost appearance
+                ctx.fillStyle = '#888';
+                ctx.globalAlpha = 0.3;
+            }
+            
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+            
+            // Draw health bar
+            if (player.isAlive && player.health && player.maxHealth) {
+                const barWidth = player.radius * 2;
+                const barHeight = 5;
+                const barX = player.x - player.radius;
+                const barY = player.y - player.radius - 15;
+                
+                // Background
+                ctx.fillStyle = '#333';
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+                
+                // Health
+                ctx.fillStyle = '#0f0';
+                ctx.fillRect(barX, barY, barWidth * (player.health / player.maxHealth), barHeight);
+            }
+            
+            // Draw nametag
+            ctx.fillStyle = player.nameColor;
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 3;
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            
+            const nameY = player.y - player.radius - (player.isAlive ? 25 : 35);
+            const displayName = player.isAlive ? player.name : `👻 ${player.name}`;
+            
+            ctx.strokeText(displayName, player.x, nameY);
+            ctx.fillText(displayName, player.x, nameY);
+        }
     },
     
     async leaveRoom() {

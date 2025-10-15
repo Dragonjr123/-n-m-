@@ -454,9 +454,22 @@ const m = {
             }, 6 * swapPeriod);
         } else if (m.alive) { //normal death code here
             m.alive = false;
-            simulation.paused = true;
             m.health = 0;
             m.displayHealth();
+            
+            // Multiplayer death handling
+            if (simulation.isMultiplayer && typeof multiplayerSystem !== 'undefined') {
+                multiplayerSystem.onLocalPlayerDeath();
+                
+                // Don't pause or return to splash in multiplayer
+                if (!simulation.multiplayerSettings?.oneLife) {
+                    // Ghost mode - keep playing
+                    return;
+                }
+            }
+            
+            // Single player death
+            simulation.paused = true;
             document.getElementById("text-log").style.opacity = 0; //fade out any active text logs
             document.getElementById("fade-out").style.opacity = 1; //slowly fades out
             // build.shareURL(false)
