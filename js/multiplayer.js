@@ -371,8 +371,10 @@ const multiplayerSystem = {
         simulation.multiplayerSettings = settings;
         simulation.multiplayerRoomId = this.currentRoomId;
         
-        // Initialize multiplayer gameplay
-        this.initMultiplayerGameplay();
+        // Initialize multiplayer gameplay after a short delay to ensure player is spawned
+        setTimeout(() => {
+            this.initMultiplayerGameplay();
+        }, 100);
     },
     
     // ===== MULTIPLAYER GAMEPLAY SYSTEM =====
@@ -381,6 +383,8 @@ const multiplayerSystem = {
     isGhost: false,
     
     initMultiplayerGameplay() {
+        console.log('Initializing multiplayer gameplay for room:', this.currentRoomId);
+        
         // Start syncing player position
         this.startPositionSync();
         
@@ -392,18 +396,30 @@ const multiplayerSystem = {
         
         // Add revival powerup to spawn pool
         this.addRevivalPowerup();
+        
+        console.log('Multiplayer gameplay initialized');
     },
     
     startPositionSync() {
+        // Clear any existing interval
+        if (this.positionUpdateInterval) {
+            clearInterval(this.positionUpdateInterval);
+        }
+        
         // Send position every 50ms (20 times per second)
         this.positionUpdateInterval = setInterval(() => {
-            if (!m || !m.position || !this.currentRoomId) return;
+            if (!m || !player || !player.position || !this.currentRoomId) return;
+            
+            // Ensure we have valid position data
+            if (typeof player.position.x !== 'number' || typeof player.position.y !== 'number') {
+                return;
+            }
             
             const playerState = {
-                x: m.position.x,
-                y: m.position.y,
-                vx: m.velocity.x,
-                vy: m.velocity.y,
+                x: player.position.x,
+                y: player.position.y,
+                vx: player.velocity.x,
+                vy: player.velocity.y,
                 radius: m.radius,
                 isAlive: m.alive,
                 health: m.health,
@@ -415,14 +431,20 @@ const multiplayerSystem = {
             set(ref(database, `rooms/${this.currentRoomId}/playerStates/${this.playerId}`), playerState)
                 .catch(err => console.error('Position sync error:', err));
         }, 50);
+        
+        console.log('Position sync started for player:', this.playerId);
     },
     
     listenToPlayerPositions() {
         const statesRef = ref(database, `rooms/${this.currentRoomId}/playerStates`);
         onValue(statesRef, (snapshot) => {
-            if (!snapshot.exists()) return;
+            if (!snapshot.exists()) {
+                console.log('No player states found');
+                return;
+            }
             
             const states = snapshot.val();
+            console.log('Received player states:', states);
             
             // Update remote players
             for (const [playerId, state] of Object.entries(states)) {
@@ -436,6 +458,7 @@ const multiplayerSystem = {
                         color: this.currentRoom.players[playerId]?.color || '#ff0000',
                         nameColor: this.currentRoom.players[playerId]?.nameColor || '#ffffff'
                     };
+                    console.log('Created remote player:', playerId, this.remotePlayers[playerId]);
                 } else {
                     // Update existing remote player
                     Object.assign(this.remotePlayers[playerId], state);
@@ -445,6 +468,7 @@ const multiplayerSystem = {
             // Remove disconnected players
             for (const playerId in this.remotePlayers) {
                 if (!states[playerId]) {
+                    console.log('Removing disconnected player:', playerId);
                     delete this.remotePlayers[playerId];
                 }
             }
@@ -602,8 +626,17 @@ const multiplayerSystem = {
     renderRemotePlayers() {
         if (!ctx || !simulation.isMultiplayer) return;
         
+        // Debug: log remote players count
+        const remotePlayerCount = Object.keys(this.remotePlayers).length;
+        if (remotePlayerCount > 0 && Math.random() < 0.01) { // Log occasionally to avoid spam
+            console.log(`Rendering ${remotePlayerCount} remote players:`, this.remotePlayers);
+        }
+        
         for (const [playerId, player] of Object.entries(this.remotePlayers)) {
-            if (!player.x || !player.y) continue;
+            if (!player.x || !player.y) {
+                console.log(`Skipping player ${playerId} - missing position data:`, player);
+                continue;
+            }
             
             // Draw player circle
             ctx.beginPath();
@@ -656,6 +689,15 @@ const multiplayerSystem = {
         if (!this.currentRoomId) return;
         
         try {
+            // Clear position sync interval
+            if (this.positionUpdateInterval) {
+                clearInterval(this.positionUpdateInterval);
+                this.positionUpdateInterval = null;
+            }
+            
+            // Clear remote players
+            this.remotePlayers = {};
+            
             // Remove player from room
             await remove(ref(database, `rooms/${this.currentRoomId}/players/${this.playerId}`));
             
