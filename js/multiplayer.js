@@ -358,8 +358,7 @@ const multiplayerSystem = {
         
         // Start the game based on mode
         if (settings.mode === 'progressive') {
-            // Start progressive mode
-            lore.setUp();
+            // Start progressive mode - lore is handled automatically in simulation.startGame()
             simulation.startGame();
         } else {
             // Start adventure mode
