@@ -350,6 +350,13 @@ const multiplayerSystem = {
     },
     
     startMultiplayerGame(settings) {
+        // Prevent multiple initializations
+        if (this.isGameStarted) {
+            console.log('Game already started, ignoring...');
+            return;
+        }
+        this.isGameStarted = true;
+        
         // Hide room settings
         document.getElementById('room-settings').style.display = 'none';
         
@@ -370,20 +377,32 @@ const multiplayerSystem = {
         simulation.multiplayerSettings = settings;
         simulation.multiplayerRoomId = this.currentRoomId;
         
-        // Initialize multiplayer gameplay after a short delay to ensure player is spawned
+        // Initialize multiplayer gameplay after ensuring player is spawned
         setTimeout(() => {
-            this.initMultiplayerGameplay();
-        }, 100);
+            // Wait for player to be properly initialized
+            if (player && m && !this.isInitialized) {
+                this.isInitialized = true;
+                this.initMultiplayerGameplay();
+            } else if (!this.isInitialized) {
+                // Retry after another small delay
+                setTimeout(() => {
+                    if (!this.isInitialized) {
+                        this.isInitialized = true;
+                        this.initMultiplayerGameplay();
+                    }
+                }, 200);
+            }
+        }, 200);
     },
     
     // ===== MULTIPLAYER GAMEPLAY SYSTEM =====
     remotePlayers: {},
     positionUpdateInterval: null,
     isGhost: false,
+    isGameStarted: false,
+    isInitialized: false,
     
     initMultiplayerGameplay() {
-        console.log('Initializing multiplayer gameplay for room:', this.currentRoomId);
-        
         // Start syncing player position
         this.startPositionSync();
         
@@ -396,7 +415,7 @@ const multiplayerSystem = {
         // Add revival powerup to spawn pool
         this.addRevivalPowerup();
         
-        console.log('Multiplayer gameplay initialized');
+        console.log('Multiplayer initialized');
     },
     
     startPositionSync() {
@@ -405,69 +424,90 @@ const multiplayerSystem = {
             clearInterval(this.positionUpdateInterval);
         }
         
-        // Send position every 50ms (20 times per second)
+        // Send position every 100ms (10 times per second) - reduced from 50ms to reduce spam
         this.positionUpdateInterval = setInterval(() => {
             if (!m || !player || !player.position || !this.currentRoomId) return;
             
             // Ensure we have valid position data
-            if (typeof player.position.x !== 'number' || typeof player.position.y !== 'number') {
+            if (typeof player.position.x !== 'number' || typeof player.position.y !== 'number' || 
+                isNaN(player.position.x) || isNaN(player.position.y)) {
                 return;
             }
             
             const playerState = {
-                x: player.position.x,
-                y: player.position.y,
-                vx: player.velocity.x,
-                vy: player.velocity.y,
-                radius: m.radius,
-                isAlive: m.alive,
-                health: m.health,
-                maxHealth: m.maxHealth,
+                x: Math.round(player.position.x * 100) / 100, // Round to reduce data size
+                y: Math.round(player.position.y * 100) / 100,
+                vx: Math.round(player.velocity.x * 100) / 100,
+                vy: Math.round(player.velocity.y * 100) / 100,
+                radius: m.radius || 30,
+                isAlive: m.alive !== false,
+                health: m.health || 100,
+                maxHealth: m.maxHealth || 100,
                 timestamp: Date.now()
             };
             
             // Update player state in Firebase
             set(ref(database, `rooms/${this.currentRoomId}/playerStates/${this.playerId}`), playerState)
-                .catch(err => console.error('Position sync error:', err));
-        }, 50);
-        
-        console.log('Position sync started for player:', this.playerId);
+                .catch(err => {
+                    // Only log errors occasionally to reduce spam
+                    if (Math.random() < 0.01) {
+                        console.error('Position sync error:', err);
+                    }
+                });
+        }, 100);
     },
     
     listenToPlayerPositions() {
         const statesRef = ref(database, `rooms/${this.currentRoomId}/playerStates`);
         onValue(statesRef, (snapshot) => {
             if (!snapshot.exists()) {
-                console.log('No player states found');
                 return;
             }
             
             const states = snapshot.val();
-            console.log('Received player states:', states);
             
             // Update remote players
             for (const [playerId, state] of Object.entries(states)) {
                 if (playerId === this.playerId) continue; // Skip self
                 
+                // Validate state has required position data
+                if (!state || typeof state.x !== 'number' || typeof state.y !== 'number') {
+                    continue;
+                }
+                
                 if (!this.remotePlayers[playerId]) {
-                    // Create new remote player
+                    // Create new remote player with proper defaults
                     this.remotePlayers[playerId] = {
-                        ...state,
-                        name: this.currentRoom.players[playerId]?.name || 'Player',
-                        color: this.currentRoom.players[playerId]?.color || '#ff0000',
-                        nameColor: this.currentRoom.players[playerId]?.nameColor || '#ffffff'
+                        x: state.x || 0,
+                        y: state.y || 0,
+                        vx: state.vx || 0,
+                        vy: state.vy || 0,
+                        radius: state.radius || 30,
+                        isAlive: state.isAlive !== false,
+                        health: state.health || 100,
+                        maxHealth: state.maxHealth || 100,
+                        name: this.currentRoom?.players?.[playerId]?.name || 'Player',
+                        color: this.currentRoom?.players?.[playerId]?.color || '#ff0000',
+                        nameColor: this.currentRoom?.players?.[playerId]?.nameColor || '#ffffff'
                     };
-                    console.log('Created remote player:', playerId, this.remotePlayers[playerId]);
+                    console.log('Player joined:', this.remotePlayers[playerId].name);
                 } else {
-                    // Update existing remote player
-                    Object.assign(this.remotePlayers[playerId], state);
+                    // Update existing remote player, preserving name/color info
+                    this.remotePlayers[playerId].x = state.x;
+                    this.remotePlayers[playerId].y = state.y;
+                    this.remotePlayers[playerId].vx = state.vx;
+                    this.remotePlayers[playerId].vy = state.vy;
+                    this.remotePlayers[playerId].radius = state.radius || 30;
+                    this.remotePlayers[playerId].isAlive = state.isAlive !== false;
+                    this.remotePlayers[playerId].health = state.health || 100;
+                    this.remotePlayers[playerId].maxHealth = state.maxHealth || 100;
                 }
             }
             
             // Remove disconnected players
             for (const playerId in this.remotePlayers) {
                 if (!states[playerId]) {
-                    console.log('Removing disconnected player:', playerId);
+                    console.log('Player left:', this.remotePlayers[playerId]?.name || playerId);
                     delete this.remotePlayers[playerId];
                 }
             }
@@ -625,15 +665,10 @@ const multiplayerSystem = {
     renderRemotePlayers() {
         if (!ctx || !simulation.isMultiplayer) return;
         
-        // Debug: log remote players count
-        const remotePlayerCount = Object.keys(this.remotePlayers).length;
-        if (remotePlayerCount > 0 && Math.random() < 0.01) { // Log occasionally to avoid spam
-            console.log(`Rendering ${remotePlayerCount} remote players:`, this.remotePlayers);
-        }
-        
         for (const [playerId, player] of Object.entries(this.remotePlayers)) {
-            if (!player.x || !player.y) {
-                console.log(`Skipping player ${playerId} - missing position data:`, player);
+            // Check for valid position data
+            if (!player || typeof player.x !== 'number' || typeof player.y !== 'number' ||
+                isNaN(player.x) || isNaN(player.y)) {
                 continue;
             }
             
@@ -708,6 +743,10 @@ const multiplayerSystem = {
             this.currentRoomId = null;
             this.currentRoom = null;
             this.isHost = false;
+            
+            // Reset initialization flags
+            this.isGameStarted = false;
+            this.isInitialized = false;
             
             // Return to lobby
             document.getElementById('room-settings').style.display = 'none';
