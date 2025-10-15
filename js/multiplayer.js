@@ -796,6 +796,9 @@ const multiplayerSystem = {
         
         ctx.restore();
 
+        // Draw field effects for this remote player
+        this.drawRemotePlayerField(remotePlayer);
+
         // Draw health bar
         if (remotePlayer.isAlive && remotePlayer.health && remotePlayer.maxHealth) {
             const barWidth = 60;
@@ -825,6 +828,63 @@ const multiplayerSystem = {
         // Draw text with outline for better visibility
         ctx.strokeText(displayName, remotePlayer.x, nameY);
         ctx.fillText(displayName, remotePlayer.x, nameY);
+    },
+    
+    drawRemotePlayerField(remotePlayer) {
+        // Draw field effects for remote players
+        if (!remotePlayer.fieldEffects || remotePlayer.fieldEffects.length === 0) return;
+        
+        ctx.save();
+        
+        // Get the most recent field effect
+        const latestField = remotePlayer.fieldEffects[remotePlayer.fieldEffects.length - 1];
+        if (!latestField || Date.now() - latestField.timestamp > 500) return;
+        
+        // Draw field similar to m.drawField but for remote player
+        const fieldRange = 100; // Approximate field range
+        const energy = Math.min(latestField.energy || 0.5, 1);
+        
+        ctx.fillStyle = `rgba(110,170,200,${0.02 + energy * (0.15 + 0.15 * Math.random())})`;
+        ctx.strokeStyle = `rgba(110, 200, 235, ${0.6 + 0.2 * Math.random()})`;
+        
+        ctx.beginPath();
+        // Draw field arc (simplified version)
+        const fieldArc = 0.8; // Approximate field arc
+        ctx.arc(remotePlayer.x, remotePlayer.y, fieldRange, 
+                latestField.angle - Math.PI * fieldArc, 
+                latestField.angle + Math.PI * fieldArc, false);
+        ctx.lineWidth = 2;
+        ctx.lineCap = "butt";
+        ctx.stroke();
+        
+        // Draw field connections to center (simplified)
+        const eye = 13;
+        const aMag = 0.75 * Math.PI * fieldArc;
+        let a = latestField.angle + aMag;
+        let cp1x = remotePlayer.x + 0.6 * fieldRange * Math.cos(a);
+        let cp1y = remotePlayer.y + 0.6 * fieldRange * Math.sin(a);
+        ctx.quadraticCurveTo(cp1x, cp1y, 
+                           remotePlayer.x + eye * Math.cos(latestField.angle), 
+                           remotePlayer.y + eye * Math.sin(latestField.angle));
+        
+        a = latestField.angle - aMag;
+        cp1x = remotePlayer.x + 0.6 * fieldRange * Math.cos(a);
+        cp1y = remotePlayer.y + 0.6 * fieldRange * Math.sin(a);
+        ctx.quadraticCurveTo(cp1x, cp1y, 
+                           remotePlayer.x + 1 * fieldRange * Math.cos(latestField.angle - Math.PI * fieldArc), 
+                           remotePlayer.y + 1 * fieldRange * Math.sin(latestField.angle - Math.PI * fieldArc));
+        ctx.fill();
+        
+        // If grabbing, add grab effect indicator
+        if (latestField.isGrabbing) {
+            ctx.strokeStyle = '#ffff00';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(remotePlayer.x, remotePlayer.y, 50, 0, 2 * Math.PI);
+            ctx.stroke();
+        }
+        
+        ctx.restore();
     },
     
     // Draw legs for remote player (simplified version of m.drawLeg)
@@ -1057,18 +1117,22 @@ const multiplayerSystem = {
         // Hook into powerup spawning to sync spawns across players
         if (typeof powerUps !== 'undefined' && powerUps.spawn) {
             const originalSpawn = powerUps.spawn;
+            this.isRemoteSpawn = false; // Flag to prevent recursive spawning
+            
             powerUps.spawn = (x, y, target, moving, mode, size) => {
                 // Call original spawn function
                 originalSpawn.call(powerUps, x, y, target, moving, mode, size);
                 
-                // Notify other players about the spawn
-                this.notifyPowerupSpawn({
-                    x: typeof x === 'number' ? Math.round(x * 100) / 100 : 0,
-                    y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
-                    target: target || 'tech',
-                    moving: moving !== false,
-                    timestamp: Date.now()
-                });
+                // Only notify other players if this is not a remote spawn
+                if (!this.isRemoteSpawn && this.isHost) {
+                    this.notifyPowerupSpawn({
+                        x: typeof x === 'number' ? Math.round(x * 100) / 100 : 0,
+                        y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
+                        target: target || 'tech',
+                        moving: moving !== false,
+                        timestamp: Date.now()
+                    });
+                }
             };
         }
     },
@@ -1094,9 +1158,11 @@ const multiplayerSystem = {
             const spawns = snapshot.val();
             for (const [spawnId, spawnData] of Object.entries(spawns)) {
                 if (Date.now() - spawnData.timestamp < 1000) { // Only process recent spawns
-                    // Spawn powerup locally if we don't have it
+                    // Spawn powerup locally if we don't have it (set flag to prevent recursive notification)
                     if (typeof powerUps !== 'undefined' && powerUps.spawn) {
+                        this.isRemoteSpawn = true;
                         powerUps.spawn(spawnData.x, spawnData.y, spawnData.target, spawnData.moving);
+                        this.isRemoteSpawn = false;
                     }
                     
                     // Clean up old spawn data
@@ -1215,9 +1281,64 @@ const multiplayerSystem = {
     },
     
     monitorTechAbilities() {
-        // Hook into tech ability usage to sync visual/audio effects
-        // This is a placeholder for now - would need to hook into specific tech functions
-        console.log('Monitoring tech abilities for synchronization');
+        // Monitor field usage with polling to avoid hook conflicts
+        if (typeof m !== 'undefined') {
+            let lastFieldActive = false;
+            let lastFieldGrabbing = false;
+            let lastNotifiedTime = 0;
+            
+            setInterval(() => {
+                if (this.isGameStarted) {
+                    const now = Date.now();
+                    
+                    // Check if field is currently active
+                    const fieldActive = m.energy > 0.05 && input.field && m.fieldCDcycle < m.cycle;
+                    const fieldGrabbing = fieldActive && m && m.grabPowerUp && typeof powerUp !== 'undefined';
+                    
+                    // Notify when field becomes active (throttled to max once per 200ms)
+                    if (fieldActive && (!lastFieldActive || now - lastNotifiedTime > 200)) {
+                        this.notifyFieldUsage({
+                            playerId: this.playerId,
+                            position: { x: player.position.x, y: player.position.y },
+                            angle: m.angle || 0,
+                            energy: m.energy,
+                            timestamp: now
+                        });
+                        lastNotifiedTime = now;
+                    }
+                    
+                    // Notify when field is actively grabbing (throttled to max once per 100ms)
+                    if (fieldGrabbing && (fieldGrabbing !== lastFieldGrabbing || now - lastNotifiedTime > 100)) {
+                        this.notifyFieldUsage({
+                            playerId: this.playerId,
+                            position: { x: player.position.x, y: player.position.y },
+                            angle: m.angle || 0,
+                            energy: m.energy,
+                            isGrabbing: true,
+                            timestamp: now
+                        });
+                        lastNotifiedTime = now;
+                    }
+                    
+                    lastFieldActive = fieldActive;
+                    lastFieldGrabbing = fieldGrabbing;
+                }
+            }, 100); // Check every 100ms for responsive field effects
+        }
+    },
+    
+    async notifyFieldUsage(fieldData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const fieldRef = push(ref(database, `rooms/${this.currentRoomId}/fieldUsage`));
+            await set(fieldRef, {
+                ...fieldData,
+                timestamp: Date.now()
+            });
+        } catch (error) {
+            console.error('Failed to notify field usage:', error);
+        }
     },
     
     
@@ -1327,6 +1448,46 @@ const multiplayerSystem = {
                 }
             }
         });
+        
+        // Listen for field usage from other players
+        const fieldRef = ref(database, `rooms/${this.currentRoomId}/fieldUsage`);
+        onValue(fieldRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const fieldUsages = snapshot.val();
+            for (const [fieldId, fieldData] of Object.entries(fieldUsages)) {
+                if (fieldData.playerId !== this.playerId && 
+                    Date.now() - fieldData.timestamp < 200) { // Field effects are very short-lived
+                    
+                    // Store field usage data for rendering
+                    this.applyFieldUsage(fieldData);
+                    
+                    // Clean up old field usage
+                    remove(ref(database, `rooms/${this.currentRoomId}/fieldUsage/${fieldId}`));
+                }
+            }
+        });
+    },
+    
+    applyFieldUsage(fieldData) {
+        // Store field usage data for remote players so we can render the field effect
+        if (fieldData.playerId in this.remotePlayers) {
+            const remotePlayer = this.remotePlayers[fieldData.playerId];
+            if (!remotePlayer.fieldEffects) remotePlayer.fieldEffects = [];
+            
+            // Add field effect data
+            remotePlayer.fieldEffects.push({
+                angle: fieldData.angle,
+                energy: fieldData.energy,
+                isGrabbing: fieldData.isGrabbing || false,
+                timestamp: fieldData.timestamp
+            });
+            
+            // Keep only recent field effects (within last 500ms)
+            remotePlayer.fieldEffects = remotePlayer.fieldEffects.filter(
+                effect => Date.now() - effect.timestamp < 500
+            );
+        }
     },
     
     applyPhysicsEffect(effect) {
