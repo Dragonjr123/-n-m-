@@ -103,6 +103,12 @@ const simulation = {
         b.bulletDo();
         simulation.drawCircle();
         // simulation.clip();
+        
+        // Render multiplayer remote players (must be inside camera transform)
+        if (typeof multiplayerSystem !== 'undefined' && simulation.isMultiplayer) {
+            multiplayerSystem.renderRemotePlayers();
+        }
+        
         ctx.restore();
         simulation.drawCursor();
         // simulation.pixelGraphics();

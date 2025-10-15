@@ -452,14 +452,13 @@ const multiplayerSystem = {
             
             // Update player state in Firebase
             const path = `rooms/${this.currentRoomId}/playerStates/${this.playerId}`;
-            console.log('📤 Sending position to Firebase:', path, playerState);
             
             set(ref(database, path), playerState)
-                .then(() => {
-                    console.log('✅ Position sent successfully');
-                })
                 .catch(err => {
-                    console.error('❌ Position sync error:', err);
+                    // Only log errors occasionally to reduce spam
+                    if (Math.random() < 0.01) {
+                        console.error('❌ Position sync error:', err);
+                    }
                 });
         }, 100);
     },
@@ -477,16 +476,17 @@ const multiplayerSystem = {
             }
             
             const states = snapshot.val();
-            console.log('✅ Received states:', states);
-            console.log('🔥 Current player ID:', this.playerId);
-            console.log('🔥 Available player IDs:', Object.keys(states || {}));
+            
+            // Debug: log occasionally to reduce spam
+            if (Math.random() < 0.01) {
+                console.log('✅ Received states:', states);
+                console.log('🔥 Current player ID:', this.playerId);
+                console.log('🔥 Available player IDs:', Object.keys(states || {}));
+            }
             
             // Update remote players
             for (const [playerId, state] of Object.entries(states)) {
-                console.log('🔄 Processing player:', playerId, 'State:', state);
-                
                 if (playerId === this.playerId) {
-                    console.log('⏭️ Skipping self:', playerId);
                     continue; // Skip self
                 }
                 
@@ -696,13 +696,10 @@ const multiplayerSystem = {
             return;
         }
         
-        // Debug: log remote players info more frequently
+        // Debug: log remote players info occasionally
         const playerCount = Object.keys(this.remotePlayers).length;
-        if (playerCount > 0) {
+        if (playerCount > 0 && Math.random() < 0.01) {
             console.log(`🎨 RENDERING: Found ${playerCount} remote players:`, Object.keys(this.remotePlayers));
-            console.log('🎨 Remote players data:', this.remotePlayers);
-        } else {
-            console.log('🎨 RENDERING: No remote players found');
         }
         
         for (const [playerId, player] of Object.entries(this.remotePlayers)) {
@@ -710,7 +707,7 @@ const multiplayerSystem = {
             if (!player || typeof player.x !== 'number' || typeof player.y !== 'number' ||
                 isNaN(player.x) || isNaN(player.y)) {
                 if (Math.random() < 0.01) {
-                    console.log(`Skipping invalid player data:`, player);
+                    console.log(`❌ Skipping invalid player data:`, player);
                 }
                 continue;
             }
@@ -718,12 +715,13 @@ const multiplayerSystem = {
             // Draw player circle
             ctx.beginPath();
             const radius = player.radius || 30;
-            ctx.arc(player.x, player.y, radius, 0, 2 * Math.PI);
             
-            // Debug: log occasionally when rendering
+            // Debug: log occasionally when rendering (reduced frequency)
             if (Math.random() < 0.001) {
-                console.log(`Rendering player ${player.name} at (${player.x}, ${player.y})`);
+                console.log(`🎨 Rendering ${player.name} at (${player.x}, ${player.y})`);
             }
+            
+            ctx.arc(player.x, player.y, radius, 0, 2 * Math.PI);
             
             if (player.isAlive) {
                 ctx.fillStyle = player.color || '#ff0000';

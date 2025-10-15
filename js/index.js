@@ -1179,11 +1179,6 @@ function cycle() {
 
         simulation.loop();
         
-        // Render multiplayer remote players
-        if (typeof multiplayerSystem !== 'undefined' && simulation.isMultiplayer) {
-            multiplayerSystem.renderRemotePlayers();
-        }
-        
         // if (isNaN(m.health) || isNaN(m.energy)) {
         //   console.log(`m.health = ${m.health}`)
         //   simulation.paused = true;
