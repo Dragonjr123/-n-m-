@@ -403,6 +403,10 @@ const multiplayerSystem = {
     isInitialized: false,
     
     initMultiplayerGameplay() {
+        console.log('🚀 INITIALIZING MULTIPLAYER GAMEPLAY');
+        console.log('🚀 Current room ID:', this.currentRoomId);
+        console.log('🚀 Player ID:', this.playerId);
+        
         // Start syncing player position
         this.startPositionSync();
         
@@ -415,7 +419,7 @@ const multiplayerSystem = {
         // Add revival powerup to spawn pool
         this.addRevivalPowerup();
         
-        console.log('Multiplayer initialized');
+        console.log('✅ Multiplayer initialized successfully');
     },
     
     startPositionSync() {
@@ -447,36 +451,54 @@ const multiplayerSystem = {
             };
             
             // Update player state in Firebase
-            set(ref(database, `rooms/${this.currentRoomId}/playerStates/${this.playerId}`), playerState)
+            const path = `rooms/${this.currentRoomId}/playerStates/${this.playerId}`;
+            console.log('📤 Sending position to Firebase:', path, playerState);
+            
+            set(ref(database, path), playerState)
+                .then(() => {
+                    console.log('✅ Position sent successfully');
+                })
                 .catch(err => {
-                    // Only log errors occasionally to reduce spam
-                    if (Math.random() < 0.01) {
-                        console.error('Position sync error:', err);
-                    }
+                    console.error('❌ Position sync error:', err);
                 });
         }, 100);
     },
     
     listenToPlayerPositions() {
         const statesRef = ref(database, `rooms/${this.currentRoomId}/playerStates`);
+        console.log('🔥 Setting up Firebase listener for:', `rooms/${this.currentRoomId}/playerStates`);
+        
         onValue(statesRef, (snapshot) => {
+            console.log('🔥 Firebase snapshot received:', snapshot.exists(), snapshot.val());
+            
             if (!snapshot.exists()) {
+                console.log('❌ No player states in database');
                 return;
             }
             
             const states = snapshot.val();
+            console.log('✅ Received states:', states);
+            console.log('🔥 Current player ID:', this.playerId);
+            console.log('🔥 Available player IDs:', Object.keys(states || {}));
             
             // Update remote players
             for (const [playerId, state] of Object.entries(states)) {
-                if (playerId === this.playerId) continue; // Skip self
+                console.log('🔄 Processing player:', playerId, 'State:', state);
+                
+                if (playerId === this.playerId) {
+                    console.log('⏭️ Skipping self:', playerId);
+                    continue; // Skip self
+                }
                 
                 // Validate state has required position data
                 if (!state || typeof state.x !== 'number' || typeof state.y !== 'number') {
+                    console.log('❌ Invalid state for player:', playerId, state);
                     continue;
                 }
                 
                 if (!this.remotePlayers[playerId]) {
                     // Create new remote player with proper defaults
+                    const playerName = this.currentRoom?.players?.[playerId]?.name || 'Player';
                     this.remotePlayers[playerId] = {
                         x: state.x || 0,
                         y: state.y || 0,
@@ -486,11 +508,12 @@ const multiplayerSystem = {
                         isAlive: state.isAlive !== false,
                         health: state.health || 100,
                         maxHealth: state.maxHealth || 100,
-                        name: this.currentRoom?.players?.[playerId]?.name || 'Player',
+                        name: playerName,
                         color: this.currentRoom?.players?.[playerId]?.color || '#ff0000',
                         nameColor: this.currentRoom?.players?.[playerId]?.nameColor || '#ffffff'
                     };
-                    console.log('Player joined:', this.remotePlayers[playerId].name);
+                    console.log('🎮 NEW PLAYER JOINED:', playerName, 'at position', state.x, state.y);
+                    console.log('🎮 Remote players now:', Object.keys(this.remotePlayers));
                 } else {
                     // Update existing remote player, preserving name/color info
                     this.remotePlayers[playerId].x = state.x;
@@ -501,6 +524,7 @@ const multiplayerSystem = {
                     this.remotePlayers[playerId].isAlive = state.isAlive !== false;
                     this.remotePlayers[playerId].health = state.health || 100;
                     this.remotePlayers[playerId].maxHealth = state.maxHealth || 100;
+                    console.log('🔄 Updated player position:', this.remotePlayers[playerId].name, state.x, state.y);
                 }
             }
             
@@ -663,29 +687,57 @@ const multiplayerSystem = {
     
     // Render other players
     renderRemotePlayers() {
-        if (!ctx || !simulation.isMultiplayer) return;
+        if (!ctx) {
+            console.log('❌ No canvas context for rendering');
+            return;
+        }
+        if (!simulation.isMultiplayer) {
+            console.log('❌ Not in multiplayer mode for rendering');
+            return;
+        }
+        
+        // Debug: log remote players info more frequently
+        const playerCount = Object.keys(this.remotePlayers).length;
+        if (playerCount > 0) {
+            console.log(`🎨 RENDERING: Found ${playerCount} remote players:`, Object.keys(this.remotePlayers));
+            console.log('🎨 Remote players data:', this.remotePlayers);
+        } else {
+            console.log('🎨 RENDERING: No remote players found');
+        }
         
         for (const [playerId, player] of Object.entries(this.remotePlayers)) {
             // Check for valid position data
             if (!player || typeof player.x !== 'number' || typeof player.y !== 'number' ||
                 isNaN(player.x) || isNaN(player.y)) {
+                if (Math.random() < 0.01) {
+                    console.log(`Skipping invalid player data:`, player);
+                }
                 continue;
             }
             
             // Draw player circle
             ctx.beginPath();
-            ctx.arc(player.x, player.y, player.radius || 30, 0, 2 * Math.PI);
+            const radius = player.radius || 30;
+            ctx.arc(player.x, player.y, radius, 0, 2 * Math.PI);
+            
+            // Debug: log occasionally when rendering
+            if (Math.random() < 0.001) {
+                console.log(`Rendering player ${player.name} at (${player.x}, ${player.y})`);
+            }
             
             if (player.isAlive) {
-                ctx.fillStyle = player.color;
-                ctx.globalAlpha = 0.7;
+                ctx.fillStyle = player.color || '#ff0000';
+                ctx.globalAlpha = 0.8; // Increased opacity
             } else {
                 // Ghost appearance
                 ctx.fillStyle = '#888';
-                ctx.globalAlpha = 0.3;
+                ctx.globalAlpha = 0.5; // Increased opacity
             }
             
             ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
             ctx.globalAlpha = 1.0;
             
             // Draw health bar
@@ -705,15 +757,17 @@ const multiplayerSystem = {
             }
             
             // Draw nametag
-            ctx.fillStyle = player.nameColor;
-            ctx.strokeStyle = '#000';
+            const displayName = player.name || 'Player';
+            const nameY = player.y - radius - (player.isAlive ? 25 : 35);
+            
+            // Make nametag more visible
+            ctx.fillStyle = player.nameColor || '#ffffff';
+            ctx.strokeStyle = '#000000';
             ctx.lineWidth = 3;
-            ctx.font = 'bold 14px Arial';
+            ctx.font = 'bold 16px Arial'; // Increased font size
             ctx.textAlign = 'center';
             
-            const nameY = player.y - player.radius - (player.isAlive ? 25 : 35);
-            const displayName = player.isAlive ? player.name : `👻 ${player.name}`;
-            
+            // Draw text with outline for better visibility
             ctx.strokeText(displayName, player.x, nameY);
             ctx.fillText(displayName, player.x, nameY);
         }
