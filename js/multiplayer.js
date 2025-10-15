@@ -419,6 +419,12 @@ const multiplayerSystem = {
         // Add revival powerup to spawn pool
         this.addRevivalPowerup();
         
+        // Initialize powerup synchronization
+        this.initPowerupSync();
+        
+        // Initialize level synchronization
+        this.initLevelSync();
+        
         console.log('✅ Multiplayer initialized successfully');
     },
     
@@ -447,6 +453,16 @@ const multiplayerSystem = {
                 isAlive: m.alive !== false,
                 health: m.health || 100,
                 maxHealth: m.maxHealth || 100,
+                // Player model data for proper rendering
+                angle: Math.round((m.angle || 0) * 100) / 100,
+                walkCycle: Math.round((m.walk_cycle || 0) * 100) / 100,
+                yOff: Math.round((m.yOff || 70) * 100) / 100,
+                onGround: m.onGround || false,
+                immuneCycle: m.immuneCycle || 0,
+                cycle: m.cycle || 0,
+                fillColor: m.fillColor || '#ff0000',
+                fillColorDark: m.fillColorDark || '#cc0000',
+                Vx: Math.round((m.Vx || 0) * 100) / 100, // Movement speed for animation
                 timestamp: Date.now()
             };
             
@@ -510,7 +526,18 @@ const multiplayerSystem = {
                         maxHealth: state.maxHealth || 100,
                         name: playerName,
                         color: this.currentRoom?.players?.[playerId]?.color || '#ff0000',
-                        nameColor: this.currentRoom?.players?.[playerId]?.nameColor || '#ffffff'
+                        nameColor: this.currentRoom?.players?.[playerId]?.nameColor || '#ffffff',
+                        // Player model data
+                        angle: state.angle || 0,
+                        walkCycle: state.walkCycle || 0,
+                        yOff: state.yOff || 70,
+                        onGround: state.onGround || false,
+                        immuneCycle: state.immuneCycle || 0,
+                        cycle: state.cycle || 0,
+                        fillColor: state.fillColor || '#ff0000',
+                        fillColorDark: state.fillColorDark || '#cc0000',
+                        Vx: state.Vx || 0,
+                        lastUpdate: Date.now()
                     };
                     console.log('🎮 NEW PLAYER JOINED:', playerName, 'at position', state.x, state.y);
                     console.log('🎮 Remote players now:', Object.keys(this.remotePlayers));
@@ -524,6 +551,17 @@ const multiplayerSystem = {
                     this.remotePlayers[playerId].isAlive = state.isAlive !== false;
                     this.remotePlayers[playerId].health = state.health || 100;
                     this.remotePlayers[playerId].maxHealth = state.maxHealth || 100;
+                    // Update player model data
+                    this.remotePlayers[playerId].angle = state.angle || 0;
+                    this.remotePlayers[playerId].walkCycle = state.walkCycle || 0;
+                    this.remotePlayers[playerId].yOff = state.yOff || 70;
+                    this.remotePlayers[playerId].onGround = state.onGround || false;
+                    this.remotePlayers[playerId].immuneCycle = state.immuneCycle || 0;
+                    this.remotePlayers[playerId].cycle = state.cycle || 0;
+                    this.remotePlayers[playerId].fillColor = state.fillColor || '#ff0000';
+                    this.remotePlayers[playerId].fillColorDark = state.fillColorDark || '#cc0000';
+                    this.remotePlayers[playerId].Vx = state.Vx || 0;
+                    this.remotePlayers[playerId].lastUpdate = Date.now();
                     console.log('🔄 Updated player position:', this.remotePlayers[playerId].name, state.x, state.y);
                 }
             }
@@ -702,73 +740,194 @@ const multiplayerSystem = {
             console.log(`🎨 RENDERING: Found ${playerCount} remote players:`, Object.keys(this.remotePlayers));
         }
         
-        for (const [playerId, player] of Object.entries(this.remotePlayers)) {
+        for (const [playerId, remotePlayer] of Object.entries(this.remotePlayers)) {
             // Check for valid position data
-            if (!player || typeof player.x !== 'number' || typeof player.y !== 'number' ||
-                isNaN(player.x) || isNaN(player.y)) {
+            if (!remotePlayer || typeof remotePlayer.x !== 'number' || typeof remotePlayer.y !== 'number' ||
+                isNaN(remotePlayer.x) || isNaN(remotePlayer.y)) {
                 if (Math.random() < 0.01) {
-                    console.log(`❌ Skipping invalid player data:`, player);
+                    console.log(`❌ Skipping invalid player data:`, remotePlayer);
                 }
                 continue;
             }
             
-            // Draw player circle
-            ctx.beginPath();
-            const radius = player.radius || 30;
-            
             // Debug: log occasionally when rendering (reduced frequency)
             if (Math.random() < 0.001) {
-                console.log(`🎨 Rendering ${player.name} at (${player.x}, ${player.y})`);
+                console.log(`🎨 Rendering ${remotePlayer.name} at (${remotePlayer.x}, ${remotePlayer.y})`);
             }
             
-            ctx.arc(player.x, player.y, radius, 0, 2 * Math.PI);
-            
-            if (player.isAlive) {
-                ctx.fillStyle = player.color || '#ff0000';
-                ctx.globalAlpha = 0.8; // Increased opacity
-            } else {
-                // Ghost appearance
-                ctx.fillStyle = '#888';
-                ctx.globalAlpha = 0.5; // Increased opacity
-            }
-            
-            ctx.fill();
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            ctx.globalAlpha = 1.0;
-            
-            // Draw health bar
-            if (player.isAlive && player.health && player.maxHealth) {
-                const barWidth = player.radius * 2;
-                const barHeight = 5;
-                const barX = player.x - player.radius;
-                const barY = player.y - player.radius - 15;
-                
-                // Background
-                ctx.fillStyle = '#333';
-                ctx.fillRect(barX, barY, barWidth, barHeight);
-                
-                // Health
-                ctx.fillStyle = '#0f0';
-                ctx.fillRect(barX, barY, barWidth * (player.health / player.maxHealth), barHeight);
-            }
-            
-            // Draw nametag
-            const displayName = player.name || 'Player';
-            const nameY = player.y - radius - (player.isAlive ? 25 : 35);
-            
-            // Make nametag more visible
-            ctx.fillStyle = player.nameColor || '#ffffff';
-            ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 3;
-            ctx.font = 'bold 16px Arial'; // Increased font size
-            ctx.textAlign = 'center';
-            
-            // Draw text with outline for better visibility
-            ctx.strokeText(displayName, player.x, nameY);
-            ctx.fillText(displayName, player.x, nameY);
+            // Render actual player model for remote player
+            this.drawRemotePlayerModel(remotePlayer);
         }
+    },
+    
+    // Draw actual player model for remote players
+    drawRemotePlayerModel(remotePlayer) {
+        ctx.fillStyle = remotePlayer.fillColor || '#ff0000';
+        
+        // Apply immunity transparency
+        const isImmune = remotePlayer.cycle < (remotePlayer.immuneCycle || 0);
+        ctx.save();
+        ctx.globalAlpha = remotePlayer.isAlive ? (isImmune ? 0.5 : 1.0) : 0.3;
+        ctx.translate(remotePlayer.x, remotePlayer.y);
+
+        // Draw legs
+        this.drawRemotePlayerLegs(remotePlayer);
+
+        // Rotate and draw body
+        ctx.rotate(remotePlayer.angle || 0);
+        ctx.beginPath();
+        ctx.arc(0, 0, 30, 0, 2 * Math.PI);
+        let grd = ctx.createLinearGradient(-30, 0, 30, 0);
+        grd.addColorStop(0, remotePlayer.fillColorDark || '#cc0000');
+        grd.addColorStop(1, remotePlayer.fillColor || '#ff0000');
+        ctx.fillStyle = grd;
+        ctx.fill();
+        
+        // Draw eye/direction indicator
+        ctx.beginPath();
+        ctx.arc(15, 0, 4, 0, 2 * Math.PI);
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        ctx.restore();
+
+        // Draw health bar
+        if (remotePlayer.isAlive && remotePlayer.health && remotePlayer.maxHealth) {
+            const barWidth = 60;
+            const barHeight = 5;
+            const barX = remotePlayer.x - 30;
+            const barY = remotePlayer.y - 50;
+            
+            // Background
+            ctx.fillStyle = '#333';
+            ctx.fillRect(barX, barY, barWidth, barHeight);
+            
+            // Health
+            ctx.fillStyle = '#0f0';
+            ctx.fillRect(barX, barY, barWidth * (remotePlayer.health / remotePlayer.maxHealth), barHeight);
+        }
+        
+        // Draw nametag
+        const displayName = remotePlayer.name || 'Player';
+        const nameY = remotePlayer.y - 55;
+        
+        ctx.fillStyle = remotePlayer.nameColor || '#ffffff';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        
+        // Draw text with outline for better visibility
+        ctx.strokeText(displayName, remotePlayer.x, nameY);
+        ctx.fillText(displayName, remotePlayer.x, nameY);
+    },
+    
+    // Draw legs for remote player (simplified version of m.drawLeg)
+    drawRemotePlayerLegs(remotePlayer) {
+        // Calculate simplified leg positions based on walk cycle and movement
+        const walkCycle = remotePlayer.walkCycle || 0;
+        const Vx = remotePlayer.Vx || 0;
+        const onGround = remotePlayer.onGround || false;
+        
+        // Step size similar to local player calculation
+        let stepSize = 7 * Math.sqrt(Math.min(9, Math.abs(Vx))) * onGround;
+        
+        // Calculate leg angles
+        const stepAngle1 = 0.034 * walkCycle + Math.PI;
+        const stepAngle2 = 0.034 * walkCycle;
+        
+        // Hip positions
+        const hip1 = { x: 9, y: 24 };
+        const hip2 = { x: 15, y: 24 };
+        
+        // Foot positions based on animation
+        const foot1 = {
+            x: 2.2 * stepSize * Math.cos(stepAngle1) - 3,
+            y: 24 + 1.2 * stepSize * Math.sin(stepAngle1) + remotePlayer.yOff
+        };
+        const foot2 = {
+            x: 2.2 * stepSize * Math.cos(stepAngle2),
+            y: 24 + 1.2 * stepSize * Math.sin(stepAngle2) + remotePlayer.yOff
+        };
+        
+        // Calculate knee positions (simplified)
+        const legLength1 = 55, legLength2 = 45;
+        
+        // Helper function to calculate knee position
+        const calcKneePos = (hip, foot) => {
+            const d = Math.sqrt((hip.x - foot.x) ** 2 + (hip.y - foot.y) ** 2);
+            const l = (legLength1 ** 2 - legLength2 ** 2 + d ** 2) / (2 * d);
+            const h = Math.sqrt(legLength1 ** 2 - l ** 2);
+            
+            return {
+                x: (l / d) * (foot.x - hip.x) - (h / d) * (foot.y - hip.y) + hip.x,
+                y: (l / d) * (foot.y - hip.y) + (h / d) * (foot.x - hip.x) + hip.y
+            };
+        };
+        
+        const knee1 = calcKneePos(hip1, foot1);
+        const knee2 = calcKneePos(hip2, foot2);
+        
+        // Determine leg direction based on angle
+        const flipLegs = (remotePlayer.angle > -Math.PI / 2 && remotePlayer.angle < Math.PI / 2) ? 1 : -1;
+        
+        // Draw legs
+        ctx.save();
+        ctx.scale(flipLegs, 1);
+        
+        // First leg
+        ctx.beginPath();
+        ctx.moveTo(hip1.x, hip1.y);
+        ctx.lineTo(knee1.x, knee1.y);
+        ctx.lineTo(foot1.x, foot1.y);
+        ctx.strokeStyle = "#4a4a4a";
+        ctx.lineWidth = 7;
+        ctx.stroke();
+        
+        // Toe lines
+        ctx.beginPath();
+        ctx.moveTo(foot1.x, foot1.y);
+        ctx.lineTo(foot1.x - 15, foot1.y + 5);
+        ctx.moveTo(foot1.x, foot1.y);
+        ctx.lineTo(foot1.x + 15, foot1.y + 5);
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        
+        // Second leg
+        ctx.beginPath();
+        ctx.moveTo(hip2.x, hip2.y);
+        ctx.lineTo(knee2.x, knee2.y);
+        ctx.lineTo(foot2.x, foot2.y);
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 7;
+        ctx.stroke();
+        
+        // Toe lines
+        ctx.beginPath();
+        ctx.moveTo(foot2.x, foot2.y);
+        ctx.lineTo(foot2.x - 15, foot2.y + 5);
+        ctx.moveTo(foot2.x, foot2.y);
+        ctx.lineTo(foot2.x + 15, foot2.y + 5);
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        
+        // Joint circles
+        ctx.beginPath();
+        ctx.arc(hip1.x, hip1.y, 11, 0, 2 * Math.PI);
+        ctx.arc(knee1.x, knee1.y, 7, 0, 2 * Math.PI);
+        ctx.arc(foot1.x, foot1.y, 6, 0, 2 * Math.PI);
+        ctx.arc(hip2.x, hip2.y, 11, 0, 2 * Math.PI);
+        ctx.arc(knee2.x, knee2.y, 7, 0, 2 * Math.PI);
+        ctx.arc(foot2.x, foot2.y, 6, 0, 2 * Math.PI);
+        
+        ctx.fillStyle = remotePlayer.fillColor || '#ff0000';
+        ctx.fill();
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        ctx.restore();
     },
     
     async leaveRoom() {
@@ -805,6 +964,216 @@ const multiplayerSystem = {
             document.getElementById('multiplayer-lobby').style.display = 'block';
         } catch (error) {
             console.error('Error leaving room:', error);
+        }
+    },
+    
+    // ===== POWERUP SYNCHRONIZATION =====
+    initPowerupSync() {
+        // Monitor powerup collection locally and sync to Firebase
+        this.monitorPowerupCollections();
+        
+        // Listen for powerup collections from other players
+        this.listenToPowerupCollections();
+        
+        // Listen for powerup spawns from other players
+        this.listenToPowerupSpawns();
+        
+        // Monitor powerup spawning (for host)
+        if (this.isHost) {
+            this.monitorPowerupSpawning();
+        }
+    },
+    
+    monitorPowerupCollections() {
+        // Hook into the powerup collection system
+        const originalGrabPowerUp = m.grabPowerUp;
+        m.grabPowerUp = () => {
+            const powerUpLengthBefore = powerUp.length;
+            
+            // Call original function
+            originalGrabPowerUp.call(m);
+            
+            // Check if any powerups were collected
+            if (powerUp.length < powerUpLengthBefore) {
+                // A powerup was collected, notify other players
+                this.notifyPowerupCollection();
+            }
+        };
+    },
+    
+    async notifyPowerupCollection() {
+        if (!this.currentRoomId) return;
+        
+        try {
+            // Send notification about powerup collection
+            const notificationRef = push(ref(database, `rooms/${this.currentRoomId}/notifications`));
+            await set(notificationRef, {
+                type: 'powerup_collected',
+                playerId: this.playerId,
+                timestamp: Date.now()
+            });
+        } catch (error) {
+            console.error('Failed to notify powerup collection:', error);
+        }
+    },
+    
+    listenToPowerupCollections() {
+        if (!this.currentRoomId) return;
+        
+        const notificationsRef = ref(database, `rooms/${this.currentRoomId}/notifications`);
+        onValue(notificationsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const notifications = snapshot.val();
+            for (const [notificationId, notification] of Object.entries(notifications)) {
+                if (notification.type === 'powerup_collected' && 
+                    notification.playerId !== this.playerId && 
+                    Date.now() - notification.timestamp < 5000) { // Only process recent notifications
+                    
+                    // Sync powerup state with other player
+                    this.syncPowerupState();
+                    
+                    // Clean up old notification
+                    remove(ref(database, `rooms/${this.currentRoomId}/notifications/${notificationId}`));
+                }
+            }
+        });
+    },
+    
+    monitorPowerupSpawning() {
+        // Hook into powerup spawning to sync spawns across players
+        if (typeof powerUps !== 'undefined' && powerUps.spawn) {
+            const originalSpawn = powerUps.spawn;
+            powerUps.spawn = (x, y, target, moving, mode, size) => {
+                // Call original spawn function
+                originalSpawn.call(powerUps, x, y, target, moving, mode, size);
+                
+                // Notify other players about the spawn
+                this.notifyPowerupSpawn({
+                    x: typeof x === 'number' ? Math.round(x * 100) / 100 : 0,
+                    y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
+                    target: target || 'tech',
+                    moving: moving !== false,
+                    timestamp: Date.now()
+                });
+            };
+        }
+    },
+    
+    async notifyPowerupSpawn(spawnData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const spawnRef = push(ref(database, `rooms/${this.currentRoomId}/powerupSpawns`));
+            await set(spawnRef, spawnData);
+        } catch (error) {
+            console.error('Failed to notify powerup spawn:', error);
+        }
+    },
+    
+    listenToPowerupSpawns() {
+        if (!this.currentRoomId) return;
+        
+        const spawnsRef = ref(database, `rooms/${this.currentRoomId}/powerupSpawns`);
+        onValue(spawnsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const spawns = snapshot.val();
+            for (const [spawnId, spawnData] of Object.entries(spawns)) {
+                if (Date.now() - spawnData.timestamp < 1000) { // Only process recent spawns
+                    // Spawn powerup locally if we don't have it
+                    if (typeof powerUps !== 'undefined' && powerUps.spawn) {
+                        powerUps.spawn(spawnData.x, spawnData.y, spawnData.target, spawnData.moving);
+                    }
+                    
+                    // Clean up old spawn data
+                    remove(ref(database, `rooms/${this.currentRoomId}/powerupSpawns/${spawnId}`));
+                }
+            }
+        });
+    },
+    
+    syncPowerupState() {
+        // This is a placeholder - in a full implementation, you'd sync
+        // the exact powerup states and ensure all players see the same powerups
+        console.log('Syncing powerup state with other players');
+    },
+    
+    // ===== LEVEL SYNCHRONIZATION =====
+    initLevelSync() {
+        // Listen for level changes from other players
+        this.listenToLevelChanges();
+        
+        // Monitor level changes locally (for host)
+        if (this.isHost) {
+            this.monitorLevelChanges();
+        }
+    },
+    
+    monitorLevelChanges() {
+        // Hook into level.start() to sync level transitions
+        if (typeof level !== 'undefined' && level.start) {
+            const originalStart = level.start;
+            level.start = () => {
+                // Call original function
+                originalStart.call(level);
+                
+                // Notify other players about level change
+                this.notifyLevelChange({
+                    currentLevel: level.onLevel || 0,
+                    levelsCleared: level.levelsCleared || 0,
+                    timestamp: Date.now()
+                });
+            };
+        }
+    },
+    
+    async notifyLevelChange(levelData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            // Update room level state
+            await update(ref(database, `rooms/${this.currentRoomId}`), {
+                currentLevel: levelData.currentLevel,
+                levelsCleared: levelData.levelsCleared,
+                levelTimestamp: levelData.timestamp
+            });
+        } catch (error) {
+            console.error('Failed to notify level change:', error);
+        }
+    },
+    
+    listenToLevelChanges() {
+        if (!this.currentRoomId) return;
+        
+        const roomRef = ref(database, `rooms/${this.currentRoomId}`);
+        onValue(roomRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const roomData = snapshot.val();
+            if (roomData.currentLevel !== undefined && 
+                roomData.currentLevel !== level.onLevel && 
+                roomData.levelTimestamp && 
+                Date.now() - roomData.levelTimestamp < 5000) { // Only process recent changes
+                
+                // Sync to the new level
+                this.syncToLevel(roomData.currentLevel, roomData.levelsCleared);
+            }
+        });
+    },
+    
+    syncToLevel(targetLevel, targetLevelsCleared) {
+        if (typeof level === 'undefined') return;
+        
+        console.log(`Syncing to level ${targetLevel}, cleared: ${targetLevelsCleared}`);
+        
+        // Update local level state
+        level.onLevel = targetLevel;
+        level.levelsCleared = targetLevelsCleared;
+        
+        // Clear current map and restart with synchronized level
+        if (typeof simulation !== 'undefined' && simulation.clearNow !== undefined) {
+            simulation.clearNow = true;
         }
     },
     
