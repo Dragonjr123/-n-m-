@@ -635,12 +635,16 @@ const multiplayerSystem = {
         for (const [playerId, remote] of Object.entries(this.remotePlayers)) {
             if (!remote.x || !remote.y) continue;
             
+            // Get player color with fallback
+            const playerColor = remote.fillColor || remote.color || '#00ccff';
+            const playerColorDark = this.darkenColor(playerColor);
+            
             ctx.save();
             ctx.translate(remote.x, remote.y);
             
             // Draw legs
-            ctx.fillStyle = remote.fillColor || remote.color;
-            const legAngle = Math.sin(remote.timestamp / 100) * 0.3;
+            ctx.fillStyle = playerColor;
+            const legAngle = Math.sin((remote.timestamp || 0) / 100) * 0.3;
             
             ctx.save();
             ctx.rotate(legAngle);
@@ -662,14 +666,21 @@ const multiplayerSystem = {
             ctx.arc(0, 0, remote.radius || 30, 0, 2 * Math.PI);
             
             const grd = ctx.createLinearGradient(-30, 0, 30, 0);
-            grd.addColorStop(0, this.darkenColor(remote.fillColor || remote.color));
-            grd.addColorStop(1, remote.fillColor || remote.color);
+            grd.addColorStop(0, playerColorDark);
+            grd.addColorStop(1, playerColor);
             ctx.fillStyle = grd;
             ctx.fill();
+            
+            // Draw outline
+            ctx.strokeStyle = "#222";
+            ctx.lineWidth = 2;
+            ctx.stroke();
             
             // Draw eye
             ctx.beginPath();
             ctx.arc(15, 0, 4, 0, 2 * Math.PI);
+            ctx.fillStyle = "#fff";
+            ctx.fill();
             ctx.strokeStyle = "#333";
             ctx.lineWidth = 2;
             ctx.stroke();
