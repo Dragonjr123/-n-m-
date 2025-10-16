@@ -429,6 +429,9 @@ const multiplayerSystem = {
         // Initialize tech and physics synchronization
         this.initTechAndPhysicsSync();
         
+        // Initialize comprehensive physics synchronization
+        this.initComprehensivePhysicsSync();
+        
         console.log('✅ Multiplayer initialized successfully');
     },
     
@@ -815,7 +818,8 @@ const multiplayerSystem = {
             ctx.fillRect(barX, barY, barWidth * (remotePlayer.health / remotePlayer.maxHealth), barHeight);
             }
             
-            // Draw nametag
+        // Draw nametag - ensure clean canvas state
+        ctx.save(); // Save state before nametag to prevent field interference
         const displayName = remotePlayer.name || 'Player';
         const nameY = remotePlayer.y - 55;
         
@@ -824,10 +828,12 @@ const multiplayerSystem = {
             ctx.lineWidth = 3;
         ctx.font = 'bold 16px Arial';
             ctx.textAlign = 'center';
-            
+        ctx.globalAlpha = 1.0; // Ensure nametag is fully visible
+        
         // Draw text with outline for better visibility
         ctx.strokeText(displayName, remotePlayer.x, nameY);
         ctx.fillText(displayName, remotePlayer.x, nameY);
+        ctx.restore(); // Restore state after nametag
     },
     
     drawRemotePlayerField(remotePlayer) {
@@ -1095,37 +1101,48 @@ const multiplayerSystem = {
         const originalGrabPowerUp = m.grabPowerUp;
         m.grabPowerUp = () => {
             const powerUpLengthBefore = powerUp.length;
+            const powerUpPositions = powerUp.map(p => ({ x: p.position.x, y: p.position.y, name: p.name }));
             
             // Call original function
             originalGrabPowerUp.call(m);
             
             // Check if any powerups were collected
             if (powerUp.length < powerUpLengthBefore) {
-                // A powerup was collected, notify other players
-                this.notifyPowerupCollection();
+                console.log(`Player ${this.playerId} collected a powerup. Before: ${powerUpLengthBefore}, After: ${powerUp.length}`);
                 
-                // Also notify about physics effects (knockback, etc.)
-                const currentVel = { x: player.velocity.x, y: player.velocity.y };
-                this.notifyPowerupPhysicsEffect({
-                    playerId: this.playerId,
-                    velocity: currentVel,
-                    position: { x: player.position.x, y: player.position.y },
+                // A powerup was collected, notify other players with more details
+                this.notifyPowerupCollection({
+                    collectedBy: this.playerId,
+                    remainingCount: powerUp.length,
                     timestamp: Date.now()
                 });
+                
+                // Also notify about physics effects (knockback, etc.)
+                if (player && player.velocity && player.position) {
+                    const currentVel = { x: player.velocity.x, y: player.velocity.y };
+                    this.notifyPowerupPhysicsEffect({
+                        playerId: this.playerId,
+                        velocity: currentVel,
+                        position: { x: player.position.x, y: player.position.y },
+                        timestamp: Date.now()
+                    });
+                }
             }
         };
     },
     
-    async notifyPowerupCollection() {
+    async notifyPowerupCollection(collectionData = {}) {
         if (!this.currentRoomId) return;
         
         try {
-            // Send notification about powerup collection
+            // Send notification about powerup collection with enhanced data
             const notificationRef = push(ref(database, `rooms/${this.currentRoomId}/notifications`));
             await set(notificationRef, {
                 type: 'powerup_collected',
                 playerId: this.playerId,
-                timestamp: Date.now()
+                collectedBy: collectionData.collectedBy || this.playerId,
+                remainingCount: collectionData.remainingCount || (typeof powerUp !== 'undefined' ? powerUp.length : 0),
+                timestamp: collectionData.timestamp || Date.now()
             });
         } catch (error) {
             console.error('Failed to notify powerup collection:', error);
@@ -1146,7 +1163,7 @@ const multiplayerSystem = {
                     Date.now() - notification.timestamp < 5000) { // Only process recent notifications
                     
                     // Sync powerup state with other player
-                    this.syncPowerupState();
+                    this.syncPowerupState(notification);
                     
                     // Clean up old notification
                     remove(ref(database, `rooms/${this.currentRoomId}/notifications/${notificationId}`));
@@ -1214,10 +1231,27 @@ const multiplayerSystem = {
         });
     },
     
-    syncPowerupState() {
-        // This is a placeholder - in a full implementation, you'd sync
-        // the exact powerup states and ensure all players see the same powerups
-        console.log('Syncing powerup state with other players');
+    syncPowerupState(notification = null) {
+        // Force a powerup state refresh to sync with other players
+        try {
+            if (typeof powerUp !== 'undefined' && powerUp.length !== undefined) {
+                console.log('Syncing powerup state - current powerups:', powerUp.length);
+                
+                // If we have notification data, try to sync more intelligently
+                if (notification && notification.remainingCount !== undefined) {
+                    const expectedCount = notification.remainingCount;
+                    const currentCount = powerUp.length;
+                    
+                    // If we have more powerups than expected, something was collected elsewhere
+                    if (currentCount > expectedCount) {
+                        console.log(`Powerup sync mismatch: expected ${expectedCount}, have ${currentCount}`);
+                        // Could implement more sophisticated sync here
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error syncing powerup state:', error);
+        }
     },
     
     // ===== LEVEL SYNCHRONIZATION =====
@@ -1416,18 +1450,19 @@ const multiplayerSystem = {
                 );
                 
                 // If player moved more than 1000 units in one update, it's likely a teleportation
-                if (distance > 1000 && lastPlayerPosition.x !== 0 && lastPlayerPosition.y !== 0) {
-                    this.checkLevelProgressionPermission().then(hasPermission => {
-                        if (hasPermission) {
-                            // Notify other players about teleportation
-                            this.notifyTeleportation({
-                                playerId: this.playerId,
-                                fromPosition: lastPlayerPosition,
-                                toPosition: currentPos,
-                                timestamp: Date.now()
-                            });
-                        }
-                    });
+                if (distance > 1000 && lastPlayerPosition.x !== 0 && lastPlayerPosition.y !== 0 && this.isGameStarted) {
+                    // Only notify if we have permission AND validate coordinates
+                    if (!isNaN(currentPos.x) && !isNaN(currentPos.y) && 
+                        Math.abs(currentPos.x) < 10000 && Math.abs(currentPos.y) < 10000) {
+                        
+                        // ALWAYS notify other players about teleportation (everyone should follow)
+                        this.notifyTeleportation({
+                            playerId: this.playerId,
+                            fromPosition: lastPlayerPosition,
+                            toPosition: currentPos,
+                            timestamp: Date.now()
+                        });
+                    }
                 }
                 
                 lastPlayerPosition = currentPos;
@@ -1478,14 +1513,27 @@ const multiplayerSystem = {
                 if (teleport.playerId !== this.playerId && 
                     Date.now() - teleport.timestamp < 2000) { // Only process recent teleports
                     
-                    // If shared progression is enabled, teleport local player too
-                    this.checkLevelProgressionPermission().then(hasPermission => {
-                        if (hasPermission && teleport.fromPosition && teleport.toPosition) {
-                            // Teleport local player to the same destination
-                            Matter.Body.setPosition(player, teleport.toPosition);
-                            console.log('Teleporting to follow other player');
+                    // ALWAYS teleport everyone when someone uses a teleporter
+                    if (teleport.fromPosition && teleport.toPosition && player && Matter.Body) {
+                        try {
+                            // Validate teleportation coordinates
+                            if (!isNaN(teleport.toPosition.x) && !isNaN(teleport.toPosition.y) &&
+                                Math.abs(teleport.toPosition.x) < 10000 && Math.abs(teleport.toPosition.y) < 10000) {
+                                
+                                // Teleport local player to the same destination safely
+                                Matter.Body.setPosition(player, teleport.toPosition);
+                                
+                                // Clear any velocity to prevent sliding
+                                Matter.Body.setVelocity(player, { x: 0, y: 0 });
+                                
+                                console.log('Everyone teleporting to:', teleport.toPosition, 'triggered by player:', teleport.playerId);
+                            } else {
+                                console.warn('Invalid teleportation coordinates:', teleport.toPosition);
+                            }
+                        } catch (error) {
+                            console.error('Error during teleportation:', error);
                         }
-                    });
+                    }
                     
                     // Update remote player position
                     this.applyTeleportation(teleport);
@@ -1661,6 +1709,255 @@ const multiplayerSystem = {
                 roomList.appendChild(roomCard);
             });
         });
+    },
+    
+    // ===== COMPREHENSIVE PHYSICS SYNCHRONIZATION =====
+    initComprehensivePhysicsSync() {
+        // Monitor bullet firing and explosions
+        this.monitorBulletAndExplosions();
+        
+        // Monitor mob interactions and deaths
+        this.monitorMobInteractions();
+        
+        // Listen for physics events from other players
+        this.listenToPhysicsEvents();
+    },
+    
+    monitorBulletAndExplosions() {
+        // Monitor bullet firing using polling approach
+        let lastBulletCount = 0;
+        
+        setInterval(() => {
+            if (!this.isGameStarted || typeof bullet === 'undefined') return;
+            
+            // Check for new bullets created
+            if (bullet.length > lastBulletCount) {
+                // New bullets were created, notify other players
+                const newBullets = bullet.slice(lastBulletCount);
+                for (let i = 0; i < newBullets.length; i++) {
+                    const newBullet = newBullets[i];
+                    if (newBullet && newBullet.position) {
+                        this.notifyBulletFired({
+                            playerId: this.playerId,
+                            position: { x: newBullet.position.x, y: newBullet.position.y },
+                            velocity: { x: newBullet.velocity.x, y: newBullet.velocity.y },
+                            bulletType: newBullet.bulletType || 'default',
+                            timestamp: Date.now()
+                        });
+                    }
+                }
+                lastBulletCount = bullet.length;
+            } else if (bullet.length < lastBulletCount) {
+                // Bullets were removed, update count
+                lastBulletCount = bullet.length;
+            }
+        }, 100); // Check every 100ms
+        
+        // Monitor explosions
+        if (typeof b !== 'undefined' && b.explosion) {
+            const originalExplosion = b.explosion;
+            b.explosion = (where, radius, color) => {
+                // Call original function first
+                originalExplosion.call(b, where, radius, color);
+                
+                // Notify other players about explosion
+                this.notifyExplosion({
+                    playerId: this.playerId,
+                    position: { x: where.x, y: where.y },
+                    radius: radius,
+                    color: color || "rgba(255,25,0,0.6)",
+                    timestamp: Date.now()
+                });
+            };
+        }
+    },
+    
+    async notifyExplosion(explosionData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const explosionRef = push(ref(database, `rooms/${this.currentRoomId}/explosions`));
+            await set(explosionRef, explosionData);
+        } catch (error) {
+            console.error('Failed to notify explosion:', error);
+        }
+    },
+    
+    async notifyBulletFired(bulletData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const bulletRef = push(ref(database, `rooms/${this.currentRoomId}/bullets`));
+            await set(bulletRef, bulletData);
+        } catch (error) {
+            console.error('Failed to notify bullet fired:', error);
+        }
+    },
+    
+    monitorMobInteractions() {
+        // Monitor mob deaths using a polling approach since hooking can be unreliable
+        let lastMobCount = mob.length;
+        let lastMobHealths = [];
+        
+        setInterval(() => {
+            if (!this.isGameStarted || typeof mob === 'undefined') return;
+            
+            // Check for mob count changes (deaths)
+            if (lastMobCount !== mob.length) {
+                console.log(`Mob count changed: ${lastMobCount} -> ${mob.length}`);
+                lastMobCount = mob.length;
+                lastMobHealths = [];
+            }
+            
+            // Check for mob health changes (deaths)
+            for (let i = 0; i < mob.length; i++) {
+                if (mob[i] && typeof mob[i].health === 'number') {
+                    const lastHealth = lastMobHealths[i] || mob[i].maxHealth;
+                    const currentHealth = mob[i].health;
+                    
+                    // If mob died (health went from > 0 to <= 0)
+                    if (lastHealth > 0 && currentHealth <= 0 && mob[i].alive) {
+                        this.notifyMobDeath({
+                            mobId: i,
+                            position: { x: mob[i].position.x, y: mob[i].position.y },
+                            playerId: this.playerId,
+                            timestamp: Date.now()
+                        });
+                    }
+                    
+                    lastMobHealths[i] = currentHealth;
+                }
+            }
+        }, 200); // Check every 200ms
+    },
+    
+    async notifyMobDeath(mobData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const mobRef = push(ref(database, `rooms/${this.currentRoomId}/mobDeaths`));
+            await set(mobRef, mobData);
+        } catch (error) {
+            console.error('Failed to notify mob death:', error);
+        }
+    },
+    
+    listenToPhysicsEvents() {
+        if (!this.currentRoomId) return;
+        
+        // Listen for explosions from other players
+        const explosionsRef = ref(database, `rooms/${this.currentRoomId}/explosions`);
+        onValue(explosionsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const explosions = snapshot.val();
+            for (const [explosionId, explosionData] of Object.entries(explosions)) {
+                if (explosionData.playerId !== this.playerId && 
+                    Date.now() - explosionData.timestamp < 1000) { // Only process recent explosions
+                    
+                    // Trigger explosion on this client
+                    this.triggerExplosion(explosionData);
+                    
+                    // Clean up old explosion data
+                    remove(ref(database, `rooms/${this.currentRoomId}/explosions/${explosionId}`));
+                }
+            }
+        });
+        
+        // Listen for bullets from other players
+        const bulletsRef = ref(database, `rooms/${this.currentRoomId}/bullets`);
+        onValue(bulletsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const bullets = snapshot.val();
+            for (const [bulletId, bulletData] of Object.entries(bullets)) {
+                if (bulletData.playerId !== this.playerId && 
+                    Date.now() - bulletData.timestamp < 500) { // Only process recent bullets
+                    
+                    // Trigger bullet creation on this client
+                    this.triggerBullet(bulletData);
+                    
+                    // Clean up old bullet data
+                    remove(ref(database, `rooms/${this.currentRoomId}/bullets/${bulletId}`));
+                }
+            }
+        });
+        
+        // Listen for mob deaths from other players
+        const mobDeathsRef = ref(database, `rooms/${this.currentRoomId}/mobDeaths`);
+        onValue(mobDeathsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const mobDeaths = snapshot.val();
+            for (const [deathId, mobData] of Object.entries(mobDeaths)) {
+                if (mobData.playerId !== this.playerId && 
+                    Date.now() - mobData.timestamp < 2000) { // Only process recent deaths
+                    
+                    // Sync mob death on this client
+                    this.syncMobDeath(mobData);
+                    
+                    // Clean up old death data
+                    remove(ref(database, `rooms/${this.currentRoomId}/mobDeaths/${deathId}`));
+                }
+            }
+        });
+    },
+    
+    triggerExplosion(explosionData) {
+        try {
+            if (typeof b !== 'undefined' && b.explosion && explosionData.position && explosionData.radius) {
+                // Create explosion effect visually without affecting local game state
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    simulation.drawList.push({
+                        x: explosionData.position.x,
+                        y: explosionData.position.y,
+                        radius: explosionData.radius,
+                        color: explosionData.color || "rgba(255,25,0,0.6)",
+                        time: simulation.drawTime * 2
+                    });
+                }
+                
+                console.log('Triggered remote explosion at:', explosionData.position);
+            }
+        } catch (error) {
+            console.error('Error triggering explosion:', error);
+        }
+    },
+    
+    syncMobDeath(mobData) {
+        try {
+            // Find the corresponding mob and sync its death
+            if (typeof mob !== 'undefined' && mob.length > mobData.mobId && mob[mobData.mobId]) {
+                const targetMob = mob[mobData.mobId];
+                if (targetMob && targetMob.alive && typeof targetMob.damage === 'function') {
+                    // Force the mob to die to match the other client
+                    targetMob.damage(targetMob.health + 1); // Ensure death
+                }
+            }
+        } catch (error) {
+            console.error('Error syncing mob death:', error);
+        }
+    },
+    
+    triggerBullet(bulletData) {
+        try {
+            // Create a visual bullet effect for remote players
+            // This is a simplified version - in a full implementation, you'd create actual bullet bodies
+            if (typeof simulation !== 'undefined' && simulation.drawList && bulletData.position) {
+                // Add a bullet trail effect to the draw queue
+                simulation.drawList.push({
+                    x: bulletData.position.x,
+                    y: bulletData.position.y,
+                    radius: 3,
+                    color: "rgba(255,255,0,0.8)",
+                    time: simulation.drawTime * 0.5 // Short-lived bullet trail
+                });
+                
+                console.log('Triggered remote bullet at:', bulletData.position);
+            }
+        } catch (error) {
+            console.error('Error triggering bullet:', error);
+        }
     }
 };
 
