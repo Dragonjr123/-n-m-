@@ -344,12 +344,21 @@ const powerUps = {
                 for (let i = 1; i < who.length; i++) {
                     if (i !== m.fieldMode && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4) {
                         // Progressive mode: only show fields owned in polytree
-                        if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined') {
+                        if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined' && polyTree.ownedTech.length > 0) {
                             const fieldId = `field_${who[i].name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
                             if (polyTree.ownedTech.includes(fieldId)) {
                                 options.push(i);
                             }
                         } else {
+                            options.push(i);
+                        }
+                    }
+                }
+                
+                // Fallback: if no fields available in progressive mode, show all
+                if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined' && polyTree.ownedTech.length > 0 && options.length === 0) {
+                    for (let i = 1; i < who.length; i++) {
+                        if (i !== m.fieldMode && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4) {
                             options.push(i);
                         }
                     }
@@ -427,16 +436,22 @@ const powerUps = {
                 function pick(skip1 = -1, skip2 = -1, skip3 = -1, skip4 = -1) {
                     let options = [];
                     
-                    // Progressive mode: ONLY first powerup in intro level is random
-                    const isFirstLevelFirstPowerup = (level.levelsCleared === 0 && !simulation.firstPowerUpSpawned);
-                    
-                    if (simulation.gameMode === 'progressive' && !isFirstLevelFirstPowerup && typeof polyTree !== 'undefined') {
-                        // Only show tech that player owns in polytree (can be empty!)
+                    // Progressive mode: filter by polytree ownership, but fallback to all if empty
+                    if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined' && polyTree.ownedTech.length > 0) {
+                        // Only show tech that player owns in polytree
                         for (let i = 0; i < tech.tech.length; i++) {
                             if (tech.tech[i].count < tech.tech[i].maxCount && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4 && tech.tech[i].allowed()) {
                                 // Check if this tech is owned in polytree (use tech_ prefix)
                                 const techId = `tech_${tech.tech[i].name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
                                 if (polyTree.ownedTech.includes(techId)) {
+                                    for (let j = 0, len = tech.tech[i].frequency; j < len; j++) options.push(i);
+                                }
+                            }
+                        }
+                        // If no owned tech available, fallback to all tech
+                        if (options.length === 0) {
+                            for (let i = 0; i < tech.tech.length; i++) {
+                                if (tech.tech[i].count < tech.tech[i].maxCount && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4 && tech.tech[i].allowed()) {
                                     for (let j = 0, len = tech.tech[i].frequency; j < len; j++) options.push(i);
                                 }
                             }
@@ -578,12 +593,21 @@ const powerUps = {
                 for (let i = 0; i < who.length; i++) {
                     if (!who[i].have && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4) {
                         // Progressive mode: only show guns owned in polytree
-                        if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined') {
+                        if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined' && polyTree.ownedTech.length > 0) {
                             const gunId = `gun_${who[i].name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
                             if (polyTree.ownedTech.includes(gunId)) {
                                 options.push(i);
                             }
                         } else {
+                            options.push(i);
+                        }
+                    }
+                }
+                
+                // Fallback: if no guns available in progressive mode, show all
+                if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined' && polyTree.ownedTech.length > 0 && options.length === 0) {
+                    for (let i = 0; i < who.length; i++) {
+                        if (!who[i].have && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4) {
                             options.push(i);
                         }
                     }
