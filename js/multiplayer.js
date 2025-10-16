@@ -378,7 +378,7 @@ const multiplayerSystem = {
     listenForPublicRooms() {
         const roomsRef = ref(database, 'rooms');
         onValue(roomsRef, (snapshot) => {
-            const roomsList = document.getElementById('room-list');
+            const roomsList = document.getElementById('public-rooms-list');
             if (!roomsList) return;
             
             roomsList.innerHTML = '';
@@ -572,41 +572,39 @@ const multiplayerSystem = {
     
     // ===== POWERUP SYNC =====
     startPowerupSync() {
-        // Track powerup IDs to detect which ones were collected
-        this.powerupIds = new Set();
+        // Track powerups by their unique positions to maintain sync
+        let lastPowerupState = new Map();
         
-        // Monitor powerup collection
+        // Initialize powerup tracking
         if (typeof powerUp !== 'undefined') {
             setInterval(() => {
-                if (!this.isGameStarted || typeof powerUp === 'undefined') return;
+                if (!this.isGameStarted || !powerUp) return;
                 
-                // Build current powerup ID set
-                const currentIds = new Set();
+                // Create current state map
+                const currentState = new Map();
                 for (let i = 0; i < powerUp.length; i++) {
-                    if (!powerUp[i].mpId) {
-                        powerUp[i].mpId = `${this.playerId}_${Date.now()}_${i}_${Math.random()}`;
-                    }
-                    currentIds.add(powerUp[i].mpId);
-                }
-                
-                // Find which powerups were collected (removed from array)
-                const collected = [];
-                for (const id of this.powerupIds) {
-                    if (!currentIds.has(id)) {
-                        collected.push(id);
+                    const p = powerUp[i];
+                    if (p && p.position) {
+                        const key = `${Math.round(p.position.x)}_${Math.round(p.position.y)}_${p.name}`;
+                        currentState.set(key, { index: i, powerup: p });
                     }
                 }
                 
-                // Notify other players of collected powerups
-                if (collected.length > 0) {
-                    this.notifyPowerupCollection({
-                        playerId: this.playerId,
-                        collectedIds: collected,
-                        timestamp: Date.now()
-                    });
+                // Check for collected powerups
+                for (const [key, data] of lastPowerupState) {
+                    if (!currentState.has(key)) {
+                        // This powerup was collected
+                        this.notifyPowerupCollection({
+                            playerId: this.playerId,
+                            powerupKey: key,
+                            position: data.powerup.position,
+                            name: data.powerup.name,
+                            timestamp: Date.now()
+                        });
+                    }
                 }
                 
-                this.powerupIds = currentIds;
+                lastPowerupState = currentState;
             }, 100);
         }
         
@@ -618,20 +616,24 @@ const multiplayerSystem = {
             const events = snapshot.val();
             for (const [eventId, event] of Object.entries(events)) {
                 if (event.playerId === this.playerId) continue;
-                if (Date.now() - event.timestamp > 1000) {
+                if (Date.now() - event.timestamp > 2000) {
                     remove(ref(database, `rooms/${this.currentRoomId}/powerupEvents/${eventId}`));
                     continue;
                 }
                 
-                // Remove powerups by ID
-                if (typeof powerUp !== 'undefined' && event.collectedIds) {
-                    for (const collectedId of event.collectedIds) {
-                        for (let i = powerUp.length - 1; i >= 0; i--) {
-                            if (powerUp[i].mpId === collectedId) {
-                                Matter.World.remove(engine.world, powerUp[i]);
+                // Find and remove the specific powerup by position and name
+                if (typeof powerUp !== 'undefined' && event.powerupKey && event.position) {
+                    for (let i = powerUp.length - 1; i >= 0; i--) {
+                        const p = powerUp[i];
+                        if (p && p.position && p.name === event.name) {
+                            const key = `${Math.round(p.position.x)}_${Math.round(p.position.y)}_${p.name}`;
+                            if (key === event.powerupKey) {
+                                // Remove this specific powerup
+                                if (typeof Matter !== 'undefined') {
+                                    Matter.World.remove(engine.world, p);
+                                }
                                 powerUp.splice(i, 1);
-                                this.powerupIds.delete(collectedId);
-                                console.log(`Synced powerup collection from ${this.currentRoom?.players?.[event.playerId]?.name}`);
+                                console.log(`Synced powerup collection: ${event.name} from ${this.currentRoom?.players?.[event.playerId]?.name}`);
                                 break;
                             }
                         }
@@ -645,27 +647,18 @@ const multiplayerSystem = {
         // Sync powerup spawns (host only)
         if (this.isHost && typeof powerUps !== 'undefined' && powerUps.spawn) {
             const originalSpawn = powerUps.spawn;
-            powerUps.spawn = (x, y, type, moving, mode, size) => {
-                originalSpawn.call(powerUps, x, y, type, moving, mode, size);
+            powerUps.spawn = (x, y, type, size) => {
+                originalSpawn.call(powerUps, x, y, type, size);
                 
-                // Assign unique ID to the newly spawned powerup
-                if (typeof powerUp !== 'undefined' && powerUp.length > 0) {
-                    const newPowerup = powerUp[powerUp.length - 1];
-                    newPowerup.mpId = `host_${Date.now()}_${Math.random()}`;
-                    
-                    // Notify other players
-                    const spawnRef = push(ref(database, `rooms/${this.currentRoomId}/powerupSpawns`));
-                    set(spawnRef, {
-                        x: x,
-                        y: y,
-                        type: type,
-                        moving: moving,
-                        mode: mode,
-                        size: size,
-                        mpId: newPowerup.mpId,
-                        timestamp: Date.now()
-                    });
-                }
+                // Notify other players
+                const spawnRef = push(ref(database, `rooms/${this.currentRoomId}/powerupSpawns`));
+                set(spawnRef, {
+                    x: x,
+                    y: y,
+                    type: type,
+                    size: size || 'normal',
+                    timestamp: Date.now()
+                });
             };
         }
         
@@ -682,12 +675,9 @@ const multiplayerSystem = {
                         continue;
                     }
                     
-                    // Spawn powerup locally with same ID
+                    // Spawn powerup locally
                     if (typeof powerUps !== 'undefined' && powerUps.spawn) {
-                        powerUps.spawn(spawn.x, spawn.y, spawn.type, spawn.moving, spawn.mode, spawn.size);
-                        if (typeof powerUp !== 'undefined' && powerUp.length > 0) {
-                            powerUp[powerUp.length - 1].mpId = spawn.mpId;
-                        }
+                        powerUps.spawn(spawn.x, spawn.y, spawn.type, spawn.size);
                         console.log(`Spawned powerup: ${spawn.type} at (${spawn.x}, ${spawn.y})`);
                     }
                     
@@ -710,14 +700,9 @@ const multiplayerSystem = {
     
     // ===== RENDERING =====
     hookRenderLoop() {
-        if (typeof simulation === 'undefined' || !simulation.normalLoop) return;
-        
-        // Hook into the main game loop instead of simulation.draw
-        const originalNormalLoop = simulation.normalLoop;
-        simulation.normalLoop = () => {
-            originalNormalLoop.call(simulation);
-            this.renderRemotePlayers();
-        };
+        // Rendering is now handled directly in simulation.normalLoop()
+        // No need to hook here since it's already integrated
+        console.log('🎨 Multiplayer rendering integrated with main loop');
     },
     
     renderRemotePlayers() {
@@ -731,16 +716,43 @@ const multiplayerSystem = {
             const playerColorDark = this.darkenColor(playerColor);
             
             ctx.save();
+            ctx.globalAlpha = 0.9; // Slightly transparent to distinguish from local player
             ctx.translate(remote.x, remote.y);
             
-            // Draw body (rotated)
+            // Calculate leg positions based on movement (similar to local player)
+            const walkCycle = (remote.timestamp || 0) / 50; // Simulate walk cycle
+            const legOffset = Math.sin(walkCycle) * 0.3;
+            
+            // Draw back leg
             ctx.save();
+            ctx.fillStyle = playerColorDark;
+            const backLegX = -12 + Math.cos(Math.PI + legOffset) * 8;
+            const backLegY = 15 + Math.sin(Math.PI + legOffset) * 3;
+            ctx.beginPath();
+            ctx.arc(backLegX, backLegY, 7, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.restore();
+            
+            // Draw front leg
+            ctx.save();
+            ctx.fillStyle = '#333';
+            const frontLegX = 12 + Math.cos(legOffset) * 8;
+            const frontLegY = 15 + Math.sin(legOffset) * 3;
+            ctx.beginPath();
+            ctx.arc(frontLegX, frontLegY, 7, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.restore();
+            
+            // Draw body
             ctx.rotate(remote.angle || 0);
             ctx.beginPath();
             ctx.arc(0, 0, remote.radius || 30, 0, 2 * Math.PI);
             
-            // Use solid color for now to debug
-            ctx.fillStyle = playerColor;
+            // Use gradient fill similar to local player
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, remote.radius || 30);
+            gradient.addColorStop(0, playerColor);
+            gradient.addColorStop(1, playerColorDark);
+            ctx.fillStyle = gradient;
             ctx.fill();
             
             // Draw outline
@@ -754,29 +766,18 @@ const multiplayerSystem = {
             ctx.fillStyle = "#fff";
             ctx.fill();
             ctx.strokeStyle = "#333";
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1.5;
             ctx.stroke();
-            ctx.restore();
             
-            // Draw legs (NOT rotated with body)
-            ctx.fillStyle = playerColor;
-            const legAngle = Math.sin((remote.timestamp || 0) / 100) * 0.3;
-            
-            ctx.save();
-            ctx.rotate(legAngle);
+            // Draw pupil
             ctx.beginPath();
-            ctx.arc(12, 15, 7, 0, 2 * Math.PI);
+            ctx.arc(16, 0, 2, 0, 2 * Math.PI);
+            ctx.fillStyle = "#000";
             ctx.fill();
-            ctx.restore();
             
-            ctx.save();
-            ctx.rotate(-legAngle);
-            ctx.beginPath();
-            ctx.arc(-12, 15, 7, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.restore();
+            ctx.restore(); // Restore before drawing name and health bar
             
-            // Draw name (not rotated)
+            // Draw name (after restore, so it's not rotated)
             ctx.fillStyle = remote.nameColor || '#ffffff';
             ctx.strokeStyle = '#000';
             ctx.lineWidth = 3;
@@ -795,8 +796,9 @@ const multiplayerSystem = {
                 ctx.fillStyle = '#333';
                 ctx.fillRect(barX, barY, barWidth, barHeight);
                 
-                ctx.fillStyle = '#0f0';
-                ctx.fillRect(barX, barY, barWidth * (remote.health / remote.maxHealth), barHeight);
+                const healthPercent = remote.health / remote.maxHealth;
+                ctx.fillStyle = healthPercent > 0.5 ? '#0f0' : healthPercent > 0.25 ? '#ff0' : '#f00';
+                ctx.fillRect(barX, barY, barWidth * healthPercent, barHeight);
             }
             
             ctx.restore();
