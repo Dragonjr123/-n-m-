@@ -432,6 +432,9 @@ const multiplayerSystem = {
         // Initialize comprehensive physics synchronization
         this.initComprehensivePhysicsSync();
         
+        // Initialize map generation synchronization
+        this.initMapGenerationSync();
+        
         console.log('✅ Multiplayer initialized successfully');
     },
     
@@ -799,11 +802,9 @@ const multiplayerSystem = {
         
         ctx.restore();
 
-        // Draw field effects for this remote player
-        this.drawRemotePlayerField(remotePlayer);
-            
-            // Draw health bar
+        // Draw health bar first (isolated from field effects)
         if (remotePlayer.isAlive && remotePlayer.health && remotePlayer.maxHealth) {
+            ctx.save();
             const barWidth = 60;
                 const barHeight = 5;
             const barX = remotePlayer.x - 30;
@@ -816,10 +817,11 @@ const multiplayerSystem = {
                 // Health
                 ctx.fillStyle = '#0f0';
             ctx.fillRect(barX, barY, barWidth * (remotePlayer.health / remotePlayer.maxHealth), barHeight);
-            }
+            ctx.restore();
+        }
             
-        // Draw nametag - ensure clean canvas state
-        ctx.save(); // Save state before nametag to prevent field interference
+        // Draw nametag (isolated from field effects)
+        ctx.save();
         const displayName = remotePlayer.name || 'Player';
         const nameY = remotePlayer.y - 55;
         
@@ -833,7 +835,10 @@ const multiplayerSystem = {
         // Draw text with outline for better visibility
         ctx.strokeText(displayName, remotePlayer.x, nameY);
         ctx.fillText(displayName, remotePlayer.x, nameY);
-        ctx.restore(); // Restore state after nametag
+        ctx.restore();
+        
+        // Draw field effects LAST to prevent interference with health/nametag
+        this.drawRemotePlayerField(remotePlayer);
     },
     
     drawRemotePlayerField(remotePlayer) {
@@ -1101,7 +1106,13 @@ const multiplayerSystem = {
         const originalGrabPowerUp = m.grabPowerUp;
         m.grabPowerUp = () => {
             const powerUpLengthBefore = powerUp.length;
-            const powerUpPositions = powerUp.map(p => ({ x: p.position.x, y: p.position.y, name: p.name }));
+            const powerUpPositionsBefore = powerUp.map((p, index) => ({ 
+                index, 
+                x: p.position.x, 
+                y: p.position.y, 
+                name: p.name,
+                id: p.id || `${p.position.x}_${p.position.y}_${p.name}` 
+            }));
             
             // Call original function
             originalGrabPowerUp.call(m);
@@ -1110,9 +1121,18 @@ const multiplayerSystem = {
             if (powerUp.length < powerUpLengthBefore) {
                 console.log(`Player ${this.playerId} collected a powerup. Before: ${powerUpLengthBefore}, After: ${powerUp.length}`);
                 
-                // A powerup was collected, notify other players with more details
+                // Find which powerup was collected by comparing positions
+                const collectedPowerup = powerUpPositionsBefore.find((beforePU, index) => {
+                    // Check if this powerup still exists (wasn't collected)
+                    return !powerUp[index] || 
+                           Math.abs(powerUp[index].position.x - beforePU.x) > 10 || 
+                           Math.abs(powerUp[index].position.y - beforePU.y) > 10;
+                });
+                
+                // Notify other players about the specific powerup collection
                 this.notifyPowerupCollection({
                     collectedBy: this.playerId,
+                    collectedPowerup: collectedPowerup,
                     remainingCount: powerUp.length,
                     timestamp: Date.now()
                 });
@@ -1141,6 +1161,7 @@ const multiplayerSystem = {
                 type: 'powerup_collected',
                 playerId: this.playerId,
                 collectedBy: collectionData.collectedBy || this.playerId,
+                collectedPowerup: collectionData.collectedPowerup || null,
                 remainingCount: collectionData.remainingCount || (typeof powerUp !== 'undefined' ? powerUp.length : 0),
                 timestamp: collectionData.timestamp || Date.now()
             });
@@ -1189,6 +1210,8 @@ const multiplayerSystem = {
                         y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
                         target: target || 'tech',
                         moving: moving !== false,
+                        mode: mode || null,
+                        size: size || null,
                         timestamp: Date.now()
                     });
                 }
@@ -1220,7 +1243,15 @@ const multiplayerSystem = {
                     // Spawn powerup locally if we don't have it (set flag to prevent recursive notification)
                     if (typeof powerUps !== 'undefined' && powerUps.spawn) {
                         this.isRemoteSpawn = true;
-                        powerUps.spawn(spawnData.x, spawnData.y, spawnData.target, spawnData.moving);
+                        // Include all spawn parameters including size and mode
+                        powerUps.spawn(
+                            spawnData.x, 
+                            spawnData.y, 
+                            spawnData.target, 
+                            spawnData.moving, 
+                            spawnData.mode, 
+                            spawnData.size
+                        );
                         this.isRemoteSpawn = false;
                     }
                     
@@ -1238,14 +1269,37 @@ const multiplayerSystem = {
                 console.log('Syncing powerup state - current powerups:', powerUp.length);
                 
                 // If we have notification data, try to sync more intelligently
-                if (notification && notification.remainingCount !== undefined) {
+                if (notification && notification.collectedPowerup) {
+                    const collectedPU = notification.collectedPowerup;
+                    
+                    // Find and remove the specific powerup that was collected by another player
+                    for (let i = powerUp.length - 1; i >= 0; i--) {
+                        if (powerUp[i] && powerUp[i].position) {
+                            const distance = Math.sqrt(
+                                Math.pow(powerUp[i].position.x - collectedPU.x, 2) + 
+                                Math.pow(powerUp[i].position.y - collectedPU.y, 2)
+                            );
+                            
+                            // If powerup is close enough to the collected one and has same name, remove it
+                            if (distance < 50 && powerUp[i].name === collectedPU.name) {
+                                console.log(`Removing collected powerup: ${collectedPU.name} at ${collectedPU.x}, ${collectedPU.y}`);
+                                
+                                // Remove the powerup from physics world and array
+                                if (typeof Matter !== 'undefined' && typeof engine !== 'undefined') {
+                                    Matter.World.remove(engine.world, powerUp[i]);
+                                }
+                                powerUp.splice(i, 1);
+                                break; // Only remove one matching powerup
+                            }
+                        }
+                    }
+                } else if (notification && notification.remainingCount !== undefined) {
                     const expectedCount = notification.remainingCount;
                     const currentCount = powerUp.length;
                     
                     // If we have more powerups than expected, something was collected elsewhere
                     if (currentCount > expectedCount) {
                         console.log(`Powerup sync mismatch: expected ${expectedCount}, have ${currentCount}`);
-                        // Could implement more sophisticated sync here
                     }
                 }
             }
@@ -1958,6 +2012,51 @@ const multiplayerSystem = {
         } catch (error) {
             console.error('Error triggering bullet:', error);
         }
+    },
+    
+    // ===== MAP GENERATION SYNCHRONIZATION =====
+    initMapGenerationSync() {
+        // Synchronize map generation parameters across all players
+        this.syncMapGeneration();
+        this.listenToMapGeneration();
+    },
+    
+    async syncMapGeneration() {
+        if (!this.currentRoomId) return;
+        
+        try {
+            // Only the host should set the initial map generation seed
+            if (this.isHost) {
+                const mapSeed = {
+                    isHorizontalFlipped: Math.random() < 0.5,
+                    timestamp: Date.now(),
+                    hostPlayerId: this.playerId
+                };
+                
+                await set(ref(database, `rooms/${this.currentRoomId}/mapSeed`), mapSeed);
+                console.log('Host set map generation seed:', mapSeed);
+            }
+        } catch (error) {
+            console.error('Failed to sync map generation:', error);
+        }
+    },
+    
+    listenToMapGeneration() {
+        if (!this.currentRoomId) return;
+        
+        const mapSeedRef = ref(database, `rooms/${this.currentRoomId}/mapSeed`);
+        onValue(mapSeedRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const mapSeed = snapshot.val();
+            if (mapSeed && mapSeed.hostPlayerId && mapSeed.hostPlayerId !== this.playerId) {
+                // Apply the synchronized map generation parameters
+                if (typeof simulation !== 'undefined' && simulation.isHorizontalFlipped !== mapSeed.isHorizontalFlipped) {
+                    simulation.isHorizontalFlipped = mapSeed.isHorizontalFlipped;
+                    console.log('Applied synchronized map generation:', mapSeed);
+                }
+            }
+        });
     }
 };
 
