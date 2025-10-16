@@ -24,6 +24,12 @@ const simulation = {
         simulation.draw.body();
         mobs.loop();
         mobs.healthBar();
+        
+        // Draw multiplayer players
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            multiplayer.render();
+        }
+        
         m.draw();
         m.hold();
         // v.draw(); //working on visibility work in progress

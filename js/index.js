@@ -215,7 +215,7 @@ const build = {
           <text x="5" y="18">copy build url</text>
       </g>
   </svg>
-  <br><button onclick="if(confirm('Kill yourself and restart level?')){m.death();}" style="padding: 8px 16px; font-size: 16px; cursor: pointer; background: #f44; color: #fff; border: 2px solid #a00; border-radius: 5px; font-weight: bold; margin-top: 10px;">💀 Kill Yourself</button>
+  <br><button onclick="if(confirm('Kill yourself and restart level?')){m.death(); build.pauseGame();}" style="padding: 8px 16px; font-size: 16px; cursor: pointer; background: #f44; color: #fff; border: 2px solid #a00; border-radius: 5px; font-weight: bold; margin-top: 10px;">💀 Kill Yourself</button>
 </div>`;
         for (let i = 0, len = b.inventory.length; i < len; i++) {
             text += `<div class="pause-grid-module"><div class="grid-title"><div class="circle-grid gun"></div> &nbsp; ${b.guns[b.inventory[i]].name} - <span style="font-size:100%;font-weight: 100;">${b.guns[b.inventory[i]].ammo}</span></div> ${b.guns[b.inventory[i]].description}</div>`
@@ -1170,6 +1170,11 @@ function cycle() {
         // Tick poly miners if in progressive mode
         if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined') {
             polyTree.tickMiners();
+        }
+        
+        // Update multiplayer
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            multiplayer.update();
         }
 
         simulation.loop();
