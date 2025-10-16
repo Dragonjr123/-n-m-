@@ -8,6 +8,7 @@ const polyTree = {
     isDragging: false,
     lastMouseX: 0,
     lastMouseY: 0,
+    _initialized: false,
     
     // Poly Miners
     minerLevel: 0,
@@ -91,17 +92,18 @@ const polyTree = {
         simulation.firstPowerUpSpawned = false;
         this.updatePolyDisplay();
         
-        // Auto-save on page unload
-        window.addEventListener('beforeunload', () => {
-            this.saveProgress();
-        });
-        
-        // Auto-save every 10 seconds
-        setInterval(() => {
-            if (simulation.gameMode === 'progressive') {
+        if (!this._initialized) {
+            // Auto-save on page unload
+            window.addEventListener('beforeunload', () => {
                 this.saveProgress();
-            }
-        }, 10000);
+            });
+            
+            // Auto-save every 10 seconds regardless of mode
+            setInterval(() => {
+                this.saveProgress();
+            }, 10000);
+            this._initialized = true;
+        }
     },
     
     // Save/Load functionality
@@ -120,9 +122,7 @@ const polyTree = {
         if (saved) {
             try {
                 const data = JSON.parse(saved);
-                if (!simulation.polys || simulation.polys === 0) {
-                    simulation.polys = data.polys || 0;
-                }
+                simulation.polys = Number(data.polys) || 0;
                 this.ownedTech = data.ownedTech || [];
                 this.minerLevel = data.minerLevel || 0;
                 this.updateMinerStats();
@@ -260,10 +260,8 @@ const polyTree = {
         const maxCol = Math.max(...this.techTree.map(t => t.col));
         const baseWidth = (maxCol + 1) * (nodeW + gapX) + 200;
         const baseHeight = (maxRow + 1) * (nodeH + gapY) + 200;
-        const svgWidth = baseWidth * this.zoom;
-        const svgHeight = baseHeight * this.zoom;
         
-        let html = `<svg id="polytree-svg" width="${svgWidth}" height="${svgHeight}" style="background: #f9f9f9; border: 2px solid #333; cursor: grab;">
+        let html = `<div style="display:flex; justify-content:center;"><svg id="polytree-svg" viewBox="0 0 ${baseWidth} ${baseHeight}" width="100%" preserveAspectRatio="xMidYMin meet" style="height:auto; max-width: 100%; background: #f9f9f9; border: 2px solid #333; cursor: grab;">
             <g id="tree-group" transform="translate(${this.panX}, ${this.panY}) scale(${this.zoom})">`;
         
         // Draw dependency lines with curves
@@ -329,7 +327,7 @@ const polyTree = {
             html += `</g>`;
         });
         
-        html += '</g></svg>';
+        html += '</g></svg></div>';
         
         // Tooltip container
         html += '<div id="tech-tooltip" style="display: none; position: fixed; background: rgba(0,0,0,0.9); color: #fff; padding: 12px 16px; border-radius: 8px; max-width: 350px; pointer-events: none; z-index: 1000; border: 2px solid #66f; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>';
@@ -481,9 +479,11 @@ const polyTree = {
     
     awardPolyForKill(mob) {
         if (simulation.gameMode !== 'progressive') return;
-        let polyReward = Math.floor(mob.maxHealth / 100);
-        polyReward = Math.max(1, polyReward);
-        this.addPolys(polyReward);
+        const mass = Number(mob.mass) || 10;
+        const radius = Number(mob.radius) || 0;
+        let reward = 1 + Math.sqrt(Math.max(mass, 1)) / 5 + radius / 80;
+        if (mob.isBoss) reward *= 5;
+        this.addPolys(Math.max(1, Math.floor(reward)));
     },
     
     awardPolyForLevel() {
