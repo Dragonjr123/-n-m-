@@ -101,16 +101,20 @@ const polyTree = {
         if (saved) {
             try {
                 const data = JSON.parse(saved);
-                simulation.polys = data.polys || 0;
+                if (!simulation.polys || simulation.polys === 0) {
+                    simulation.polys = data.polys || 0;
+                }
                 this.ownedTech = data.ownedTech || [];
+                console.log('Loaded polytree progress:', simulation.polys, 'polys,', this.ownedTech.length, 'tech owned');
             } catch (e) {
                 console.error('Failed to load polytree save:', e);
-                simulation.polys = 0;
+                if (!simulation.polys) simulation.polys = 0;
                 this.ownedTech = [];
             }
         } else {
-            simulation.polys = 0;
+            if (!simulation.polys) simulation.polys = 0;
             this.ownedTech = [];
+            console.log('No saved polytree progress found');
         }
     },
     
@@ -133,7 +137,7 @@ const polyTree = {
     updatePolyDisplay() {
         const polyElement = document.getElementById('poly-count');
         if (polyElement) {
-            polyElement.textContent = simulation.polys;
+            polyElement.textContent = simulation.polys || 0;
         }
     },
     
@@ -361,12 +365,18 @@ const polyTree = {
     
     zoomIn() {
         this.zoom = Math.min(this.zoom * 1.2, 3);
-        this.renderTree();
+        const group = document.getElementById('tree-group');
+        if (group) {
+            group.setAttribute('transform', `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
+        }
     },
     
     zoomOut() {
         this.zoom = Math.max(this.zoom / 1.2, 0.3);
-        this.renderTree();
+        const group = document.getElementById('tree-group');
+        if (group) {
+            group.setAttribute('transform', `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
+        }
     },
     
     centerTree() {
