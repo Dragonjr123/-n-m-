@@ -438,7 +438,40 @@ const multiplayerSystem = {
         // Initialize comprehensive game state synchronization
         this.initComprehensiveGameSync();
         
+        // Fix bullet safety to prevent crashes
+        this.fixBulletSafety();
+        
         console.log('✅ Multiplayer initialized successfully');
+    },
+    
+    fixBulletSafety() {
+        // Hook into bulletDo to prevent crashes from bullets without do function
+        if (typeof b !== 'undefined' && typeof b.bulletDo === 'function') {
+            const originalBulletDo = b.bulletDo;
+            b.bulletDo = function() {
+                // Clean up any bullets that don't have the required do function
+                if (typeof bullet !== 'undefined') {
+                    for (let i = bullet.length - 1; i >= 0; i--) {
+                        if (bullet[i] && typeof bullet[i].do !== 'function') {
+                            console.log('Removing bullet without do function at index', i);
+                            // Remove the problematic bullet
+                            if (typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+                                try {
+                                    Matter.World.remove(engine.world, bullet[i]);
+                                } catch (error) {
+                                    console.warn('Error removing bullet:', error);
+                                }
+                            }
+                            bullet.splice(i, 1);
+                        }
+                    }
+                }
+                
+                // Call original function
+                return originalBulletDo.call(b);
+            };
+            console.log('✅ Bullet safety fix applied');
+        }
     },
     
     startPositionSync() {
@@ -1122,21 +1155,28 @@ const multiplayerSystem = {
             // Call original function
             originalGrabPowerUp.call(m);
             
-            // Check if any powerups were collected
+            // Check if any powerups were collected by comparing lengths
             if (powerUp.length < powerUpLengthBefore) {
                 console.log(`Player ${this.playerId} collected a powerup. Before: ${powerUpLengthBefore}, After: ${powerUp.length}`);
                 
-                // Find which powerup was collected by comparing arrays
+                // Find which powerup was collected by checking which ones are missing
                 let collectedPowerup = null;
                 for (let i = 0; i < powerUpStatesBefore.length; i++) {
                     const beforePU = powerUpStatesBefore[i];
-                    // Check if this powerup still exists at this index
-                    const currentPU = powerUp[i];
-                    if (!currentPU || 
-                        Math.abs(currentPU.position.x - beforePU.x) > 50 || 
-                        Math.abs(currentPU.position.y - beforePU.y) > 50 ||
-                        currentPU.name !== beforePU.name) {
-                        // This powerup was collected or moved significantly
+                    let stillExists = false;
+                    
+                    // Check if this powerup still exists in the current array
+                    for (let j = 0; j < powerUp.length; j++) {
+                        if (powerUp[j] && 
+                            Math.abs(powerUp[j].position.x - beforePU.x) < 50 && 
+                            Math.abs(powerUp[j].position.y - beforePU.y) < 50 &&
+                            powerUp[j].name === beforePU.name) {
+                            stillExists = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!stillExists) {
                         collectedPowerup = beforePU;
                         break;
                     }
@@ -1585,42 +1625,59 @@ const multiplayerSystem = {
                 
                 // Monitor for object grabbing changes
                 if (m.holdingTarget !== lastHoldingTarget) {
-                    if (m.holdingTarget && !lastHoldingTarget) {
-                        // Object was just grabbed
-                        this.notifyObjectInteraction({
-                            playerId: this.playerId,
-                            action: 'grab',
-                            targetId: body.indexOf(m.holdingTarget),
-                            targetPosition: m.holdingTarget.position,
-                            timestamp: Date.now()
-                        });
-                    } else if (!m.holdingTarget && lastHoldingTarget) {
-                        // Object was just released/dropped
-                        this.notifyObjectInteraction({
-                            playerId: this.playerId,
-                            action: 'release',
-                            targetId: body.indexOf(lastHoldingTarget),
-                            targetPosition: lastHoldingTarget.position,
-                            targetVelocity: lastHoldingTarget.velocity,
-                            timestamp: Date.now()
-                        });
+                    try {
+                        if (m.holdingTarget && !lastHoldingTarget) {
+                            // Object was just grabbed
+                            const targetId = typeof body !== 'undefined' ? body.indexOf(m.holdingTarget) : -1;
+                            if (targetId >= 0 && m.holdingTarget.position) {
+                                this.notifyObjectInteraction({
+                                    playerId: this.playerId,
+                                    action: 'grab',
+                                    targetId: targetId,
+                                    targetPosition: m.holdingTarget.position,
+                                    timestamp: Date.now()
+                                });
+                            }
+                        } else if (!m.holdingTarget && lastHoldingTarget && lastHoldingTarget.position) {
+                            // Object was just released/dropped
+                            const targetId = typeof body !== 'undefined' ? body.indexOf(lastHoldingTarget) : -1;
+                            if (targetId >= 0) {
+                                this.notifyObjectInteraction({
+                                    playerId: this.playerId,
+                                    action: 'release',
+                                    targetId: targetId,
+                                    targetPosition: lastHoldingTarget.position,
+                                    targetVelocity: lastHoldingTarget.velocity,
+                                    timestamp: Date.now()
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error monitoring object grabbing:', error);
                     }
                     lastHoldingTarget = m.holdingTarget;
                 }
                 
                 // Monitor for throwing (when throw charge is reset to 0 from a higher value)
                 if (m.throwCharge !== undefined) {
-                    if (lastThrowCharge > 0 && m.throwCharge === 0 && m.holdingTarget) {
-                        // Object was just thrown
-                        this.notifyObjectInteraction({
-                            playerId: this.playerId,
-                            action: 'throw',
-                            targetId: body.indexOf(m.holdingTarget),
-                            targetPosition: m.holdingTarget.position,
-                            targetVelocity: m.holdingTarget.velocity,
-                            throwCharge: lastThrowCharge,
-                            timestamp: Date.now()
-                        });
+                    try {
+                        if (lastThrowCharge > 0 && m.throwCharge === 0 && m.holdingTarget) {
+                            // Object was just thrown
+                            const targetId = typeof body !== 'undefined' ? body.indexOf(m.holdingTarget) : -1;
+                            if (targetId >= 0 && m.holdingTarget.position && m.holdingTarget.velocity) {
+                                this.notifyObjectInteraction({
+                                    playerId: this.playerId,
+                                    action: 'throw',
+                                    targetId: targetId,
+                                    targetPosition: m.holdingTarget.position,
+                                    targetVelocity: m.holdingTarget.velocity,
+                                    throwCharge: lastThrowCharge,
+                                    timestamp: Date.now()
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error monitoring object throwing:', error);
                     }
                     lastThrowCharge = m.throwCharge || 0;
                 }
@@ -2416,24 +2473,35 @@ const multiplayerSystem = {
                 // Create actual bullet for remote players with proper color
                 const bulletIndex = bullet.length;
                 
-                // Create bullet based on type
-                if (typeof Matter !== 'undefined' && typeof Bodies !== 'undefined') {
+                // Create bullet based on type using proper bullet creation method
+                if (typeof Matter !== 'undefined' && typeof Bodies !== 'undefined' && typeof b !== 'undefined') {
                     let newBullet;
+                    const bulletAngle = bulletData.velocity ? Math.atan2(bulletData.velocity.y, bulletData.velocity.x) : 0;
+                    
+                    // Use the proper fireAttributes for collision setup
+                    let bulletAttributes = {};
+                    if (typeof b.fireAttributes === 'function') {
+                        bulletAttributes = b.fireAttributes(bulletAngle);
+                    } else {
+                        // Fallback attributes
+                        bulletAttributes = {
+                            classType: "bullet",
+                            collisionFilter: {
+                                category: 0x0002, // cat.bullet
+                                mask: 0xFFFF
+                            },
+                            minDmgSpeed: 10,
+                            beforeDmg() {},
+                            onEnd() {}
+                        };
+                    }
                     
                     if (bulletData.bulletType === 'explosive' || bulletData.radius > 10) {
                         // Create explosive bullet
-                        newBullet = Matter.Bodies.circle(bulletData.position.x, bulletData.position.y, bulletData.radius || 4.5, {
-                            bulletType: bulletData.bulletType || 'default',
-                            color: bulletData.color || '#000000',
-                            classType: 'bullet'
-                        });
+                        newBullet = Matter.Bodies.circle(bulletData.position.x, bulletData.position.y, bulletData.radius || 4.5, bulletAttributes);
                     } else {
                         // Create regular bullet
-                        newBullet = Matter.Bodies.polygon(bulletData.position.x, bulletData.position.y, 4, bulletData.radius || 4.5, {
-                            bulletType: bulletData.bulletType || 'default',
-                            color: bulletData.color || '#000000',
-                            classType: 'bullet'
-                        });
+                        newBullet = Matter.Bodies.polygon(bulletData.position.x, bulletData.position.y, 4, bulletData.radius || 4.5, bulletAttributes);
                     }
                     
                     // Set bullet properties
@@ -2442,6 +2510,24 @@ const multiplayerSystem = {
                         newBullet.color = bulletData.color || '#000000';
                         newBullet.bulletType = bulletData.bulletType || 'default';
                         newBullet.endCycle = simulation.cycle + 300; // 5 second lifetime
+                        newBullet.minDmgSpeed = 10; // Required for collision detection
+                        newBullet.frictionAir = 0; // Standard bullet property
+                        
+                        // CRITICAL: Ensure the do function always exists that bulletDo() expects
+                        if (typeof newBullet.do !== 'function') {
+                            newBullet.do = function() {
+                                // Basic bullet behavior - this prevents the crash
+                                if (typeof simulation !== 'undefined' && simulation.cycle > this.endCycle) {
+                                    // Bullet should be removed when endCycle is reached
+                                    // This will be handled by the normal bullet removal system
+                                }
+                            };
+                        }
+                        
+                        // Add other required properties
+                        newBullet.beforeDmg = function() {};
+                        newBullet.onEnd = function() {};
+                        newBullet.classType = 'bullet';
                         
                         bullet.push(newBullet);
                         if (typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
