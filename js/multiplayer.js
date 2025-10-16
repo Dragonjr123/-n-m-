@@ -865,10 +865,12 @@ const multiplayerSystem = {
                     console.log('🎮 Remote players now:', Object.keys(this.remotePlayers));
                 } else {
                     // Update existing remote player, preserving name/color info
-                    this.remotePlayers[playerId].x = state.x;
-                    this.remotePlayers[playerId].y = state.y;
-                    this.remotePlayers[playerId].vx = state.vx;
-                    this.remotePlayers[playerId].vy = state.vy;
+                    this.remotePlayers[playerId].targetX = state.x;
+                    this.remotePlayers[playerId].targetY = state.y;
+                    if (typeof this.remotePlayers[playerId].x !== 'number') this.remotePlayers[playerId].x = state.x;
+                    if (typeof this.remotePlayers[playerId].y !== 'number') this.remotePlayers[playerId].y = state.y;
+                    this.remotePlayers[playerId].vx = state.vx || 0;
+                    this.remotePlayers[playerId].vy = state.vy || 0;
                     this.remotePlayers[playerId].radius = state.radius || 30;
                     this.remotePlayers[playerId].isAlive = state.isAlive !== false;
                     this.remotePlayers[playerId].health = state.health || 100;
@@ -1101,6 +1103,13 @@ const multiplayerSystem = {
             // Debug: log occasionally when rendering (reduced frequency)
             if (Math.random() < 0.001) {
                 console.log(`🎨 Rendering ${remotePlayer.name} at (${remotePlayer.x}, ${remotePlayer.y})`);
+            }
+            
+            // Smooth movement towards the last received target to reduce jitter
+            if (typeof remotePlayer.targetX === 'number' && typeof remotePlayer.x === 'number') {
+                const alpha = 0.3; // smoothing factor
+                remotePlayer.x += (remotePlayer.targetX - remotePlayer.x) * alpha;
+                remotePlayer.y += (remotePlayer.targetY - remotePlayer.y) * alpha;
             }
             
             // Render actual player model for remote player
@@ -1385,78 +1394,67 @@ const multiplayerSystem = {
         ctx.restore();
     },
     
-    async leaveRoom() {
-        if (!this.currentRoomId) return;
+    // Enhanced level sync that respects shared level progression setting
+    async checkLevelProgressionPermission() {
+        if (!this.currentRoomId) return false;
         
         try {
-            // Clean up all listeners first to prevent further operations
-            this.cleanupListeners();
+            const roomRef = ref(database, `rooms/${this.currentRoomId}/gameSettings`);
+            const snapshot = await get(roomRef);
             
-            // Clear position sync interval
-            if (this.positionUpdateInterval) {
-                clearInterval(this.positionUpdateInterval);
-                this.positionUpdateInterval = null;
+            if (snapshot.exists()) {
+                const settings = snapshot.val();
+                // Only allow level progression if you're the host OR if shared progression is enabled
+                return this.isHost || settings.sharedLevelProgression;
             }
-            
-            // Clear reconnect timeout
-            if (this.reconnectTimeout) {
-                clearTimeout(this.reconnectTimeout);
-                this.reconnectTimeout = null;
-            }
-            
-            // Clear remote players
-            this.remotePlayers = {};
-            
-            // Remove player from room with error handling
-            try {
-                await remove(ref(database, `rooms/${this.currentRoomId}/players/${this.playerId}`));
-            } catch (dbError) {
-                console.warn('Could not remove player from database:', dbError);
-            }
-            
-            // If host, delete the entire room
-            if (this.isHost) {
-                try {
-                    await remove(ref(database, `rooms/${this.currentRoomId}`));
-                } catch (dbError) {
-                    console.warn('Could not remove room from database:', dbError);
-                }
-            }
-            
-            // Reset connection state
-            this.currentRoomId = null;
-            this.currentRoom = null;
-            this.isHost = false;
-            this.connectionState = 'disconnected';
-            this.retryCount = 0;
-            
-            // Reset initialization flags
-            this.isGameStarted = false;
-            this.isInitialized = false;
-            
-            // Return to lobby
-            const roomSettingsEl = document.getElementById('room-settings');
-            const lobbyEl = document.getElementById('multiplayer-lobby');
-            if (roomSettingsEl) roomSettingsEl.style.display = 'none';
-            if (lobbyEl) lobbyEl.style.display = 'block';
-            
-            console.log('✅ Successfully left room');
         } catch (error) {
-            console.error('❌ Error leaving room:', error);
+            console.error('Error checking level progression permission:', error);
         }
+        
+        return this.isHost; // Default to host-only if we can't check
     },
     
-    cleanupListeners() {
-        // Clean up all Firebase listeners
-        this.listeners.forEach((unsubscribe, listenerName) => {
-            try {
-                unsubscribe();
-                console.log(`🔄 Cleaned up listener: ${listenerName}`);
-            } catch (error) {
-                console.warn(`Failed to cleanup listener ${listenerName}:`, error);
+    listenForPublicRooms() {
+        const roomsRef = ref(database, 'rooms');
+        onValue(roomsRef, (snapshot) => {
+            const roomList = document.getElementById('room-list');
+            roomList.innerHTML = '';
+            
+            if (!snapshot.exists()) {
+                roomList.innerHTML = '<p style="text-align: center; color: #999;">No public rooms available</p>';
+                return;
             }
+            
+            const rooms = snapshot.val();
+            const publicRooms = Object.entries(rooms).filter(([_, room]) => !room.isPrivate);
+            
+            if (publicRooms.length === 0) {
+                roomList.innerHTML = '<p style="text-align: center; color: #999;">No public rooms available</p>';
+                return;
+            }
+            
+            publicRooms.forEach(([roomId, room]) => {
+                const playerCount = room.players ? Object.keys(room.players).length : 0;
+                
+                const roomCard = document.createElement('div');
+                roomCard.className = 'SVG-button';
+                roomCard.style.cssText = `
+                    padding: 10px;
+                    margin-bottom: 8px;
+                    cursor: pointer;
+                    text-align: left;
+                `;
+                roomCard.innerHTML = `
+                    <div style="font-weight: bold;">${room.name}</div>
+                    <div style="font-size: 0.85em; color: #666;">
+                        Players: ${playerCount}/${room.maxPlayers} | Code: ${room.code}
+                    </div>
+                `;
+                roomCard.onclick = () => this.joinRoom(roomId, room);
+                
+                roomList.appendChild(roomCard);
+            });
         });
-        this.listeners.clear();
     },
     
     // ===== POWERUP SYNCHRONIZATION =====
@@ -1664,6 +1662,7 @@ const multiplayerSystem = {
             const spawns = snapshot.val();
             for (const [spawnId, spawnData] of Object.entries(spawns)) {
                 if (Date.now() - spawnData.timestamp < 1000) { // Only process recent spawns
+                    
                     // Spawn powerup locally if we don't have it (set flag to prevent recursive notification)
                     if (typeof powerUps !== 'undefined' && powerUps.spawn) {
                         this.isRemoteSpawn = true;
@@ -2493,713 +2492,6 @@ const multiplayerSystem = {
     
     // ===== COMPREHENSIVE PHYSICS SYNCHRONIZATION =====
     initComprehensivePhysicsSync() {
-        // Monitor bullet firing and explosions
-        this.monitorBulletAndExplosions();
-        
-        // Monitor mob interactions and deaths
-        this.monitorMobInteractions();
-        
-        // Listen for physics events from other players
-        this.listenToPhysicsEvents();
-    },
-    
-    monitorBulletAndExplosions() {
-        // Monitor bullet firing using polling approach
-        let lastBulletCount = 0;
-        
-        setInterval(() => {
-            if (!this.isGameStarted || typeof bullet === 'undefined') return;
-            
-            // Check for new bullets created
-            if (bullet.length > lastBulletCount) {
-                // New bullets were created, notify other players
-                const newBullets = bullet.slice(lastBulletCount);
-                for (let i = 0; i < newBullets.length; i++) {
-                    const newBullet = newBullets[i];
-                    if (newBullet && newBullet.position) {
-                        this.notifyBulletFired({
-                            playerId: this.playerId,
-                            position: { x: newBullet.position.x, y: newBullet.position.y },
-                            velocity: { x: newBullet.velocity.x, y: newBullet.velocity.y },
-                            bulletType: newBullet.bulletType || 'default',
-                            timestamp: Date.now()
-                        });
-                    }
-                }
-                lastBulletCount = bullet.length;
-            } else if (bullet.length < lastBulletCount) {
-                // Bullets were removed, update count
-                lastBulletCount = bullet.length;
-            }
-        }, 100); // Check every 100ms
-        
-        // Monitor explosions
-        if (typeof b !== 'undefined' && b.explosion) {
-            const originalExplosion = b.explosion;
-            b.explosion = (where, radius, color) => {
-                // Call original function first
-                originalExplosion.call(b, where, radius, color);
-                
-                // Notify other players about explosion
-                this.notifyExplosion({
-                    playerId: this.playerId,
-                    position: { x: where.x, y: where.y },
-                    radius: radius,
-                    color: color || "rgba(255,25,0,0.6)",
-                    timestamp: Date.now()
-                });
-            };
-        }
-    },
-    
-    async notifyExplosion(explosionData) {
-        if (!this.currentRoomId) return;
-        
-        try {
-            const explosionRef = push(ref(database, `rooms/${this.currentRoomId}/explosions`));
-            await set(explosionRef, explosionData);
-        } catch (error) {
-            console.error('Failed to notify explosion:', error);
-        }
-    },
-    
-    async notifyBulletFired(bulletData) {
-        if (!this.currentRoomId) return;
-        
-        try {
-            const bulletRef = push(ref(database, `rooms/${this.currentRoomId}/bullets`));
-            await set(bulletRef, bulletData);
-        } catch (error) {
-            console.error('Failed to notify bullet fired:', error);
-        }
-    },
-    
-    monitorMobInteractions() {
-        // Monitor mob deaths using a polling approach since hooking can be unreliable
-        let lastMobCount = mob.length;
-        let lastMobHealths = [];
-        
-        setInterval(() => {
-            if (!this.isGameStarted || typeof mob === 'undefined') return;
-            
-            // Check for mob count changes (deaths)
-            if (lastMobCount !== mob.length) {
-                console.log(`Mob count changed: ${lastMobCount} -> ${mob.length}`);
-                lastMobCount = mob.length;
-                lastMobHealths = [];
-            }
-            
-            // Check for mob health changes (deaths)
-            for (let i = 0; i < mob.length; i++) {
-                if (mob[i] && typeof mob[i].health === 'number') {
-                    const lastHealth = lastMobHealths[i] || mob[i].maxHealth;
-                    const currentHealth = mob[i].health;
-                    
-                    // If mob died (health went from > 0 to <= 0)
-                    if (lastHealth > 0 && currentHealth <= 0 && mob[i].alive) {
-                        this.notifyMobDeath({
-                            mobId: i,
-                            position: { x: mob[i].position.x, y: mob[i].position.y },
-                            playerId: this.playerId,
-                            timestamp: Date.now()
-                        });
-                    }
-                    
-                    lastMobHealths[i] = currentHealth;
-                }
-            }
-        }, 200); // Check every 200ms
-    },
-    
-    async notifyMobDeath(mobData) {
-        if (!this.currentRoomId) return;
-        
-        try {
-            const mobRef = push(ref(database, `rooms/${this.currentRoomId}/mobDeaths`));
-            await set(mobRef, mobData);
-        } catch (error) {
-            console.error('Failed to notify mob death:', error);
-        }
-    },
-    
-    listenToPhysicsEvents() {
-        if (!this.currentRoomId) return;
-        
-        // Listen for explosions from other players
-        const explosionsRef = ref(database, `rooms/${this.currentRoomId}/explosions`);
-        onValue(explosionsRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            
-            const explosions = snapshot.val();
-            for (const [explosionId, explosionData] of Object.entries(explosions)) {
-                if (explosionData.playerId !== this.playerId && 
-                    Date.now() - explosionData.timestamp < 1000) { // Only process recent explosions
-                    
-                    // Trigger explosion on this client
-                    this.triggerExplosion(explosionData);
-                    
-                    // Clean up old explosion data
-                    remove(ref(database, `rooms/${this.currentRoomId}/explosions/${explosionId}`));
-                }
-            }
-        });
-        
-        // Listen for bullets from other players
-        const bulletsRef = ref(database, `rooms/${this.currentRoomId}/bullets`);
-        onValue(bulletsRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            
-            const bullets = snapshot.val();
-            for (const [bulletId, bulletData] of Object.entries(bullets)) {
-                if (bulletData.playerId !== this.playerId && 
-                    Date.now() - bulletData.timestamp < 500) { // Only process recent bullets
-                    
-                    // Trigger bullet creation on this client
-                    this.triggerBullet(bulletData);
-                    
-                    // Clean up old bullet data
-                    remove(ref(database, `rooms/${this.currentRoomId}/bullets/${bulletId}`));
-                }
-            }
-        });
-        
-        // Listen for mob deaths from other players
-        const mobDeathsRef = ref(database, `rooms/${this.currentRoomId}/mobDeaths`);
-        onValue(mobDeathsRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            
-            const mobDeaths = snapshot.val();
-            for (const [deathId, mobData] of Object.entries(mobDeaths)) {
-                if (mobData.playerId !== this.playerId && 
-                    Date.now() - mobData.timestamp < 2000) { // Only process recent deaths
-                    
-                    // Sync mob death on this client
-                    this.syncMobDeath(mobData);
-                    
-                    // Clean up old death data
-                    remove(ref(database, `rooms/${this.currentRoomId}/mobDeaths/${deathId}`));
-                }
-            }
-        });
-    },
-    
-    triggerExplosion(explosionData) {
-        try {
-            if (typeof b !== 'undefined' && b.explosion && explosionData.position && explosionData.radius) {
-                // Create explosion effect visually without affecting local game state
-                if (typeof simulation !== 'undefined' && simulation.drawList) {
-                    simulation.drawList.push({
-                        x: explosionData.position.x,
-                        y: explosionData.position.y,
-                        radius: explosionData.radius,
-                        color: explosionData.color || "rgba(255,25,0,0.6)",
-                        time: simulation.drawTime * 2
-                    });
-                }
-                
-                console.log('Triggered remote explosion at:', explosionData.position);
-            }
-        } catch (error) {
-            console.error('Error triggering explosion:', error);
-        }
-    },
-    
-    syncMobDeath(mobData) {
-        try {
-            // Find the corresponding mob and sync its death
-            if (typeof mob !== 'undefined' && mob.length > mobData.mobId && mob[mobData.mobId]) {
-                const targetMob = mob[mobData.mobId];
-                if (targetMob && targetMob.alive && typeof targetMob.damage === 'function') {
-                    // Force the mob to die to match the other client
-                    targetMob.damage(targetMob.health + 1); // Ensure death
-                }
-            }
-        } catch (error) {
-            console.error('Error syncing mob death:', error);
-        }
-    },
-    
-    triggerBullet(bulletData) {
-        try {
-            // Create a visual bullet effect for remote players
-            // This is a simplified version - in a full implementation, you'd create actual bullet bodies
-            if (typeof simulation !== 'undefined' && simulation.drawList && bulletData.position) {
-                // Add a bullet trail effect to the draw queue
-                simulation.drawList.push({
-                    x: bulletData.position.x,
-                    y: bulletData.position.y,
-                    radius: 3,
-                    color: "rgba(255,255,0,0.8)",
-                    time: simulation.drawTime * 0.5 // Short-lived bullet trail
-                });
-                
-                console.log('Triggered remote bullet at:', bulletData.position);
-            }
-        } catch (error) {
-            console.error('Error triggering bullet:', error);
-        }
-    },
-    
-    // ===== MOB AND PHYSICS BODY SYNCHRONIZATION =====
-    initMobAndBodySync() {
-        // Hook into mob spawning to sync across all players
-        this.hookMobSpawning();
-        
-        // Hook into physics body spawning to sync across all players
-        this.hookBodySpawning();
-        
-        // Listen for mob and body spawn events from other players
-        this.listenToMobAndBodySpawns();
-    },
-    
-    hookMobSpawning() {
-        // Hook into mobs.spawn to synchronize mob spawning - enhanced to catch all spawns
-        if (typeof mobs !== 'undefined' && mobs.spawn) {
-            const originalSpawn = mobs.spawn;
-            
-            // Initialize the flag
-            this.isRemoteMobSpawn = false;
-            
-            mobs.spawn = (xPos, yPos, sides, radius, color) => {
-                // Call original spawn first
-                const result = originalSpawn.call(mobs, xPos, yPos, sides, radius, color);
-                
-                // Only notify if this is not a remote spawn
-                if (!this.isRemoteMobSpawn && this.isGameStarted) {
-                    const newMob = mob[mob.length - 1];
-                    if (newMob) {
-                        this.notifyMobSpawn({
-                            playerId: this.playerId,
-                            mobId: mob.length - 1,
-                            position: { x: xPos, y: yPos },
-                            sides: sides,
-                            radius: radius,
-                            color: color,
-                            timestamp: Date.now()
-                        });
-                        console.log('Notified mob spawn:', { x: xPos, y: yPos, sides, radius, color });
-                    }
-                }
-                
-                return result;
-            };
-        }
-        
-        // Also add additional monitoring to catch any mobs that might be created through other means
-        let lastMobCount = 0;
-        setInterval(() => {
-            if (!this.isGameStarted || typeof mob === 'undefined') return;
-            
-            // Check for new mobs that might not have been caught by the hook
-            if (mob.length > lastMobCount) {
-                const newMobs = mob.slice(lastMobCount);
-                for (let i = 0; i < newMobs.length; i++) {
-                    const newMob = newMobs[i];
-                    if (newMob && newMob.position && !this.isRemoteMobSpawn) {
-                        // This is a backup to catch any mobs that weren't caught by the hook
-                        console.log('Backup mob spawn detected:', newMob.position);
-                    }
-                }
-                lastMobCount = mob.length;
-            }
-        }, 200); // Check every 200ms for missed mob spawns
-    },
-    
-    hookBodySpawning() {
-        // Hook into spawn.bodyRect and other body spawning functions
-        if (typeof spawn !== 'undefined') {
-            // Hook bodyRect spawning
-            if (spawn.bodyRect) {
-                const originalBodyRect = spawn.bodyRect;
-                
-                // Initialize the flag
-                this.isRemoteBodySpawn = false;
-                
-                spawn.bodyRect = (x, y, width, height, density) => {
-                    const result = originalBodyRect.call(spawn, x, y, width, height, density);
-                    
-                    if (!this.isRemoteBodySpawn) {
-                        const newBody = body[body.length - 1];
-                        if (newBody) {
-                            this.notifyBodySpawn({
-                                playerId: this.playerId,
-                                bodyId: body.length - 1,
-                                position: { x: x, y: y },
-                                width: width,
-                                height: height,
-                                density: density !== undefined ? density : 1.0, // Default density if undefined
-                                bodyType: 'rect',
-                                timestamp: Date.now()
-                            });
-                        }
-                    }
-                    
-                    return result;
-                };
-            }
-        }
-    },
-    
-    async notifyMobSpawn(mobData) {
-        if (!this.currentRoomId) return;
-        
-        try {
-            const mobRef = push(ref(database, `rooms/${this.currentRoomId}/mobSpawns`));
-            await set(mobRef, mobData);
-        } catch (error) {
-            console.error('Failed to notify mob spawn:', error);
-        }
-    },
-    
-    async notifyBodySpawn(bodyData) {
-        if (!this.currentRoomId) return;
-        
-        try {
-            const bodyRef = push(ref(database, `rooms/${this.currentRoomId}/bodySpawns`));
-            await set(bodyRef, bodyData);
-        } catch (error) {
-            console.error('Failed to notify body spawn:', error);
-        }
-    },
-    
-    listenToMobAndBodySpawns() {
-        if (!this.currentRoomId) return;
-        
-        // Listen for mob spawns
-        const mobSpawnsRef = ref(database, `rooms/${this.currentRoomId}/mobSpawns`);
-        onValue(mobSpawnsRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            
-            const spawns = snapshot.val();
-            for (const [spawnId, spawnData] of Object.entries(spawns)) {
-                if (spawnData.playerId !== this.playerId && 
-                    Date.now() - spawnData.timestamp < 5000) {
-                    
-                    this.syncMobSpawn(spawnData);
-                    remove(ref(database, `rooms/${this.currentRoomId}/mobSpawns/${spawnId}`));
-                }
-            }
-        });
-        
-        // Listen for body spawns  
-        const bodySpawnsRef = ref(database, `rooms/${this.currentRoomId}/bodySpawns`);
-        onValue(bodySpawnsRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            
-            const spawns = snapshot.val();
-            for (const [spawnId, spawnData] of Object.entries(spawns)) {
-                if (spawnData.playerId !== this.playerId && 
-                    Date.now() - spawnData.timestamp < 5000) {
-                    
-                    this.syncBodySpawn(spawnData);
-                    remove(ref(database, `rooms/${this.currentRoomId}/bodySpawns/${spawnId}`));
-                }
-            }
-        });
-    },
-    
-    syncMobSpawn(spawnData) {
-        try {
-            // Spawn the mob locally for remote players
-            if (typeof mobs !== 'undefined' && mobs.spawn) {
-                this.isRemoteMobSpawn = true;
-                mobs.spawn(
-                    spawnData.position.x,
-                    spawnData.position.y,
-                    spawnData.sides,
-                    spawnData.radius,
-                    spawnData.color
-                );
-                this.isRemoteMobSpawn = false;
-                
-                // Ensure the mob has a do function (critical to prevent crashes)
-                const newMob = mob[mob.length - 1];
-                if (newMob && typeof newMob.do !== 'function') {
-                    // Assign a basic do function for remote mobs
-                    newMob.do = function() {
-                        this.seePlayerByLookingAt();
-                        this.attraction();
-                        this.checkStatus();
-                    };
-                    console.log('Assigned default do function to remote mob');
-                }
-                
-                console.log('Synced mob spawn:', spawnData);
-            }
-        } catch (error) {
-            console.error('Error syncing mob spawn:', error);
-        }
-    },
-    
-    syncBodySpawn(spawnData) {
-        try {
-            // Spawn the body locally for remote players
-            if (typeof spawn !== 'undefined' && spawn.bodyRect) {
-                this.isRemoteBodySpawn = true;
-                spawn.bodyRect(
-                    spawnData.position.x,
-                    spawnData.position.y,
-                    spawnData.width,
-                    spawnData.height,
-                    spawnData.density
-                );
-                this.isRemoteBodySpawn = false;
-                console.log('Synced body spawn:', spawnData);
-            }
-        } catch (error) {
-            console.error('Error syncing body spawn:', error);
-        }
-    },
-    
-    // ===== COLLISION EVENT SYNCHRONIZATION =====
-    initCollisionEventSync() {
-        // Hook into engine collision events to sync physics interactions
-        this.hookCollisionEvents();
-        
-        // Listen for collision events from other players
-        this.listenToCollisionEvents();
-    },
-    
-    hookCollisionEvents() {
-        // Hook into the global collisionChecks function to network significant collisions
-        if (typeof window !== 'undefined') {
-            // Store reference to original collision function if it exists
-            if (typeof collisionChecks === 'function') {
-                this.originalCollisionChecks = window.collisionChecks;
-                
-                // Override the global collisionChecks function to add networking
-                window.collisionChecks = (event) => {
-                    // Call original function first
-                    if (this.originalCollisionChecks) {
-                        this.originalCollisionChecks(event);
-                    }
-                    
-                    // Monitor for significant collisions and network them
-                    this.monitorSignificantCollisions(event);
-                };
-                
-                console.log('Collision event hooking initialized for physics sync');
-            }
-        }
-    },
-    
-    monitorSignificantCollisions(event) {
-        if (!this.isGameStarted) return;
-        
-        const pairs = event.pairs;
-        for (let i = 0; i < pairs.length; i++) {
-            const pair = pairs[i];
-            
-            // Check for mob damage/death collisions
-            if (pair.bodyA.mob || pair.bodyB.mob) {
-                const mobBody = pair.bodyA.mob ? pair.bodyA : pair.bodyB;
-                const otherBody = pair.bodyA === mobBody ? pair.bodyB : pair.bodyA;
-                
-                // Network mob collisions with bullets or significant impacts
-                if (otherBody.classType === 'bullet' || 
-                    (otherBody.classType === 'body' && otherBody.speed > 5)) {
-                    this.notifyMobCollision({
-                        playerId: this.playerId,
-                        mobId: mobBody.index,
-                        colliderType: otherBody.classType || 'unknown',
-                        position: { x: pair.activeContacts[0].vertex.x, y: pair.activeContacts[0].vertex.y },
-                        velocity: { x: otherBody.velocity?.x || 0, y: otherBody.velocity?.y || 0 },
-                        timestamp: Date.now()
-                    });
-                }
-            }
-        }
-    },
-    
-    async notifyMobCollision(collisionData) {
-        if (!this.currentRoomId) return;
-        
-        try {
-            const collisionRef = push(ref(database, `rooms/${this.currentRoomId}/collisionEvents`));
-            await set(collisionRef, collisionData);
-        } catch (error) {
-            console.error('Failed to notify mob collision:', error);
-        }
-    },
-    
-    listenToCollisionEvents() {
-        if (!this.currentRoomId) return;
-        
-        const collisionRef = ref(database, `rooms/${this.currentRoomId}/collisionEvents`);
-        onValue(collisionRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            
-            const events = snapshot.val();
-            for (const [eventId, eventData] of Object.entries(events)) {
-                if (eventData.playerId !== this.playerId && 
-                    Date.now() - eventData.timestamp < 1000) {
-                    
-                    this.applyCollisionEvent(eventData);
-                    remove(ref(database, `rooms/${this.currentRoomId}/collisionEvents/${eventId}`));
-                }
-            }
-        });
-    },
-    
-    applyCollisionEvent(eventData) {
-        try {
-            // Apply collision effects remotely (damage, forces, etc.)
-            if (eventData.colliderType === 'bullet' && typeof mob !== 'undefined' && mob[eventData.mobId]) {
-                const targetMob = mob[eventData.mobId];
-                if (targetMob && targetMob.alive) {
-                    // Create visual effect for the collision
-                    if (typeof simulation !== 'undefined' && simulation.drawList) {
-                        simulation.drawList.push({
-                            x: eventData.position.x,
-                            y: eventData.position.y,
-                            radius: 30,
-                            color: "rgba(255,255,0,0.6)",
-                            time: simulation.drawTime
-                        });
-                    }
-                    
-                    console.log('Applied remote collision event to mob:', eventData.mobId);
-                }
-            }
-        } catch (error) {
-            console.error('Error applying collision event:', error);
-        }
-    },
-    
-    // ===== MAP GENERATION SYNCHRONIZATION =====
-    initMapGenerationSync() {
-        // Synchronize map generation parameters across all players
-        this.syncMapGeneration();
-        this.listenToMapGeneration();
-    },
-    
-    async syncMapGeneration() {
-        if (!this.currentRoomId) return;
-        
-        try {
-            // Only the host should set the initial map generation seed
-            if (this.isHost) {
-                const seedValue = Math.random();
-                const mapSeed = {
-                    isHorizontalFlipped: seedValue < 0.5,
-                    masterSeed: seedValue,
-                    wimpPowerupSeeds: [], // Will store seeds for WIMP powerup generation
-                    timestamp: Date.now(),
-                    hostPlayerId: this.playerId
-                };
-                
-                // Pre-generate seeds for level randomizations using a temporary seeded generator
-                const tempRandom = this.createSeededRandom(seedValue);
-                for (let i = 0; i < 100; i++) {
-                    mapSeed.wimpPowerupSeeds.push(tempRandom());
-                }
-                
-                await set(ref(database, `rooms/${this.currentRoomId}/mapSeed`), mapSeed);
-                console.log('Host set comprehensive map generation seed:', mapSeed);
-                
-                // Apply the seed immediately for the host too
-                this.applyMapSeed(mapSeed);
-                this.startMapSyncWatchdog(mapSeed);
-            }
-        } catch (error) {
-            console.error('Failed to sync map generation:', error);
-        }
-    },
-    
-    createSeededRandom(seed) {
-        // Simple seeded random number generator
-        let state = seed * 2147483647;
-        return function() {
-            state = (state * 16807) % 2147483647;
-            return state / 2147483647;
-        };
-    },
-    
-    applyMapSeed(mapSeed) {
-        // Apply map seed for both host and clients
-        if (typeof simulation !== 'undefined') {
-            // Always set the synchronized value, overriding any random assignment
-            simulation.isHorizontalFlipped = mapSeed.isHorizontalFlipped;
-            console.log('Applied isHorizontalFlipped:', mapSeed.isHorizontalFlipped);
-            
-            // Store the master seed for consistent random generation
-            if (mapSeed.masterSeed !== undefined) {
-                this.masterSeed = mapSeed.masterSeed;
-                this.wimpPowerupSeeds = mapSeed.wimpPowerupSeeds || [];
-                this.seedIndex = 0;
-                
-                // Override Math.random to use synchronized seeds
-                this.setupSynchronizedRandom();
-                
-                console.log('✅ Map generation fully synchronized - all players should have identical maps!');
-            }
-        }
-    },
-    
-    listenToMapGeneration() {
-        if (!this.currentRoomId) return;
-        
-        const mapSeedRef = ref(database, `rooms/${this.currentRoomId}/mapSeed`);
-        onValue(mapSeedRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            
-            const mapSeed = snapshot.val();
-            if (mapSeed && mapSeed.hostPlayerId) {
-                // Apply for both host and clients - use the new unified function
-                this.applyMapSeed(mapSeed);
-                
-                // Set up a watchdog to ensure isHorizontalFlipped stays synchronized
-                this.startMapSyncWatchdog(mapSeed);
-                
-                console.log('Applied synchronized map generation:', mapSeed);
-            }
-        });
-    },
-    
-    startMapSyncWatchdog(mapSeed) {
-        // Ensure isHorizontalFlipped stays synchronized even if startGame() overrides it
-        if (this.mapSyncWatchdog) {
-            clearInterval(this.mapSyncWatchdog);
-        }
-        
-        this.synchronizedIsHorizontalFlipped = mapSeed.isHorizontalFlipped;
-        
-        this.mapSyncWatchdog = setInterval(() => {
-            if (typeof simulation !== 'undefined' && 
-                simulation.isHorizontalFlipped !== this.synchronizedIsHorizontalFlipped) {
-                console.log('Correcting isHorizontalFlipped to synchronized value:', this.synchronizedIsHorizontalFlipped);
-                simulation.isHorizontalFlipped = this.synchronizedIsHorizontalFlipped;
-            }
-        }, 100); // Check every 100ms for the first few seconds
-    },
-    
-    setupSynchronizedRandom() {
-        // Hook into Math.random to use synchronized seeds for consistent generation
-        if (this.masterSeed !== undefined) {
-            const originalRandom = Math.random;
-            
-            // Initialize seed index if not set
-            if (this.seedIndex === undefined) {
-                this.seedIndex = 0;
-            }
-            
-            Math.random = () => {
-                // Use synchronized seeds for consistent generation
-                if (this.wimpPowerupSeeds && this.wimpPowerupSeeds.length > 0 && this.seedIndex < this.wimpPowerupSeeds.length) {
-                    const result = this.wimpPowerupSeeds[this.seedIndex];
-                    this.seedIndex++;
-                    return result;
-                }
-                // Fallback to deterministic generation based on master seed
-                return originalRandom();
-            };
-            
-            console.log('✅ Synchronized random generation activated with', this.wimpPowerupSeeds.length, 'seeds');
-        }
-    },
-    
-    // ===== COMPREHENSIVE GAME STATE SYNCHRONIZATION =====
-    initComprehensiveGameSync() {
         // Network ALL game elements that should be synchronized
         this.initBulletAndSporeSync();
         this.initMobStateSync();
@@ -3387,116 +2679,103 @@ const multiplayerSystem = {
     
     triggerBulletCreation(bulletData) {
         try {
-            if (typeof b !== 'undefined' && bulletData.position && typeof bullet !== 'undefined') {
-                // Create actual bullet for remote players with proper color and rendering
-                
-                // Create bullet based on type using proper bullet creation method
-                if (typeof Matter !== 'undefined' && typeof Bodies !== 'undefined') {
-                    let newBullet;
-                    const bulletAngle = bulletData.velocity ? Math.atan2(bulletData.velocity.y, bulletData.velocity.x) : 0;
-                    
-                    // Use the proper fireAttributes for collision setup
-                    let bulletAttributes = {
-                        classType: "bullet",
-                        collisionFilter: {
-                            category: 0x0002, // cat.bullet
-                            mask: 0xFFFF
-                        },
-                        minDmgSpeed: 10,
-                        beforeDmg() {},
-                        onEnd() {},
-                        // Add render properties for proper visualization
-                        render: {
-                            fillStyle: bulletData.color || '#000000',
-                            strokeStyle: bulletData.color || '#000000',
-                            lineWidth: 1
+            if (typeof Matter === 'undefined' || !Matter.Bodies) return;
+            if (typeof bullet === 'undefined' || !bulletData || !bulletData.position) return;
+            
+            const angle = bulletData.velocity ? Math.atan2(bulletData.velocity.y, bulletData.velocity.x) : 0;
+            
+            let bulletAttributes = {
+                classType: "bullet",
+                collisionFilter: {
+                    category: 0x0002, // cat.bullet
+                    mask: 0xFFFF
+                },
+                minDmgSpeed: 10,
+                beforeDmg() {},
+                onEnd() {},
+                render: {
+                    fillStyle: bulletData.color || '#000000',
+                    strokeStyle: bulletData.color || '#000000',
+                    lineWidth: 1
+                }
+            };
+            
+            if (typeof b !== 'undefined' && typeof b.fireAttributes === 'function') {
+                try {
+                    const attrs = b.fireAttributes(angle);
+                    bulletAttributes = { ...bulletAttributes, ...attrs };
+                } catch (e) {}
+            }
+            
+            let newBullet;
+            if (bulletData.bulletType === 'explosive' || (bulletData.radius && bulletData.radius > 10)) {
+                newBullet = Matter.Bodies.circle(
+                    bulletData.position.x,
+                    bulletData.position.y,
+                    bulletData.radius || 4.5,
+                    bulletAttributes
+                );
+            } else {
+                newBullet = Matter.Bodies.polygon(
+                    bulletData.position.x,
+                    bulletData.position.y,
+                    4,
+                    bulletData.radius || 4.5,
+                    bulletAttributes
+                );
+            }
+            
+            if (!newBullet) return;
+            
+            if (bulletData.velocity) Matter.Body.setVelocity(newBullet, bulletData.velocity);
+            newBullet.color = bulletData.color || '#000000';
+            newBullet.fill = bulletData.color || '#000000';
+            newBullet.bulletType = bulletData.bulletType || 'default';
+            newBullet.endCycle = (typeof simulation !== 'undefined' ? simulation.cycle : 0) + 300;
+            newBullet.minDmgSpeed = 10;
+            newBullet.frictionAir = 0;
+            if (bulletData.mass) newBullet.mass = bulletData.mass;
+            if (bulletData.thrust) newBullet.thrust = { x: bulletData.thrust.x || 0, y: bulletData.thrust.y || 0 };
+            if (bulletData.explodeRad) newBullet.explodeRad = bulletData.explodeRad;
+            if (bulletData.totalSpores) newBullet.totalSpores = bulletData.totalSpores;
+            if (bulletData.isInHole) newBullet.isInHole = bulletData.isInHole;
+            
+            if (typeof newBullet.do !== 'function') {
+                if (newBullet.bulletType === 'thrust' && newBullet.thrust) {
+                    newBullet.do = function() {
+                        if (this.thrust) {
+                            this.force.x += this.thrust.x;
+                            this.force.y += this.thrust.y;
                         }
                     };
-                    
-                    if (typeof b.fireAttributes === 'function') {
-                        const attrs = b.fireAttributes(bulletAngle);
-                        bulletAttributes = { ...bulletAttributes, ...attrs };
-                    }
-                    
-                    if (bulletData.bulletType === 'explosive' || bulletData.radius > 10) {
-                        // Create explosive bullet
-                        newBullet = Matter.Bodies.circle(bulletData.position.x, bulletData.position.y, bulletData.radius || 4.5, bulletAttributes);
-                    } else {
-                        // Create regular bullet
-                        newBullet = Matter.Bodies.polygon(bulletData.position.x, bulletData.position.y, 4, bulletData.radius || 4.5, bulletAttributes);
-                    }
-                    
-                    // Set bullet properties with enhanced type detection
-                    if (newBullet && bulletData.velocity) {
-                        Matter.Body.setVelocity(newBullet, bulletData.velocity);
-                        newBullet.color = bulletData.color || '#000000';
-                        newBullet.fill = bulletData.color || '#000000'; // Ensure fill color is set
-                        newBullet.bulletType = bulletData.bulletType || 'default';
-                        newBullet.endCycle = simulation.cycle + 300; // 5 second lifetime
-                        newBullet.minDmgSpeed = 10; // Required for collision detection
-                        newBullet.frictionAir = 0; // Standard bullet property
-                        newBullet.density = 0.001; // Standard bullet density
-                        
-                        // Apply additional properties based on bullet type
-                        if (bulletData.mass) newBullet.mass = bulletData.mass;
-                        if (bulletData.thrust) {
-                            newBullet.thrust = { x: bulletData.thrust.x || 0, y: bulletData.thrust.y || 0 };
+                } else if (newBullet.bulletType === 'explosive' || newBullet.explodeRad) {
+                    newBullet.do = function() {};
+                    newBullet.onEnd = function() {
+                        if (typeof b !== 'undefined' && b.explosion) {
+                            b.explosion({ x: this.position.x, y: this.position.y }, newBullet.explodeRad || 50, '#ff6600');
                         }
-                        if (bulletData.explodeRad) newBullet.explodeRad = bulletData.explodeRad;
-                        if (bulletData.totalSpores) newBullet.totalSpores = bulletData.totalSpores;
-                        if (bulletData.isInHole) newBullet.isInHole = bulletData.isInHole;
-                        
-                        // CRITICAL: Ensure the do function always exists that bulletDo() expects
-                        // Also set appropriate behavior based on bullet type
-                        if (bulletData.bulletType === 'thrust' && bulletData.thrust) {
-                            newBullet.do = function() {
-                                if (this.thrust) {
-                                    this.force.x += this.thrust.x;
-                                    this.force.y += this.thrust.y;
-                                }
-                            };
-                        } else if (bulletData.bulletType === 'explosive' || bulletData.explodeRad) {
-                            newBullet.do = function() {
-                                // Explosive bullet behavior - will explode on end
-                            };
-                            newBullet.onEnd = function() {
-                                if (typeof b !== 'undefined' && b.explosion) {
-                                    b.explosion({ x: this.position.x, y: this.position.y }, bulletData.explodeRad || 50, '#ff6600');
-                                }
-                            };
-                        } else {
-                            newBullet.do = function() {
-                                // Basic bullet behavior - this prevents the crash
-                            };
-                        }
-                        
-                        // Add other required properties
-                        newBullet.beforeDmg = function() {};
-                        if (!newBullet.onEnd) {
-                            newBullet.onEnd = function() {};
-                        }
-                        newBullet.classType = 'bullet';
-                        
-                        // Add to bullet array and physics world
-                        bullet.push(newBullet);
-                        if (typeof engine !== 'undefined') {
-                            Matter.World.add(engine.world, newBullet);
-                        }
-                        
-                        console.log('✅ Created remote bullet:', bulletData.bulletType, 'color:', bulletData.color);
-                    }
+                    };
+                } else {
+                    newBullet.do = function() {};
                 }
-                
-                // Also create visual effect for immediate feedback
-                if (typeof simulation !== 'undefined' && simulation.drawList) {
-                    simulation.drawList.push({
-                        x: bulletData.position.x,
-                        y: bulletData.position.y,
-                        radius: bulletData.radius || 4.5,
-                        color: bulletData.color || "#000000",
-                        time: simulation.drawTime * 1.2
-                    });
-                }
+            }
+            newBullet.beforeDmg = newBullet.beforeDmg || function() {};
+            newBullet.onEnd = newBullet.onEnd || function() {};
+            newBullet.classType = 'bullet';
+            
+            bullet.push(newBullet);
+            if (typeof engine !== 'undefined') {
+                Matter.World.add(engine.world, newBullet);
+            }
+            
+            if (typeof simulation !== 'undefined' && simulation.drawList) {
+                simulation.drawList.push({
+                    x: bulletData.position.x,
+                    y: bulletData.position.y,
+                    radius: bulletData.radius || 4.5,
+                    color: bulletData.color || '#000000',
+                    time: simulation.drawTime * 1.2
+                });
             }
         } catch (error) {
             console.error('Error triggering bullet creation:', error);
@@ -3788,8 +3067,9 @@ const multiplayerSystem = {
                         const timeSinceLastNotification = now - lastNotified;
                         
                         // Only notify for major changes and not too frequently
-                        if ((posChange > 500 || velChange > 100 || currentState.isHeld !== lastState.isHeld) && 
-                            timeSinceLastNotification > 1000) { // At least 1 second between notifications per object
+                        const minInterval = currentState.isHeld ? 250 : 600; // faster updates when held
+                        if ((posChange > 120 || velChange > 20 || currentState.isHeld !== lastState.isHeld) && 
+                            timeSinceLastNotification > minInterval) {
                             this.notifyPhysicsObjectChange({
                                 playerId: this.playerId,
                                 bodyId: i,
@@ -3863,7 +3143,7 @@ const multiplayerSystem = {
                     );
                     
                     // Only sync if the difference is significant and coordinates are valid
-                    if (posDistance > 200) { // Increased threshold to reduce spam
+                    if (posDistance > 80 || remoteState.isHeld) { // tighter threshold; always apply when held
                         if (typeof Matter !== 'undefined' && Matter.Body) {
                             Matter.Body.setPosition(targetBody, remoteState.position);
                             Matter.Body.setVelocity(targetBody, remoteState.velocity);

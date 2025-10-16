@@ -193,17 +193,17 @@ const b = {
         }
     },
     bulletDraw() {
-        ctx.beginPath();
         for (let i = 0, len = bullet.length; i < len; i++) {
             let vertices = bullet[i].vertices;
+            ctx.beginPath();
             ctx.moveTo(vertices[0].x, vertices[0].y);
             for (let j = 1; j < vertices.length; j += 1) {
                 ctx.lineTo(vertices[j].x, vertices[j].y);
             }
             ctx.lineTo(vertices[0].x, vertices[0].y);
+            ctx.fillStyle = bullet[i].fill || bullet[i].color || "#000";
+            ctx.fill();
         }
-        ctx.fillStyle = "#000";
-        ctx.fill();
     },
     bulletDo() {
         for (let i = 0, len = bullet.length; i < len; i++) {
