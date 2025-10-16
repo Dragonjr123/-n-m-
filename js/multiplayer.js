@@ -1518,50 +1518,52 @@ const multiplayerSystem = {
         if (typeof m !== 'undefined') {
             let lastFieldActive = false;
             let lastFieldGrabbing = false;
-            let lastNotifiedTime = 0;
+            let lastFieldNotifiedTime = 0;
+            let lastGrabNotifiedTime = 0;
             
             setInterval(() => {
-                if (this.isGameStarted) {
-                    const now = Date.now();
+                if (!this.isGameStarted) return;
+                
+                const now = Date.now();
+                
+                // Check if field is currently active
+                const fieldActive = m.energy > 0.05 && input.field && m.fieldCDcycle < m.cycle;
+                const fieldGrabbing = fieldActive && m && m.grabPowerUp && typeof powerUp !== 'undefined';
+                
+                // Validate data before sending notifications
+                if (player && player.position && typeof m.angle === 'number' && typeof m.energy === 'number' && 
+                    !isNaN(m.angle) && !isNaN(m.energy) && !isNaN(player.position.x) && !isNaN(player.position.y)) {
                     
-                    // Check if field is currently active
-                    const fieldActive = m.energy > 0.05 && input.field && m.fieldCDcycle < m.cycle;
-                    const fieldGrabbing = fieldActive && m && m.grabPowerUp && typeof powerUp !== 'undefined';
-                    
-                    // Validate data before sending notifications
-                    if (player && player.position && typeof m.angle === 'number' && typeof m.energy === 'number' && 
-                        !isNaN(m.angle) && !isNaN(m.energy) && !isNaN(player.position.x) && !isNaN(player.position.y)) {
-                        
-                        // Notify when field becomes active (throttled to max once per 200ms)
-                        if (fieldActive && (!lastFieldActive || now - lastNotifiedTime > 200)) {
-                            this.notifyFieldUsage({
-                                playerId: this.playerId,
-                                position: { x: player.position.x, y: player.position.y },
-                                angle: m.angle,
-                                energy: Math.max(0, Math.min(m.energy, 1)), // Clamp energy
-                                timestamp: now
-                            });
-                            lastNotifiedTime = now;
-                        }
-                        
-                        // Notify when field is actively grabbing (throttled to max once per 100ms)
-                        if (fieldGrabbing && (fieldGrabbing !== lastFieldGrabbing || now - lastNotifiedTime > 100)) {
-                            this.notifyFieldUsage({
-                                playerId: this.playerId,
-                                position: { x: player.position.x, y: player.position.y },
-                                angle: m.angle,
-                                energy: Math.max(0, Math.min(m.energy, 1)), // Clamp energy
-                                isGrabbing: true,
-                                timestamp: now
-                            });
-                            lastNotifiedTime = now;
-                        }
+                    // Only notify when field state changes, not continuously
+                    // Notify when field becomes active (much longer throttle)
+                    if (fieldActive && !lastFieldActive && (now - lastFieldNotifiedTime > 500)) {
+                        this.notifyFieldUsage({
+                            playerId: this.playerId,
+                            position: { x: player.position.x, y: player.position.y },
+                            angle: m.angle,
+                            energy: Math.max(0, Math.min(m.energy, 1)), // Clamp energy
+                            timestamp: now
+                        });
+                        lastFieldNotifiedTime = now;
                     }
                     
-                    lastFieldActive = fieldActive;
-                    lastFieldGrabbing = fieldGrabbing;
+                    // Notify when field grabbing state changes (longer throttle)
+                    if (fieldGrabbing !== lastFieldGrabbing && (now - lastGrabNotifiedTime > 300)) {
+                        this.notifyFieldUsage({
+                            playerId: this.playerId,
+                            position: { x: player.position.x, y: player.position.y },
+                            angle: m.angle,
+                            energy: Math.max(0, Math.min(m.energy, 1)), // Clamp energy
+                            isGrabbing: fieldGrabbing,
+                            timestamp: now
+                        });
+                        lastGrabNotifiedTime = now;
+                    }
                 }
-            }, 100); // Check every 100ms for responsive field effects
+                
+                lastFieldActive = fieldActive;
+                lastFieldGrabbing = fieldGrabbing;
+            }, 250); // Check less frequently to reduce spam
         }
     },
     
@@ -1596,38 +1598,52 @@ const multiplayerSystem = {
         if (typeof level !== 'undefined') {
             // Monitor player position for large jumps (indicating teleportation)
             let lastPlayerPosition = { x: 0, y: 0 };
+            let lastTeleportTime = 0;
+            let initialized = false;
             
             setInterval(() => {
-                if (!player || !player.position) return;
+                if (!player || !player.position || !this.isGameStarted) return;
                 
                 const currentPos = { x: player.position.x, y: player.position.y };
-                const distance = Math.sqrt(
-                    Math.pow(currentPos.x - lastPlayerPosition.x, 2) + 
-                    Math.pow(currentPos.y - lastPlayerPosition.y, 2)
-                );
                 
-                // If player moved more than 1000 units in one update, it's likely a teleportation
-                if (distance > 1000 && lastPlayerPosition.x !== 0 && lastPlayerPosition.y !== 0 && this.isGameStarted) {
-                    // Only notify if we have permission AND validate coordinates
-                    if (!isNaN(currentPos.x) && !isNaN(currentPos.y) && 
-                        Math.abs(currentPos.x) < 10000 && Math.abs(currentPos.y) < 10000) {
-                        
-                        // ALWAYS notify other players about teleportation (everyone should follow)
-                        this.notifyTeleportation({
-                            playerId: this.playerId,
-                            fromPosition: lastPlayerPosition,
-                            toPosition: currentPos,
-                            levelData: {
-                                currentLevel: typeof level !== 'undefined' ? level.onLevel : -1,
-                                levelsCleared: typeof level !== 'undefined' ? level.levelsCleared : 0
-                            },
-                            timestamp: Date.now()
-                        });
+                // Don't process until we have a valid starting position
+                if (!initialized && lastPlayerPosition.x !== 0 && lastPlayerPosition.y !== 0) {
+                    initialized = true;
+                }
+                
+                if (initialized) {
+                    const distance = Math.sqrt(
+                        Math.pow(currentPos.x - lastPlayerPosition.x, 2) + 
+                        Math.pow(currentPos.y - lastPlayerPosition.y, 2)
+                    );
+                    
+                    const now = Date.now();
+                    const timeSinceLastTeleport = now - lastTeleportTime;
+                    
+                    // Much higher threshold and throttle teleportation notifications
+                    if (distance > 3000 && timeSinceLastTeleport > 2000) { // 3 second minimum between teleports
+                        // Validate coordinates more strictly
+                        if (!isNaN(currentPos.x) && !isNaN(currentPos.y) && 
+                            Math.abs(currentPos.x) < 50000 && Math.abs(currentPos.y) < 50000 &&
+                            !isNaN(lastPlayerPosition.x) && !isNaN(lastPlayerPosition.y)) {
+                            
+                            this.notifyTeleportation({
+                                playerId: this.playerId,
+                                fromPosition: lastPlayerPosition,
+                                toPosition: currentPos,
+                                levelData: {
+                                    currentLevel: typeof level !== 'undefined' ? level.onLevel : -1,
+                                    levelsCleared: typeof level !== 'undefined' ? level.levelsCleared : 0
+                                },
+                                timestamp: now
+                            });
+                            lastTeleportTime = now;
+                        }
                     }
                 }
                 
                 lastPlayerPosition = currentPos;
-            }, 500); // Check every 500ms
+            }, 1000); // Check less frequently - every 1 second
         }
     },
     
@@ -1748,20 +1764,26 @@ const multiplayerSystem = {
         
         // Listen for teleportations from other players
         const teleportRef = ref(database, `rooms/${this.currentRoomId}/teleportations`);
+        let lastTeleportApplied = 0;
+        
         onValue(teleportRef, (snapshot) => {
             if (!snapshot.exists()) return;
             
             const teleports = snapshot.val();
+            const now = Date.now();
+            
             for (const [teleportId, teleport] of Object.entries(teleports)) {
                 if (teleport.playerId !== this.playerId && 
-                    Date.now() - teleport.timestamp < 2000) { // Only process recent teleports
+                    now - teleport.timestamp < 5000 && // Extended processing window
+                    now - lastTeleportApplied > 3000) { // Throttle teleportation application
                     
                     // ALWAYS teleport everyone when someone uses a teleporter
                     if (teleport.fromPosition && teleport.toPosition && player && Matter.Body) {
                         try {
-                            // Validate teleportation coordinates
+                            // Validate teleportation coordinates more strictly
                             if (!isNaN(teleport.toPosition.x) && !isNaN(teleport.toPosition.y) &&
-                                Math.abs(teleport.toPosition.x) < 10000 && Math.abs(teleport.toPosition.y) < 10000) {
+                                Math.abs(teleport.toPosition.x) < 50000 && Math.abs(teleport.toPosition.y) < 50000 &&
+                                !isNaN(teleport.fromPosition.x) && !isNaN(teleport.fromPosition.y)) {
                                 
                                 // Teleport local player to the same destination safely
                                 Matter.Body.setPosition(player, teleport.toPosition);
@@ -1769,7 +1791,8 @@ const multiplayerSystem = {
                                 // Clear any velocity to prevent sliding
                                 Matter.Body.setVelocity(player, { x: 0, y: 0 });
                                 
-                                console.log('Everyone teleporting to:', teleport.toPosition, 'triggered by player:', teleport.playerId);
+                                lastTeleportApplied = now;
+                                // Remove verbose logging to reduce spam
                             } else {
                                 console.warn('Invalid teleportation coordinates:', teleport.toPosition);
                             }
@@ -2396,7 +2419,6 @@ const multiplayerSystem = {
             // Check for new bullets - be more aggressive to catch all types
             if (bullet.length > lastBulletCount) {
                 const newBullets = bullet.slice(lastBulletCount);
-                console.log(`Detected ${newBullets.length} new bullets`);
                 for (let i = 0; i < newBullets.length; i++) {
                     const newBullet = newBullets[i];
                     if (newBullet && newBullet.position && newBullet.velocity) {
@@ -2448,7 +2470,7 @@ const multiplayerSystem = {
                     radius: b.radius
                 }));
             }
-        }, 50); // Check every 50ms for responsive bullet sync
+        }, 100); // Check every 100ms - reduced frequency to prevent spam
     },
     
     monitorSporeCreation() {
@@ -2863,9 +2885,12 @@ const multiplayerSystem = {
     monitorPhysicsObjectChanges() {
         // Monitor body array for physics object changes (grabbing, throwing, etc.)
         let lastBodyStates = [];
+        let lastNotificationTime = {};
         
         setInterval(() => {
             if (!this.isGameStarted || typeof body === 'undefined') return;
+            
+            const now = Date.now();
             
             // Check for body state changes that indicate physics interactions
             for (let i = 0; i < body.length; i++) {
@@ -2882,7 +2907,7 @@ const multiplayerSystem = {
                         // New body detected
                         lastBodyStates[i] = currentState;
                     } else {
-                        // Check for significant changes
+                        // Check for significant changes - much more restrictive thresholds
                         const posChange = Math.sqrt(
                             Math.pow(currentState.position.x - lastState.position.x, 2) + 
                             Math.pow(currentState.position.y - lastState.position.y, 2)
@@ -2892,15 +2917,21 @@ const multiplayerSystem = {
                             Math.pow(currentState.velocity.y - lastState.velocity.y, 2)
                         );
                         
-                        // If significant movement or state change, notify
-                        if (posChange > 100 || velChange > 20 || currentState.isHeld !== lastState.isHeld) {
+                        // Throttle notifications per object to prevent spam
+                        const lastNotified = lastNotificationTime[i] || 0;
+                        const timeSinceLastNotification = now - lastNotified;
+                        
+                        // Only notify for major changes and not too frequently
+                        if ((posChange > 500 || velChange > 100 || currentState.isHeld !== lastState.isHeld) && 
+                            timeSinceLastNotification > 1000) { // At least 1 second between notifications per object
                             this.notifyPhysicsObjectChange({
                                 playerId: this.playerId,
                                 bodyId: i,
                                 bodyState: currentState,
-                                timestamp: Date.now()
+                                timestamp: now
                             });
                             lastBodyStates[i] = currentState;
+                            lastNotificationTime[i] = now;
                         }
                     }
                 }
@@ -2953,19 +2984,24 @@ const multiplayerSystem = {
                 if (remoteState.position && remoteState.velocity) {
                     // Check if the change is significant enough to apply
                     const currentPos = targetBody.position;
-                    const currentVel = targetBody.velocity;
+                    
+                    // Validate remote position data
+                    if (isNaN(remoteState.position.x) || isNaN(remoteState.position.y) ||
+                        Math.abs(remoteState.position.x) > 100000 || Math.abs(remoteState.position.y) > 100000) {
+                        return; // Skip invalid coordinates
+                    }
                     
                     const posDistance = Math.sqrt(
                         Math.pow(currentPos.x - remoteState.position.x, 2) + 
                         Math.pow(currentPos.y - remoteState.position.y, 2)
                     );
                     
-                    // Only sync if the difference is significant (prevents jitter)
-                    if (posDistance > 50) {
+                    // Only sync if the difference is significant and coordinates are valid
+                    if (posDistance > 200) { // Increased threshold to reduce spam
                         if (typeof Matter !== 'undefined' && Matter.Body) {
                             Matter.Body.setPosition(targetBody, remoteState.position);
                             Matter.Body.setVelocity(targetBody, remoteState.velocity);
-                            console.log(`Synced physics object ${objectData.bodyId} to position:`, remoteState.position);
+                            // Remove verbose logging that was causing spam
                         }
                     }
                 }
