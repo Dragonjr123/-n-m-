@@ -289,6 +289,44 @@ const polyTree = {
         return this.ownedTech[Math.floor(Math.random() * this.ownedTech.length)];
     },
     
+    // Filter available options based on what's unlocked in polytree
+    getAvailableTechIndices() {
+        if (simulation.gameMode !== 'progressive') return null; // Not in progressive mode
+        const indices = [];
+        this.ownedTech.forEach(id => {
+            const node = this.techTree.find(t => t.id === id && t.type === 'tech');
+            if (node) {
+                const techIndex = tech.tech.findIndex(t => t.name === node.name);
+                if (techIndex !== -1) indices.push(techIndex);
+            }
+        });
+        return indices;
+    },
+    
+    getAvailableGunIndices() {
+        if (simulation.gameMode !== 'progressive') return null;
+        const indices = [];
+        this.ownedTech.forEach(id => {
+            const node = this.techTree.find(t => t.id === id && t.type === 'gun');
+            if (node && node.gunIndex !== undefined) {
+                indices.push(node.gunIndex);
+            }
+        });
+        return indices;
+    },
+    
+    getAvailableFieldIndices() {
+        if (simulation.gameMode !== 'progressive') return null;
+        const indices = [];
+        this.ownedTech.forEach(id => {
+            const node = this.techTree.find(t => t.id === id && t.type === 'field');
+            if (node && node.fieldIndex !== undefined) {
+                indices.push(node.fieldIndex);
+            }
+        });
+        return indices;
+    },
+    
     // Visual tech tree renderer
     renderTree() {
         const container = document.getElementById('polytree-content');
