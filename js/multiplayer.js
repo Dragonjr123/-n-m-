@@ -1,6 +1,5 @@
 // Multiplayer system using Firebase Realtime Database
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, update, remove, onDisconnect, push, get, child } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+// Firebase will be loaded via CDN in index.html
 
 const firebaseConfig = {
     apiKey: "AIzaSyBg_cDvLmxahIxnD07TgeqsDdwg8b8_uVU",
@@ -13,9 +12,21 @@ const firebaseConfig = {
     measurementId: "G-D9MWV15YH9"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const database = getDatabase(app);
+// Initialize Firebase (using global firebase object from CDN)
+let database;
+
+function initFirebase() {
+    if (typeof firebase === 'undefined') {
+        console.error('Firebase not loaded!');
+        return false;
+    }
+    
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    database = firebase.database();
+    return true;
+}
 
 const multiplayer = {
     enabled: false,
@@ -38,8 +49,13 @@ const multiplayer = {
     
     // Initialize multiplayer system
     init() {
+        if (!initFirebase()) {
+            console.error('Failed to initialize Firebase');
+            return false;
+        }
         this.playerId = 'player_' + Math.random().toString(36).substr(2, 9);
         console.log('Multiplayer initialized. Player ID:', this.playerId);
+        return true;
     },
     
     // Create a new lobby
@@ -59,11 +75,11 @@ const multiplayer = {
         
         lobbyData.players[this.playerId] = this.getPlayerData();
         
-        await set(ref(database, 'lobbies/' + this.lobbyId), lobbyData);
+        await database.ref('lobbies/' + this.lobbyId).set(lobbyData);
         
         // Setup disconnect handler
-        const playerRef = ref(database, `lobbies/${this.lobbyId}/players/${this.playerId}`);
-        onDisconnect(playerRef).remove();
+        const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
+        playerRef.onDisconnect().remove();
         
         // Listen for other players joining
         this.listenToPlayers();
@@ -74,8 +90,8 @@ const multiplayer = {
     
     // Join an existing lobby
     async joinLobby(lobbyId, password) {
-        const lobbyRef = ref(database, 'lobbies/' + lobbyId);
-        const snapshot = await get(lobbyRef);
+        const lobbyRef = database.ref('lobbies/' + lobbyId);
+        const snapshot = await lobbyRef.once('value');
         
         if (!snapshot.exists()) {
             throw new Error('Lobby not found');
@@ -92,11 +108,11 @@ const multiplayer = {
         this.isHost = false;
         
         // Add self to lobby
-        const playerRef = ref(database, `lobbies/${this.lobbyId}/players/${this.playerId}`);
-        await set(playerRef, this.getPlayerData());
+        const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
+        await playerRef.set(this.getPlayerData());
         
         // Setup disconnect handler
-        onDisconnect(playerRef).remove();
+        playerRef.onDisconnect().remove();
         
         // Listen to other players
         this.listenToPlayers();
@@ -107,8 +123,8 @@ const multiplayer = {
     
     // Get list of public lobbies
     async getPublicLobbies() {
-        const lobbiesRef = ref(database, 'lobbies');
-        const snapshot = await get(lobbiesRef);
+        const lobbiesRef = database.ref('lobbies');
+        const snapshot = await lobbiesRef.once('value');
         
         if (!snapshot.exists()) return [];
         
@@ -132,13 +148,13 @@ const multiplayer = {
     async leaveLobby() {
         if (!this.lobbyId) return;
         
-        const playerRef = ref(database, `lobbies/${this.lobbyId}/players/${this.playerId}`);
-        await remove(playerRef);
+        const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
+        await playerRef.remove();
         
         // If host, delete entire lobby
         if (this.isHost) {
-            const lobbyRef = ref(database, 'lobbies/' + this.lobbyId);
-            await remove(lobbyRef);
+            const lobbyRef = database.ref('lobbies/' + this.lobbyId);
+            await lobbyRef.remove();
         }
         
         this.enabled = false;
@@ -151,9 +167,9 @@ const multiplayer = {
     
     // Listen to other players in the lobby
     listenToPlayers() {
-        const playersRef = ref(database, `lobbies/${this.lobbyId}/players`);
+        const playersRef = database.ref(`lobbies/${this.lobbyId}/players`);
         
-        onValue(playersRef, (snapshot) => {
+        playersRef.on('value', (snapshot) => {
             if (!snapshot.exists()) return;
             
             const players = snapshot.val();
@@ -209,8 +225,8 @@ const multiplayer = {
         
         this.lastUpdateTime = now;
         
-        const playerRef = ref(database, `lobbies/${this.lobbyId}/players/${this.playerId}`);
-        update(playerRef, this.getPlayerData());
+        const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
+        playerRef.update(this.getPlayerData());
     },
     
     // Interpolate player positions for smooth movement
@@ -298,8 +314,8 @@ const multiplayer = {
     syncPowerupPickup(powerupIndex) {
         if (!this.enabled || !this.lobbyId) return;
         
-        const eventRef = push(ref(database, `lobbies/${this.lobbyId}/events`));
-        set(eventRef, {
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
             type: 'powerup_pickup',
             playerId: this.playerId,
             powerupIndex: powerupIndex,
