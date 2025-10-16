@@ -478,6 +478,12 @@ const multiplayerSystem = {
         // Initialize comprehensive game state synchronization
         this.initComprehensiveGameSync();
         
+        // Initialize mob and physics body synchronization
+        this.initMobAndBodySync();
+        
+        // Initialize collision event synchronization
+        this.initCollisionEventSync();
+        
         // Fix bullet safety to prevent crashes
         this.fixBulletSafety();
         
@@ -2350,6 +2356,299 @@ const multiplayerSystem = {
             }
         } catch (error) {
             console.error('Error triggering bullet:', error);
+        }
+    },
+    
+    // ===== MOB AND PHYSICS BODY SYNCHRONIZATION =====
+    initMobAndBodySync() {
+        // Hook into mob spawning to sync across all players
+        this.hookMobSpawning();
+        
+        // Hook into physics body spawning to sync across all players
+        this.hookBodySpawning();
+        
+        // Listen for mob and body spawn events from other players
+        this.listenToMobAndBodySpawns();
+    },
+    
+    hookMobSpawning() {
+        // Hook into mobs.spawn to synchronize mob spawning
+        if (typeof mobs !== 'undefined' && mobs.spawn) {
+            const originalSpawn = mobs.spawn;
+            
+            // Initialize the flag
+            this.isRemoteMobSpawn = false;
+            
+            mobs.spawn = (xPos, yPos, sides, radius, color) => {
+                // Call original spawn first
+                const result = originalSpawn.call(mobs, xPos, yPos, sides, radius, color);
+                
+                // Only notify if this is not a remote spawn
+                if (!this.isRemoteMobSpawn) {
+                    const newMob = mob[mob.length - 1];
+                    if (newMob) {
+                        this.notifyMobSpawn({
+                            playerId: this.playerId,
+                            mobId: mob.length - 1,
+                            position: { x: xPos, y: yPos },
+                            sides: sides,
+                            radius: radius,
+                            color: color,
+                            timestamp: Date.now()
+                        });
+                    }
+                }
+                
+                return result;
+            };
+        }
+    },
+    
+    hookBodySpawning() {
+        // Hook into spawn.bodyRect and other body spawning functions
+        if (typeof spawn !== 'undefined') {
+            // Hook bodyRect spawning
+            if (spawn.bodyRect) {
+                const originalBodyRect = spawn.bodyRect;
+                
+                // Initialize the flag
+                this.isRemoteBodySpawn = false;
+                
+                spawn.bodyRect = (x, y, width, height, density) => {
+                    const result = originalBodyRect.call(spawn, x, y, width, height, density);
+                    
+                    if (!this.isRemoteBodySpawn) {
+                        const newBody = body[body.length - 1];
+                        if (newBody) {
+                            this.notifyBodySpawn({
+                                playerId: this.playerId,
+                                bodyId: body.length - 1,
+                                position: { x: x, y: y },
+                                width: width,
+                                height: height,
+                                density: density,
+                                bodyType: 'rect',
+                                timestamp: Date.now()
+                            });
+                        }
+                    }
+                    
+                    return result;
+                };
+            }
+        }
+    },
+    
+    async notifyMobSpawn(mobData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const mobRef = push(ref(database, `rooms/${this.currentRoomId}/mobSpawns`));
+            await set(mobRef, mobData);
+        } catch (error) {
+            console.error('Failed to notify mob spawn:', error);
+        }
+    },
+    
+    async notifyBodySpawn(bodyData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const bodyRef = push(ref(database, `rooms/${this.currentRoomId}/bodySpawns`));
+            await set(bodyRef, bodyData);
+        } catch (error) {
+            console.error('Failed to notify body spawn:', error);
+        }
+    },
+    
+    listenToMobAndBodySpawns() {
+        if (!this.currentRoomId) return;
+        
+        // Listen for mob spawns
+        const mobSpawnsRef = ref(database, `rooms/${this.currentRoomId}/mobSpawns`);
+        onValue(mobSpawnsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const spawns = snapshot.val();
+            for (const [spawnId, spawnData] of Object.entries(spawns)) {
+                if (spawnData.playerId !== this.playerId && 
+                    Date.now() - spawnData.timestamp < 5000) {
+                    
+                    this.syncMobSpawn(spawnData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/mobSpawns/${spawnId}`));
+                }
+            }
+        });
+        
+        // Listen for body spawns  
+        const bodySpawnsRef = ref(database, `rooms/${this.currentRoomId}/bodySpawns`);
+        onValue(bodySpawnsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const spawns = snapshot.val();
+            for (const [spawnId, spawnData] of Object.entries(spawns)) {
+                if (spawnData.playerId !== this.playerId && 
+                    Date.now() - spawnData.timestamp < 5000) {
+                    
+                    this.syncBodySpawn(spawnData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/bodySpawns/${spawnId}`));
+                }
+            }
+        });
+    },
+    
+    syncMobSpawn(spawnData) {
+        try {
+            // Spawn the mob locally for remote players
+            if (typeof mobs !== 'undefined' && mobs.spawn) {
+                this.isRemoteMobSpawn = true;
+                mobs.spawn(
+                    spawnData.position.x,
+                    spawnData.position.y,
+                    spawnData.sides,
+                    spawnData.radius,
+                    spawnData.color
+                );
+                this.isRemoteMobSpawn = false;
+                console.log('Synced mob spawn:', spawnData);
+            }
+        } catch (error) {
+            console.error('Error syncing mob spawn:', error);
+        }
+    },
+    
+    syncBodySpawn(spawnData) {
+        try {
+            // Spawn the body locally for remote players
+            if (typeof spawn !== 'undefined' && spawn.bodyRect) {
+                this.isRemoteBodySpawn = true;
+                spawn.bodyRect(
+                    spawnData.position.x,
+                    spawnData.position.y,
+                    spawnData.width,
+                    spawnData.height,
+                    spawnData.density
+                );
+                this.isRemoteBodySpawn = false;
+                console.log('Synced body spawn:', spawnData);
+            }
+        } catch (error) {
+            console.error('Error syncing body spawn:', error);
+        }
+    },
+    
+    // ===== COLLISION EVENT SYNCHRONIZATION =====
+    initCollisionEventSync() {
+        // Hook into engine collision events to sync physics interactions
+        this.hookCollisionEvents();
+        
+        // Listen for collision events from other players
+        this.listenToCollisionEvents();
+    },
+    
+    hookCollisionEvents() {
+        // Hook into the global collisionChecks function to network significant collisions
+        if (typeof window !== 'undefined') {
+            // Store reference to original collision function if it exists
+            if (typeof collisionChecks === 'function') {
+                this.originalCollisionChecks = window.collisionChecks;
+                
+                // Override the global collisionChecks function to add networking
+                window.collisionChecks = (event) => {
+                    // Call original function first
+                    if (this.originalCollisionChecks) {
+                        this.originalCollisionChecks(event);
+                    }
+                    
+                    // Monitor for significant collisions and network them
+                    this.monitorSignificantCollisions(event);
+                };
+                
+                console.log('Collision event hooking initialized for physics sync');
+            }
+        }
+    },
+    
+    monitorSignificantCollisions(event) {
+        if (!this.isGameStarted) return;
+        
+        const pairs = event.pairs;
+        for (let i = 0; i < pairs.length; i++) {
+            const pair = pairs[i];
+            
+            // Check for mob damage/death collisions
+            if (pair.bodyA.mob || pair.bodyB.mob) {
+                const mobBody = pair.bodyA.mob ? pair.bodyA : pair.bodyB;
+                const otherBody = pair.bodyA === mobBody ? pair.bodyB : pair.bodyA;
+                
+                // Network mob collisions with bullets or significant impacts
+                if (otherBody.classType === 'bullet' || 
+                    (otherBody.classType === 'body' && otherBody.speed > 5)) {
+                    this.notifyMobCollision({
+                        playerId: this.playerId,
+                        mobId: mobBody.index,
+                        colliderType: otherBody.classType || 'unknown',
+                        position: { x: pair.activeContacts[0].vertex.x, y: pair.activeContacts[0].vertex.y },
+                        velocity: { x: otherBody.velocity?.x || 0, y: otherBody.velocity?.y || 0 },
+                        timestamp: Date.now()
+                    });
+                }
+            }
+        }
+    },
+    
+    async notifyMobCollision(collisionData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const collisionRef = push(ref(database, `rooms/${this.currentRoomId}/collisionEvents`));
+            await set(collisionRef, collisionData);
+        } catch (error) {
+            console.error('Failed to notify mob collision:', error);
+        }
+    },
+    
+    listenToCollisionEvents() {
+        if (!this.currentRoomId) return;
+        
+        const collisionRef = ref(database, `rooms/${this.currentRoomId}/collisionEvents`);
+        onValue(collisionRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const events = snapshot.val();
+            for (const [eventId, eventData] of Object.entries(events)) {
+                if (eventData.playerId !== this.playerId && 
+                    Date.now() - eventData.timestamp < 1000) {
+                    
+                    this.applyCollisionEvent(eventData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/collisionEvents/${eventId}`));
+                }
+            }
+        });
+    },
+    
+    applyCollisionEvent(eventData) {
+        try {
+            // Apply collision effects remotely (damage, forces, etc.)
+            if (eventData.colliderType === 'bullet' && typeof mob !== 'undefined' && mob[eventData.mobId]) {
+                const targetMob = mob[eventData.mobId];
+                if (targetMob && targetMob.alive) {
+                    // Create visual effect for the collision
+                    if (typeof simulation !== 'undefined' && simulation.drawList) {
+                        simulation.drawList.push({
+                            x: eventData.position.x,
+                            y: eventData.position.y,
+                            radius: 30,
+                            color: "rgba(255,255,0,0.6)",
+                            time: simulation.drawTime
+                        });
+                    }
+                    
+                    console.log('Applied remote collision event to mob:', eventData.mobId);
+                }
+            }
+        } catch (error) {
+            console.error('Error applying collision event:', error);
         }
     },
     
