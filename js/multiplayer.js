@@ -1438,6 +1438,9 @@ const multiplayerSystem = {
         // Monitor portal teleportation
         this.monitorPortalTeleportation();
         
+        // Monitor field emitter object interactions (grabbing/throwing)
+        this.monitorFieldEmitterInteractions();
+        
         // Listen for tech/physics events from other players
         this.listenToTechAndPhysicsEvents();
     },
@@ -1546,6 +1549,10 @@ const multiplayerSystem = {
                             playerId: this.playerId,
                             fromPosition: lastPlayerPosition,
                             toPosition: currentPos,
+                            levelData: {
+                                currentLevel: typeof level !== 'undefined' ? level.onLevel : -1,
+                                levelsCleared: typeof level !== 'undefined' ? level.levelsCleared : 0
+                            },
                             timestamp: Date.now()
                         });
                     }
@@ -1564,6 +1571,71 @@ const multiplayerSystem = {
             await set(teleportRef, teleportData);
         } catch (error) {
             console.error('Failed to notify teleportation:', error);
+        }
+    },
+    
+    monitorFieldEmitterInteractions() {
+        // Monitor when objects are grabbed and thrown with field emitter
+        if (typeof m !== 'undefined' && typeof body !== 'undefined') {
+            let lastHoldingTarget = null;
+            let lastThrowCharge = 0;
+            
+            setInterval(() => {
+                if (!this.isGameStarted) return;
+                
+                // Monitor for object grabbing changes
+                if (m.holdingTarget !== lastHoldingTarget) {
+                    if (m.holdingTarget && !lastHoldingTarget) {
+                        // Object was just grabbed
+                        this.notifyObjectInteraction({
+                            playerId: this.playerId,
+                            action: 'grab',
+                            targetId: body.indexOf(m.holdingTarget),
+                            targetPosition: m.holdingTarget.position,
+                            timestamp: Date.now()
+                        });
+                    } else if (!m.holdingTarget && lastHoldingTarget) {
+                        // Object was just released/dropped
+                        this.notifyObjectInteraction({
+                            playerId: this.playerId,
+                            action: 'release',
+                            targetId: body.indexOf(lastHoldingTarget),
+                            targetPosition: lastHoldingTarget.position,
+                            targetVelocity: lastHoldingTarget.velocity,
+                            timestamp: Date.now()
+                        });
+                    }
+                    lastHoldingTarget = m.holdingTarget;
+                }
+                
+                // Monitor for throwing (when throw charge is reset to 0 from a higher value)
+                if (m.throwCharge !== undefined) {
+                    if (lastThrowCharge > 0 && m.throwCharge === 0 && m.holdingTarget) {
+                        // Object was just thrown
+                        this.notifyObjectInteraction({
+                            playerId: this.playerId,
+                            action: 'throw',
+                            targetId: body.indexOf(m.holdingTarget),
+                            targetPosition: m.holdingTarget.position,
+                            targetVelocity: m.holdingTarget.velocity,
+                            throwCharge: lastThrowCharge,
+                            timestamp: Date.now()
+                        });
+                    }
+                    lastThrowCharge = m.throwCharge || 0;
+                }
+            }, 100); // Check every 100ms for responsive object interaction sync
+        }
+    },
+    
+    async notifyObjectInteraction(interactionData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const interactionRef = push(ref(database, `rooms/${this.currentRoomId}/objectInteractions`));
+            await set(interactionRef, interactionData);
+        } catch (error) {
+            console.error('Failed to notify object interaction:', error);
         }
     },
     
@@ -1621,6 +1693,22 @@ const multiplayerSystem = {
                         }
                     }
                     
+                    // Also sync level progression if teleportation included level data
+                    if (teleport.levelData && typeof level !== 'undefined') {
+                        try {
+                            const remoteLevel = teleport.levelData.currentLevel;
+                            const remoteLevelsCleared = teleport.levelData.levelsCleared;
+                            
+                            // If the remote player is on a different level, sync to that level
+                            if (remoteLevel !== undefined && remoteLevel !== level.onLevel) {
+                                console.log(`Syncing to level ${remoteLevel} (cleared: ${remoteLevelsCleared}) from teleportation`);
+                                this.syncToLevel(remoteLevel, remoteLevelsCleared);
+                            }
+                        } catch (error) {
+                            console.error('Error syncing level from teleportation:', error);
+                        }
+                    }
+                    
                     // Update remote player position
                     this.applyTeleportation(teleport);
                     
@@ -1666,6 +1754,68 @@ const multiplayerSystem = {
                 console.error('Error processing field usage data:', error);
             }
         });
+        
+        // Listen for object interactions (grabbing/throwing) from other players
+        const objectInteractionsRef = ref(database, `rooms/${this.currentRoomId}/objectInteractions`);
+        onValue(objectInteractionsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            try {
+                const interactions = snapshot.val();
+                if (!interactions || typeof interactions !== 'object') return;
+                
+                for (const [interactionId, interaction] of Object.entries(interactions)) {
+                    if (interaction.playerId !== this.playerId && 
+                        Date.now() - interaction.timestamp < 1000) {
+                        
+                        // Apply object interaction sync
+                        this.applyObjectInteraction(interaction);
+                        
+                        // Clean up old interaction
+                        try {
+                            remove(ref(database, `rooms/${this.currentRoomId}/objectInteractions/${interactionId}`));
+                        } catch (cleanupError) {
+                            console.warn('Failed to clean up object interaction data:', cleanupError);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error processing object interaction data:', error);
+            }
+        });
+    },
+    
+    applyObjectInteraction(interactionData) {
+        try {
+            if (!interactionData || typeof body === 'undefined') return;
+            
+            const targetId = interactionData.targetId;
+            if (targetId >= 0 && targetId < body.length && body[targetId]) {
+                const targetBody = body[targetId];
+                
+                if (interactionData.action === 'throw' && interactionData.targetVelocity) {
+                    // Apply the throw to the physics object
+                    if (typeof Matter !== 'undefined' && Matter.Body) {
+                        Matter.Body.setVelocity(targetBody, interactionData.targetVelocity);
+                        console.log('Applied remote throw to body:', targetId, 'velocity:', interactionData.targetVelocity);
+                    }
+                } else if (interactionData.action === 'grab') {
+                    // Create visual effect for grabbing
+                    if (typeof simulation !== 'undefined' && simulation.drawList) {
+                        simulation.drawList.push({
+                            x: interactionData.targetPosition.x,
+                            y: interactionData.targetPosition.y,
+                            radius: 30,
+                            color: "rgba(0,255,255,0.3)",
+                            time: simulation.drawTime * 1.5
+                        });
+                    }
+                    console.log('Applied remote grab effect to body:', targetId);
+                }
+            }
+        } catch (error) {
+            console.error('Error applying object interaction:', error);
+        }
     },
     
     applyFieldUsage(fieldData) {
@@ -2107,6 +2257,7 @@ const multiplayerSystem = {
         this.initEngineEventSync();
         this.initVisualEffectSync();
         this.initPowerupEffectSync();
+        this.initPhysicsObjectSync();
     },
     
     // ===== BULLET AND SPORE SYNCHRONIZATION =====
@@ -2131,13 +2282,39 @@ const multiplayerSystem = {
                 for (let i = 0; i < newBullets.length; i++) {
                     const newBullet = newBullets[i];
                     if (newBullet && newBullet.position && newBullet.velocity) {
+                        // Try to determine bullet color based on type and properties
+                        let bulletColor = '#ffffff'; // default
+                        
+                        // Check for various bullet color properties
+                        if (newBullet.fill) {
+                            bulletColor = newBullet.fill;
+                        } else if (newBullet.color) {
+                            bulletColor = newBullet.color;
+                        } else if (newBullet.render && newBullet.render.fillStyle) {
+                            bulletColor = newBullet.render.fillStyle;
+                        }
+                        
+                        // Determine color based on bullet type and tech
+                        if (typeof tech !== 'undefined') {
+                            if (newBullet.bulletType === 'explosive' || newBullet.explodeRad) {
+                                bulletColor = '#ff6600'; // Orange for explosive
+                            } else if (tech.isDemonic) {
+                                bulletColor = '#ff0000'; // Red for demonic
+                            } else if (newBullet.totalSpores) {
+                                bulletColor = '#ff00ff'; // Magenta for spore bullets
+                            } else {
+                                // Default bullet color based on current gun or tech
+                                bulletColor = '#000000'; // Black is the default in bulletDraw
+                            }
+                        }
+                        
                         this.notifyBulletCreation({
                             playerId: this.playerId,
                             position: { x: newBullet.position.x, y: newBullet.position.y },
                             velocity: { x: newBullet.velocity.x, y: newBullet.velocity.y },
                             bulletType: newBullet.bulletType || 'default',
                             radius: newBullet.radius || 4.5,
-                            color: newBullet.color || '#ffffff',
+                            color: bulletColor,
                             timestamp: Date.now()
                         });
                     }
@@ -2235,18 +2412,56 @@ const multiplayerSystem = {
     
     triggerBulletCreation(bulletData) {
         try {
-            if (typeof b !== 'undefined' && bulletData.position) {
-                // Create a visual bullet effect for remote players
+            if (typeof b !== 'undefined' && bulletData.position && typeof bullet !== 'undefined') {
+                // Create actual bullet for remote players with proper color
+                const bulletIndex = bullet.length;
+                
+                // Create bullet based on type
+                if (typeof Matter !== 'undefined' && typeof Bodies !== 'undefined') {
+                    let newBullet;
+                    
+                    if (bulletData.bulletType === 'explosive' || bulletData.radius > 10) {
+                        // Create explosive bullet
+                        newBullet = Matter.Bodies.circle(bulletData.position.x, bulletData.position.y, bulletData.radius || 4.5, {
+                            bulletType: bulletData.bulletType || 'default',
+                            color: bulletData.color || '#000000',
+                            classType: 'bullet'
+                        });
+                    } else {
+                        // Create regular bullet
+                        newBullet = Matter.Bodies.polygon(bulletData.position.x, bulletData.position.y, 4, bulletData.radius || 4.5, {
+                            bulletType: bulletData.bulletType || 'default',
+                            color: bulletData.color || '#000000',
+                            classType: 'bullet'
+                        });
+                    }
+                    
+                    // Set bullet properties
+                    if (newBullet && bulletData.velocity) {
+                        Matter.Body.setVelocity(newBullet, bulletData.velocity);
+                        newBullet.color = bulletData.color || '#000000';
+                        newBullet.bulletType = bulletData.bulletType || 'default';
+                        newBullet.endCycle = simulation.cycle + 300; // 5 second lifetime
+                        
+                        bullet.push(newBullet);
+                        if (typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+                            Matter.World.add(engine.world, newBullet);
+                        }
+                        
+                        console.log('Created remote bullet with color:', bulletData.color, 'at:', bulletData.position);
+                    }
+                }
+                
+                // Also create visual effect for immediate feedback
                 if (typeof simulation !== 'undefined' && simulation.drawList) {
                     simulation.drawList.push({
                         x: bulletData.position.x,
                         y: bulletData.position.y,
                         radius: bulletData.radius || 4.5,
-                        color: bulletData.color || "#ffffff",
+                        color: bulletData.color || "#000000",
                         time: simulation.drawTime * 0.8
                     });
                 }
-                console.log('Triggered remote bullet creation at:', bulletData.position);
             }
         } catch (error) {
             console.error('Error triggering bullet creation:', error);
@@ -2488,6 +2703,128 @@ const multiplayerSystem = {
                 // This would monitor for powerup effects that need to be synced
                 // Implementation depends on specific powerup effects that need networking
             }, 500);
+        }
+    },
+    
+    // ===== PHYSICS OBJECT SYNCHRONIZATION =====
+    initPhysicsObjectSync() {
+        // Monitor physics objects like cubes when they're grabbed/thrown
+        this.monitorPhysicsObjectChanges();
+        this.listenToPhysicsObjectEvents();
+    },
+    
+    monitorPhysicsObjectChanges() {
+        // Monitor body array for physics object changes (grabbing, throwing, etc.)
+        let lastBodyStates = [];
+        
+        setInterval(() => {
+            if (!this.isGameStarted || typeof body === 'undefined') return;
+            
+            // Check for body state changes that indicate physics interactions
+            for (let i = 0; i < body.length; i++) {
+                if (body[i] && body[i].position && body[i].velocity) {
+                    const currentState = {
+                        id: i,
+                        position: { x: body[i].position.x, y: body[i].position.y },
+                        velocity: { x: body[i].velocity.x, y: body[i].velocity.y },
+                        isHeld: body[i] === m.holdingTarget
+                    };
+                    
+                    const lastState = lastBodyStates[i];
+                    if (!lastState) {
+                        // New body detected
+                        lastBodyStates[i] = currentState;
+                    } else {
+                        // Check for significant changes
+                        const posChange = Math.sqrt(
+                            Math.pow(currentState.position.x - lastState.position.x, 2) + 
+                            Math.pow(currentState.position.y - lastState.position.y, 2)
+                        );
+                        const velChange = Math.sqrt(
+                            Math.pow(currentState.velocity.x - lastState.velocity.x, 2) + 
+                            Math.pow(currentState.velocity.y - lastState.velocity.y, 2)
+                        );
+                        
+                        // If significant movement or state change, notify
+                        if (posChange > 100 || velChange > 20 || currentState.isHeld !== lastState.isHeld) {
+                            this.notifyPhysicsObjectChange({
+                                playerId: this.playerId,
+                                bodyId: i,
+                                bodyState: currentState,
+                                timestamp: Date.now()
+                            });
+                            lastBodyStates[i] = currentState;
+                        }
+                    }
+                }
+            }
+            
+            // Update array length
+            if (body.length !== lastBodyStates.length) {
+                lastBodyStates = lastBodyStates.slice(0, body.length);
+            }
+        }, 200); // Check every 200ms
+    },
+    
+    async notifyPhysicsObjectChange(bodyData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const bodyRef = push(ref(database, `rooms/${this.currentRoomId}/physicsObjects`));
+            await set(bodyRef, bodyData);
+        } catch (error) {
+            console.error('Failed to notify physics object change:', error);
+        }
+    },
+    
+    listenToPhysicsObjectEvents() {
+        if (!this.currentRoomId) return;
+        
+        const physicsObjectsRef = ref(database, `rooms/${this.currentRoomId}/physicsObjects`);
+        onValue(physicsObjectsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const objects = snapshot.val();
+            for (const [objectId, objectData] of Object.entries(objects)) {
+                if (objectData.playerId !== this.playerId && 
+                    Date.now() - objectData.timestamp < 1000) {
+                    
+                    this.syncPhysicsObject(objectData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/physicsObjects/${objectId}`));
+                }
+            }
+        });
+    },
+    
+    syncPhysicsObject(objectData) {
+        try {
+            if (typeof body !== 'undefined' && body.length > objectData.bodyId && body[objectData.bodyId]) {
+                const targetBody = body[objectData.bodyId];
+                const remoteState = objectData.bodyState;
+                
+                // Sync position and velocity for physics objects
+                if (remoteState.position && remoteState.velocity) {
+                    // Check if the change is significant enough to apply
+                    const currentPos = targetBody.position;
+                    const currentVel = targetBody.velocity;
+                    
+                    const posDistance = Math.sqrt(
+                        Math.pow(currentPos.x - remoteState.position.x, 2) + 
+                        Math.pow(currentPos.y - remoteState.position.y, 2)
+                    );
+                    
+                    // Only sync if the difference is significant (prevents jitter)
+                    if (posDistance > 50) {
+                        if (typeof Matter !== 'undefined' && Matter.Body) {
+                            Matter.Body.setPosition(targetBody, remoteState.position);
+                            Matter.Body.setVelocity(targetBody, remoteState.velocity);
+                            console.log(`Synced physics object ${objectData.bodyId} to position:`, remoteState.position);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error syncing physics object:', error);
         }
     }
 };
