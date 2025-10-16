@@ -140,6 +140,11 @@ const powerUps = {
             }, 10);
             simulation.makeTextLog(`<span class='color-var'>tech</span>.giveTech("<span class='color-text'>${tech.tech[index].name}</span>")`);
             tech.giveTech(index)
+            
+            // Mark first powerup as spawned in progressive mode
+            if (simulation.gameMode === 'progressive' && !simulation.firstPowerUpSpawned) {
+                simulation.firstPowerUpSpawned = true;
+            }
         }
         powerUps.endDraft(type);
     },
@@ -430,9 +435,6 @@ const powerUps = {
                             if (tech.tech[i].count < tech.tech[i].maxCount && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4 && tech.tech[i].allowed()) {
                                 for (let j = 0, len = tech.tech[i].frequency; j < len; j++) options.push(i);
                             }
-                        }
-                        if (simulation.gameMode === 'progressive' && !simulation.firstPowerUpSpawned) {
-                            simulation.firstPowerUpSpawned = true; // Mark that first powerup has been spawned
                         }
                     }
                     powerUps.tech.lastTotalChoices = options.length //this is recorded so that banish can know how many tech were available

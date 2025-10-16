@@ -438,7 +438,7 @@
                 <text x="347.5" y="643" text-anchor="middle" fill="#333" font-size="24px" font-family="Arial, sans-serif" style="pointer-events: none;">settings</text>
             </g>
             <!-- PolyTree Button -->
-            <g onclick="if(simulation.gameMode==='progressive'){document.getElementById('polytree-ui').style.display='block'}else{alert('PolyTree only available in Progressive mode')}" style="cursor: pointer;" class="menu-button">
+            <g onclick="if(typeof polyTree !== 'undefined'){document.getElementById('polytree-ui').style.display='block'; polyTree.renderTree();}else{alert('PolyTree not loaded')}" style="cursor: pointer;" class="menu-button">
                 <rect x="405" y="615" width="95" height="40" fill="#fff" stroke="#333" stroke-width="2"/>
                 <text x="452.5" y="643" text-anchor="middle" fill="#333" font-size="24px" font-family="Arial, sans-serif" style="pointer-events: none;">polytree</text>
             </g>
