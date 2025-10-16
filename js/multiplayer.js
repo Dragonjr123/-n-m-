@@ -321,17 +321,6 @@ const multiplayerSystem = {
             this.retryCount = 0; // Reset retry count on successful connection
             
             // Initialize map generation sync immediately when joining room
-            this.initMapGenerationSync();
-            
-            this.showRoomSettings(roomData, roomData.code);
-            this.listenToRoomUpdates(roomId);
-            
-            console.log('✅ Joined room successfully:', roomData.code);
-        } catch (error) {
-            console.error('❌ Error joining room:', error);
-            
-            // Handle specific Firebase errors
-            if (error.code === 'unavailable') {
                 alert('Firebase is temporarily unavailable. Please check your connection and try again.');
                 this.connectionState = 'disconnected';
                 this.scheduleReconnect();
