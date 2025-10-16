@@ -163,25 +163,15 @@ const multiplayerUI = {
         this.closeCreateLobby();
         this.close();
         
-        // Start game FIRST, then create lobby
-        simulation.gameMode = gameMode;
-        simulation.startGame();
-        
-        // Wait for game to initialize, then create lobby
-        setTimeout(async () => {
-            try {
-                const lobbyId = await multiplayer.createLobby(isPrivate, password, gameMode);
-                
-                // Show lobby code if private
-                if (isPrivate) {
-                    simulation.makeTextLog(`<span class='color-text'>Lobby created!</span><br>Code: ${lobbyId}<br>Password: ${password}`);
-                } else {
-                    simulation.makeTextLog(`<span class='color-text'>Public lobby created!</span><br>Code: ${lobbyId}`);
-                }
-            } catch (error) {
-                simulation.makeTextLog(`<span class='color-d'>Failed to create lobby:</span> ${error.message}`);
-            }
-        }, 500);
+        // Create lobby WITHOUT starting game
+        try {
+            const lobbyId = await multiplayer.createLobby(isPrivate, password, gameMode);
+            
+            // Show lobby waiting room
+            this.showLobbyRoom(lobbyId, isPrivate, password, gameMode);
+        } catch (error) {
+            alert('Failed to create lobby: ' + error.message);
+        }
     },
     
     // Join public lobby
@@ -191,13 +181,8 @@ const multiplayerUI = {
             this.closeJoinLobby();
             this.close();
             
-            // Start game FIRST
-            simulation.gameMode = gameMode;
-            simulation.startGame();
-            
-            setTimeout(() => {
-                simulation.makeTextLog(`<span class='color-text'>Joined lobby!</span>`);
-            }, 500);
+            // Show lobby waiting room
+            this.showLobbyRoom(lobbyId, false, null, gameMode);
         } catch (error) {
             alert('Failed to join lobby: ' + error.message);
         }
@@ -218,13 +203,8 @@ const multiplayerUI = {
             this.closeJoinLobby();
             this.close();
             
-            // Start game FIRST
-            simulation.gameMode = gameMode;
-            simulation.startGame();
-            
-            setTimeout(() => {
-                simulation.makeTextLog(`<span class='color-text'>Joined private lobby!</span>`);
-            }, 500);
+            // Show lobby waiting room
+            this.showLobbyRoom(lobbyCode, true, password, gameMode);
         } catch (error) {
             alert('Failed to join lobby: ' + error.message);
         }
@@ -244,6 +224,122 @@ const multiplayerUI = {
     closeJoinLobby() {
         const menu = document.getElementById('join-lobby-menu');
         if (menu) menu.remove();
+    },
+    
+    // Show lobby waiting room
+    showLobbyRoom(lobbyId, isPrivate, password, gameMode) {
+        const html = `
+            <div id="lobby-room" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 25; display: flex; align-items: center; justify-content: center;">
+                <div style="background: #fff; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%;">
+                    <h1 style="margin: 0 0 10px 0; text-align: center;">LOBBY</h1>
+                    <p style="text-align: center; color: #666; margin: 0 0 20px 0;">
+                        Code: <strong>${lobbyId}</strong>
+                        ${isPrivate ? `<br>Password: <strong>${password}</strong>` : ''}
+                        <br>Mode: <strong>${gameMode.toUpperCase()}</strong>
+                    </p>
+                    
+                    <div id="player-list" style="background: #f0f0f0; padding: 15px; border-radius: 5px; margin-bottom: 20px; max-height: 300px; overflow-y: auto;">
+                        <h3 style="margin: 0 0 10px 0;">Players (1/${multiplayer.maxPlayers})</h3>
+                        <div id="players-container"></div>
+                    </div>
+                    
+                    ${multiplayer.isHost ? `
+                        <button id="start-game-btn" onclick="multiplayerUI.startLobbyGame('${gameMode}')" style="width: 100%; padding: 15px; font-size: 20px; cursor: pointer; background: #0a0; color: #fff; border: none; border-radius: 5px; font-weight: bold; margin-bottom: 10px;">START GAME</button>
+                    ` : `
+                        <p style="text-align: center; color: #666; font-style: italic;">Waiting for host to start...</p>
+                    `}
+                    
+                    <button onclick="multiplayerUI.leaveLobbyRoom()" style="width: 100%; padding: 10px; font-size: 16px; cursor: pointer; background: #f44; color: #fff; border: none; border-radius: 5px;">Leave Lobby</button>
+                </div>
+            </div>
+        `;
+        
+        const container = document.createElement('div');
+        container.innerHTML = html;
+        document.body.appendChild(container);
+        
+        // Update player list periodically
+        this.updatePlayerList();
+        this.playerListInterval = setInterval(() => this.updatePlayerList(), 1000);
+        
+        // Listen for game start if not host
+        if (!multiplayer.isHost) {
+            multiplayer.listenForGameStart(() => {
+                this.startLobbyGame(gameMode);
+            });
+        }
+    },
+    
+    // Update player list in lobby
+    updatePlayerList() {
+        const container = document.getElementById('players-container');
+        if (!container) return;
+        
+        const players = multiplayer.players;
+        const playerCount = Object.keys(players).length + 1; // +1 for self
+        
+        let html = `
+            <div style="padding: 10px; background: #fff; border-radius: 5px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span style="display: inline-block; width: 20px; height: 20px; background: ${multiplayer.settings.color}; border-radius: 50%; margin-right: 10px; vertical-align: middle;"></span>
+                    <strong style="color: ${multiplayer.settings.nameColor};">${multiplayer.settings.name}</strong>
+                    ${multiplayer.isHost ? ' <span style="color: #fa0;">(HOST)</span>' : ''}
+                </div>
+            </div>
+        `;
+        
+        for (const [id, player] of Object.entries(players)) {
+            html += `
+                <div style="padding: 10px; background: #fff; border-radius: 5px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="display: inline-block; width: 20px; height: 20px; background: ${player.color}; border-radius: 50%; margin-right: 10px; vertical-align: middle;"></span>
+                        <strong style="color: ${player.nameColor};">${player.name}</strong>
+                    </div>
+                    ${multiplayer.isHost ? `<button onclick="multiplayer.kickPlayer('${id}')" style="padding: 5px 10px; background: #f44; color: #fff; border: none; border-radius: 3px; cursor: pointer;">Kick</button>` : ''}
+                </div>
+            `;
+        }
+        
+        container.innerHTML = html;
+        
+        // Update player count
+        const listHeader = document.querySelector('#player-list h3');
+        if (listHeader) {
+            listHeader.textContent = `Players (${playerCount}/${multiplayer.maxPlayers})`;
+        }
+    },
+    
+    // Start game from lobby
+    async startLobbyGame(gameMode) {
+        if (multiplayer.isHost) {
+            await multiplayer.startGame();
+        }
+        
+        // Close lobby room
+        this.leaveLobbyRoom(false);
+        
+        // Start actual game
+        simulation.gameMode = gameMode;
+        simulation.startGame();
+        
+        setTimeout(() => {
+            simulation.makeTextLog(`<span class='color-text'>Game started!</span>`);
+        }, 500);
+    },
+    
+    // Leave lobby room
+    async leaveLobbyRoom(disconnect = true) {
+        if (this.playerListInterval) {
+            clearInterval(this.playerListInterval);
+            this.playerListInterval = null;
+        }
+        
+        const room = document.getElementById('lobby-room');
+        if (room) room.remove();
+        
+        if (disconnect) {
+            await multiplayer.leaveLobby();
+        }
     }
 };
 

@@ -39,6 +39,8 @@ const multiplayer = {
     players: {}, // Other players in the lobby
     lastUpdateTime: 0,
     updateInterval: 50, // Send updates every 50ms (20 updates/sec)
+    maxPlayers: 10,
+    gameStarted: false,
     
     // Player settings
     settings: {
@@ -70,6 +72,7 @@ const multiplayer = {
             password: password || null,
             gameMode: gameMode,
             createdAt: Date.now(),
+            gameStarted: false,
             players: {}
         };
         
@@ -259,26 +262,40 @@ const multiplayer = {
         for (const [id, player] of Object.entries(this.players)) {
             const pos = this.interpolatePlayer(player, deltaTime);
             
-            // Draw player body (same as local player)
+            // Skip if player has no position data
+            if (!pos.x && !pos.y) continue;
+            
+            // Draw player body (same as local player - use the actual player shape)
             ctx.save();
             ctx.translate(pos.x, pos.y);
-            ctx.rotate(player.angle);
+            ctx.rotate(player.angle || 0);
             
-            // Draw player shape (simplified version of m.draw)
-            ctx.fillStyle = player.color;
-            ctx.beginPath();
-            ctx.arc(0, 0, 30, 0, 2 * Math.PI);
-            ctx.fill();
+            // Draw player vertices (same as m.draw())
+            ctx.fillStyle = player.color || "#4a9eff";
             ctx.strokeStyle = "#000";
             ctx.lineWidth = 2;
+            
+            // Draw player body shape (simplified n-gon shape)
+            const radius = 30;
+            const sides = 6;
+            ctx.beginPath();
+            for (let i = 0; i < sides; i++) {
+                const angle = (Math.PI * 2 * i) / sides;
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.fill();
             ctx.stroke();
             
             // Draw field if active
             if (player.fieldActive) {
                 ctx.beginPath();
-                ctx.arc(0, 0, 50, 0, 2 * Math.PI);
-                ctx.strokeStyle = "rgba(0, 200, 255, 0.5)";
-                ctx.lineWidth = 3;
+                ctx.arc(0, 0, 55, 0, 2 * Math.PI);
+                ctx.strokeStyle = "rgba(0, 200, 255, 0.6)";
+                ctx.lineWidth = 4;
                 ctx.stroke();
             }
             
@@ -321,6 +338,37 @@ const multiplayer = {
             playerId: this.playerId,
             powerupIndex: powerupIndex,
             timestamp: Date.now()
+        });
+    },
+    
+    // Kick player (host only)
+    async kickPlayer(playerId) {
+        if (!this.isHost || !this.lobbyId) return;
+        
+        const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${playerId}`);
+        await playerRef.remove();
+    },
+    
+    // Start game (host only)
+    async startGame() {
+        if (!this.isHost || !this.lobbyId) return;
+        
+        const lobbyRef = database.ref(`lobbies/${this.lobbyId}`);
+        await lobbyRef.update({ gameStarted: true });
+        
+        this.gameStarted = true;
+    },
+    
+    // Listen for game start
+    listenForGameStart(callback) {
+        if (!this.lobbyId) return;
+        
+        const gameStartRef = database.ref(`lobbies/${this.lobbyId}/gameStarted`);
+        gameStartRef.on('value', (snapshot) => {
+            if (snapshot.val() === true && !this.gameStarted) {
+                this.gameStarted = true;
+                if (callback) callback();
+            }
         });
     }
 };
