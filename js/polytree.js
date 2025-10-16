@@ -16,117 +16,93 @@ const polyTree = {
     polyPerSecond: 0,
     lastMinerTick: Date.now(),
     
-    // Generate tech tree from ALL available game tech, guns, and fields
+    // Generate 3 SEPARATE trees: Tech, Guns, Fields
     generateTechTree() {
         if (!tech || !tech.tech || !b || !b.guns || !m || !m.fieldUpgrades) return;
         
         this.techTree = [];
         const branchWidth = 3; // Nodes per branch
         
-        // Collect all items: tech, guns, and fields
-        const allItems = [];
-        
-        // Add tech (non-lore, non-junk)
-        tech.tech.filter(t => !t.isLore && !t.isJunk && !t.isNonRefundable).forEach(t => {
-            allItems.push({
-                type: 'tech',
-                data: t,
-                name: t.name,
-                description: t.description || 'No description',
-                frequency: t.frequency || 2,
-                maxCount: t.maxCount || 1
-            });
-        });
-        
-        // Add guns
-        b.guns.forEach((gun, idx) => {
-            allItems.push({
-                type: 'gun',
-                data: gun,
-                gunIndex: idx,
-                name: gun.name,
-                description: gun.description || 'No description',
-                frequency: 1, // Guns are rarer
-                maxCount: 1
-            });
-        });
-        
-        // Add fields
-        m.fieldUpgrades.forEach((field, idx) => {
-            if (idx > 0) { // Skip default field
-                allItems.push({
-                    type: 'field',
-                    data: field,
-                    fieldIndex: idx,
-                    name: field.name,
-                    description: field.description || 'No description',
-                    frequency: 0.5, // Fields are rarest
-                    maxCount: 1
-                });
-            }
-        });
-        
-        // Sort WEAK to STRONG: high frequency = weak (comes first)
-        allItems.sort((a, b) => {
-            const freqA = a.frequency || 2;
-            const freqB = b.frequency || 2;
-            const maxA = a.maxCount || 1;
-            const maxB = b.maxCount || 1;
-            
-            if (freqA !== freqB) return freqB - freqA; // Higher freq first = weaker
-            return maxB - maxA; // Higher maxCount = weaker (stackable)
-        });
-        
-        // Build TREE structure with branching - MUCH CHEAPER COSTS
-        allItems.forEach((item, index) => {
-            const row = Math.floor(index / branchWidth);
-            const col = index % branchWidth;
-            const baseCost = 5 + (row * 2);
-            const cost = Math.floor(baseCost * Math.pow(1.15, row)); // Reduced from 1.3 to 1.15
-            const techId = item.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-            
-            // Tree-like dependencies: each node connects to 1-2 parents
-            const dependencies = [];
-            if (row > 0) {
-                const prevRowStart = (row - 1) * branchWidth;
-                const prevRowEnd = Math.min(prevRowStart + branchWidth, index);
+        // Helper function to build a tree for a specific type
+        const buildTree = (items, type, colOffset) => {
+            items.forEach((item, index) => {
+                const row = Math.floor(index / branchWidth);
+                const col = (index % branchWidth) + colOffset; // Offset columns for each tree
+                const baseCost = 3 + (row * 1.5); // MUCH cheaper base cost
+                const cost = Math.floor(baseCost * Math.pow(1.12, row)); // Slower growth
+                const techId = `${type}_${item.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
                 
-                // Connect to parent in same column
-                const sameColParent = prevRowStart + col;
-                if (sameColParent < index && sameColParent >= prevRowStart) {
-                    const depItem = allItems[sameColParent];
-                    if (depItem) {
-                        dependencies.push(depItem.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+                // Tree-like dependencies: each node connects to 1-2 parents IN SAME TREE
+                const dependencies = [];
+                if (row > 0) {
+                    const prevRowStart = (row - 1) * branchWidth;
+                    const prevRowEnd = Math.min(prevRowStart + branchWidth, index);
+                    
+                    // Connect to parent in same column (same tree)
+                    const sameColParent = prevRowStart + (index % branchWidth);
+                    if (sameColParent < index && sameColParent >= prevRowStart) {
+                        const depItem = items[sameColParent];
+                        if (depItem) {
+                            dependencies.push(`${type}_${depItem.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`);
+                        }
                     }
-                }
-                
-                // Sometimes add a second parent for branching effect
-                if (Math.random() > 0.5 && prevRowEnd > prevRowStart) {
-                    const altCol = (col + 1) % branchWidth;
-                    const altParent = prevRowStart + altCol;
-                    if (altParent < index && altParent >= prevRowStart) {
-                        const depItem = allItems[altParent];
-                        if (depItem && !dependencies.includes(depItem.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'))) {
-                            dependencies.push(depItem.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+                    
+                    // Sometimes add a second parent for branching effect
+                    if (Math.random() > 0.5 && prevRowEnd > prevRowStart) {
+                        const altCol = ((index % branchWidth) + 1) % branchWidth;
+                        const altParent = prevRowStart + altCol;
+                        if (altParent < index && altParent >= prevRowStart && altParent < items.length) {
+                            const depItem = items[altParent];
+                            const depId = `${type}_${depItem.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+                            if (depItem && !dependencies.includes(depId)) {
+                                dependencies.push(depId);
+                            }
                         }
                     }
                 }
-            }
-            
-            this.techTree.push({
-                id: techId,
-                name: item.name,
-                description: item.description || 'No description available',
-                cost: cost,
-                row: row,
-                col: col,
-                dependencies: dependencies,
-                type: item.type,
-                gunIndex: item.gunIndex,
-                fieldIndex: item.fieldIndex,
-                techData: item.data
+                
+                this.techTree.push({
+                    id: techId,
+                    name: item.name,
+                    description: item.description || 'No description available',
+                    cost: cost,
+                    row: row,
+                    col: col,
+                    dependencies: dependencies,
+                    type: type,
+                    gunIndex: item.gunIndex,
+                    fieldIndex: item.fieldIndex,
+                    techData: item.data
+                });
             });
-        });
+        };
+        
+        // Build TECH tree (left side, columns 0-2)
+        const techItems = tech.tech.filter(t => !t.isLore && !t.isJunk && !t.isNonRefundable).map((t, idx) => ({
+            name: t.name,
+            description: t.description || 'No description',
+            techIndex: idx,
+            data: t
+        }));
+        buildTree(techItems, 'tech', 0);
+        
+        // Build GUN tree (middle, columns 4-6)
+        const gunItems = b.guns.map((gun, idx) => ({
+            name: gun.name,
+            description: gun.description || 'No description',
+            gunIndex: idx,
+            data: gun
+        }));
+        buildTree(gunItems, 'gun', 4);
+        
+        // Build FIELD tree (right side, columns 8-10)
+        const fieldItems = m.fieldUpgrades.filter((f, idx) => idx > 0).map((field, idx) => ({
+            name: field.name,
+            description: field.description || 'No description',
+            fieldIndex: idx + 1, // +1 because we skipped index 0
+            data: field
+        }));
+        buildTree(fieldItems, 'field', 8);
     },
     
     init() {
@@ -286,19 +262,19 @@ const polyTree = {
             const techIndex = tech.tech.findIndex(t => t.name === techNode.name);
             if (techIndex !== -1) {
                 tech.giveTech(techIndex);
-                simulation.makeTextLog(`<span class='color-text'>Unlocked Tech:</span> ${techNode.name}`);
+                simulation.makeTextLog(`<span class='color-m'>◆ Tech Unlocked:</span> ${techNode.name}`);
             }
         } else if (techNode.type === 'gun') {
             // Give the gun
             if (techNode.gunIndex !== undefined) {
                 b.giveGuns(techNode.gunIndex);
-                simulation.makeTextLog(`<span class='color-text'>Unlocked Gun:</span> ${techNode.name}`);
+                simulation.makeTextLog(`<span class='color-g'>⚡ Gun Unlocked:</span> ${techNode.name}`);
             }
         } else if (techNode.type === 'field') {
             // Give the field
             if (techNode.fieldIndex !== undefined) {
                 m.setField(techNode.fieldIndex);
-                simulation.makeTextLog(`<span class='color-text'>Unlocked Field:</span> ${techNode.name}`);
+                simulation.makeTextLog(`<span class='color-f'>◉ Field Unlocked:</span> ${techNode.name}`);
             }
         }
         
@@ -333,6 +309,11 @@ const polyTree = {
         
         let html = `<div style="display:flex; justify-content:center;"><svg id="polytree-svg" viewBox="0 0 ${baseWidth} ${baseHeight}" width="100%" preserveAspectRatio="xMidYMin meet" style="height:auto; max-width: 100%; background: #f9f9f9; border: 2px solid #333; cursor: grab;">
             <g id="tree-group" transform="translate(${this.panX}, ${this.panY}) scale(${this.zoom})">`;
+        
+        // Draw tree labels at the top
+        html += `<text x="${100 + 1 * (nodeW + gapX)}" y="50" text-anchor="middle" fill="#a8f" font-size="28" font-weight="bold" font-family="Arial">◆ TECH TREE</text>`;
+        html += `<text x="${100 + 5 * (nodeW + gapX)}" y="50" text-anchor="middle" fill="#f80" font-size="28" font-weight="bold" font-family="Arial">⚡ GUN TREE</text>`;
+        html += `<text x="${100 + 9 * (nodeW + gapX)}" y="50" text-anchor="middle" fill="#0af" font-size="28" font-weight="bold" font-family="Arial">◉ FIELD TREE</text>`;
         
         // Draw dependency lines with curves
         this.techTree.forEach(tech => {
@@ -450,12 +431,18 @@ const polyTree = {
         html += '<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">';
         html += '<svg width="30" height="30"><polygon points="15,8 22,15 15,22 8,15" fill="#a8f" stroke="#66f" stroke-width="2"/></svg>';
         html += '<strong style="font-size: 18px;">Poly Currency</strong></div>';
-        html += `<p><strong>${this.techTree.length} Items Available</strong> | Tree structure: WEAK → STRONG (top to bottom)</p>`;
-        html += '<p><strong>Item Types:</strong> <span style="color: #a8f; font-size: 16px;">◆</span> Tech &nbsp; <span style="color: #f80; font-size: 16px;">⚡</span> Gun &nbsp; <span style="color: #0af; font-size: 16px;">◉</span> Field</p>';
-        html += '<p>• <span style="background: #c8ffc8; padding: 3px 8px; border: 2px solid #0a0; border-radius: 4px;">Green</span> = Owned (unlocked)</p>';
-        html += '<p>• <span style="background: #fff8c8; padding: 3px 8px; border: 2px solid #fa0; border-radius: 4px;">Yellow</span> = Can purchase now</p>';
-        html += '<p>• <span style="background: #fff; padding: 3px 8px; border: 2px solid #999; border-radius: 4px;">Gray</span> = Locked (need ANY parent)</p>';
-        html += '<p style="margin-top: 12px; font-weight: bold;">Click yellow node to unlock • Hover for description • Drag to pan • Branch freely!</p>';
+        
+        const techCount = this.techTree.filter(t => t.type === 'tech').length;
+        const gunCount = this.techTree.filter(t => t.type === 'gun').length;
+        const fieldCount = this.techTree.filter(t => t.type === 'field').length;
+        
+        html += `<p><strong>3 INDEPENDENT TREES:</strong></p>`;
+        html += `<p><span style="color: #a8f; font-size: 18px;">◆</span> <strong>${techCount} Tech</strong> &nbsp; <span style="color: #f80; font-size: 18px;">⚡</span> <strong>${gunCount} Guns</strong> &nbsp; <span style="color: #0af; font-size: 18px;">◉</span> <strong>${fieldCount} Fields</strong></p>`;
+        html += '<p style="margin-top: 10px;">Each tree is SEPARATE - unlock items in ANY order within each tree!</p>';
+        html += '<p>• <span style="background: #c8ffc8; padding: 3px 8px; border: 2px solid #0a0; border-radius: 4px;">Green</span> = Owned</p>';
+        html += '<p>• <span style="background: #fff8c8; padding: 3px 8px; border: 2px solid #fa0; border-radius: 4px;">Yellow</span> = Can buy</p>';
+        html += '<p>• <span style="background: #fff; padding: 3px 8px; border: 2px solid #999; border-radius: 4px;">Gray</span> = Locked (need ANY parent in same tree)</p>';
+        html += '<p style="margin-top: 12px; font-weight: bold;">💰 MUCH CHEAPER! Base: 3 polys • Growth: 1.12x per row</p>';
         html += '</div>';
         
         container.innerHTML = html;
