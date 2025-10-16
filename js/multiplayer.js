@@ -1620,8 +1620,8 @@ const multiplayerSystem = {
                     const now = Date.now();
                     const timeSinceLastTeleport = now - lastTeleportTime;
                     
-                    // Much higher threshold and throttle teleportation notifications
-                    if (distance > 3000 && timeSinceLastTeleport > 2000) { // 3 second minimum between teleports
+                    // Lower threshold for teleportation detection - portals might be close together
+                    if (distance > 800 && timeSinceLastTeleport > 500) { // More sensitive detection, less aggressive throttling
                         // Validate coordinates more strictly
                         if (!isNaN(currentPos.x) && !isNaN(currentPos.y) && 
                             Math.abs(currentPos.x) < 50000 && Math.abs(currentPos.y) < 50000 &&
@@ -1638,12 +1638,13 @@ const multiplayerSystem = {
                                 timestamp: now
                             });
                             lastTeleportTime = now;
+                            console.log('Teleportation detected and notified:', lastPlayerPosition, '->', currentPos);
                         }
                     }
                 }
                 
                 lastPlayerPosition = currentPos;
-            }, 1000); // Check less frequently - every 1 second
+            }, 200); // Check more frequently for better teleportation detection
         }
     },
     
@@ -1766,6 +1767,11 @@ const multiplayerSystem = {
         const teleportRef = ref(database, `rooms/${this.currentRoomId}/teleportations`);
         let lastTeleportApplied = 0;
         
+        // Initialize lastAppliedTeleport if not exists
+        if (!this.lastAppliedTeleport) {
+            this.lastAppliedTeleport = null;
+        }
+        
         onValue(teleportRef, (snapshot) => {
             if (!snapshot.exists()) return;
             
@@ -1774,30 +1780,33 @@ const multiplayerSystem = {
             
             for (const [teleportId, teleport] of Object.entries(teleports)) {
                 if (teleport.playerId !== this.playerId && 
-                    now - teleport.timestamp < 5000 && // Extended processing window
-                    now - lastTeleportApplied > 3000) { // Throttle teleportation application
+                    now - teleport.timestamp < 5000) { // Extended processing window, removed throttling
                     
-                    // ALWAYS teleport everyone when someone uses a teleporter
+                    // ALWAYS teleport everyone when someone uses a teleporter (but throttle per teleport event)
                     if (teleport.fromPosition && teleport.toPosition && player && Matter.Body) {
-                        try {
-                            // Validate teleportation coordinates more strictly
-                            if (!isNaN(teleport.toPosition.x) && !isNaN(teleport.toPosition.y) &&
-                                Math.abs(teleport.toPosition.x) < 50000 && Math.abs(teleport.toPosition.y) < 50000 &&
-                                !isNaN(teleport.fromPosition.x) && !isNaN(teleport.fromPosition.y)) {
-                                
-                                // Teleport local player to the same destination safely
-                                Matter.Body.setPosition(player, teleport.toPosition);
-                                
-                                // Clear any velocity to prevent sliding
-                                Matter.Body.setVelocity(player, { x: 0, y: 0 });
-                                
-                                lastTeleportApplied = now;
-                                // Remove verbose logging to reduce spam
-                            } else {
-                                console.warn('Invalid teleportation coordinates:', teleport.toPosition);
+                        // Only apply if we haven't already applied this specific teleportation recently
+                        const teleportKey = `${teleport.playerId}_${teleport.timestamp}`;
+                        if (!this.lastAppliedTeleport || this.lastAppliedTeleport !== teleportKey) {
+                            try {
+                                // Validate teleportation coordinates
+                                if (!isNaN(teleport.toPosition.x) && !isNaN(teleport.toPosition.y) &&
+                                    Math.abs(teleport.toPosition.x) < 50000 && Math.abs(teleport.toPosition.y) < 50000 &&
+                                    !isNaN(teleport.fromPosition.x) && !isNaN(teleport.fromPosition.y)) {
+                                    
+                                    // Teleport local player to the same destination safely
+                                    Matter.Body.setPosition(player, teleport.toPosition);
+                                    
+                                    // Clear any velocity to prevent sliding
+                                    Matter.Body.setVelocity(player, { x: 0, y: 0 });
+                                    
+                                    this.lastAppliedTeleport = teleportKey;
+                                    console.log('Applied teleportation from', teleport.playerId, 'to:', teleport.toPosition);
+                                } else {
+                                    console.warn('Invalid teleportation coordinates:', teleport.toPosition);
+                                }
+                            } catch (error) {
+                                console.error('Error during teleportation:', error);
                             }
-                        } catch (error) {
-                            console.error('Error during teleportation:', error);
                         }
                     }
                     
