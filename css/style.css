@@ -57,15 +57,7 @@ em {
 }
 
 .menu-button:hover rect {
-    filter: brightness(1.2);
-}
-
-.menu-button:active rect {
-    filter: brightness(0.9);
-}
-
-.menu-button {
-    transition: all 0.2s ease;
+    fill: #e8e8ee;
 }
 
 *:focus {
