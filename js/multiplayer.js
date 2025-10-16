@@ -702,11 +702,29 @@ const multiplayerSystem = {
     },
     
     darkenColor(color) {
-        // Simple color darkening
+        if (!color || typeof color !== 'string') return '#666666';
+        
+        // Handle HSL colors
+        if (color.startsWith('hsl')) {
+            const match = color.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+            if (match) {
+                const h = parseInt(match[1]);
+                const s = parseInt(match[2]);
+                const l = Math.max(0, parseInt(match[3]) - 25); // Darken by reducing lightness
+                return `hsl(${h}, ${s}%, ${l}%)`;
+            }
+        }
+        
+        // Handle hex colors
         const hex = color.replace('#', '');
+        if (hex.length !== 6) return '#666666'; // Invalid hex
+        
         const r = Math.max(0, parseInt(hex.substr(0, 2), 16) - 40);
         const g = Math.max(0, parseInt(hex.substr(2, 2), 16) - 40);
         const b = Math.max(0, parseInt(hex.substr(4, 2), 16) - 40);
+        
+        if (isNaN(r) || isNaN(g) || isNaN(b)) return '#666666'; // Safety check
+        
         return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
     }
 };
