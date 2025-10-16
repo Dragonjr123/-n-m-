@@ -1062,7 +1062,7 @@ if (localSettings) {
     localSettings = {
         isCommunityMaps: false,
         difficultyMode: '2',
-        fpsCapDefault: 'max',
+        fpsCapDefault: '60',
         runCount: 0,
         levelsClearedLastGame: 0,
         loreCount: 0,

@@ -107,8 +107,8 @@ const simulation = {
     isChoosing: false,
     testing: false, //testing mode: shows wire frame and some variables
     cycle: 0, //total cycles, 60 per second
-    fpsCap: null, //limits frames per second to 144/2=72,  on most monitors the fps is capped at 60fps by the hardware
-    fpsCapDefault: 72, //use to change fpsCap back to normal after a hit from a mob
+    fpsCap: null, //limits frames per second, default 60 fps to prevent issues with high refresh rate monitors
+    fpsCapDefault: 60, //use to change fpsCap back to normal after a hit from a mob
     isCommunityMaps: false,
     cyclePaused: 0,
     fallHeight: 3000, //below this y position the player dies
