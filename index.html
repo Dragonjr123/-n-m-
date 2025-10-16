@@ -439,7 +439,7 @@
                 <text x="347.5" y="643" text-anchor="middle" fill="#333" font-size="24px" font-family="Arial, sans-serif" style="pointer-events: none;">settings</text>
             </g>
             <!-- PolyTree Button -->
-            <g onclick="if(typeof polyTree !== 'undefined'){if(polyTree.techTree.length===0)polyTree.generateTechTree(); document.getElementById('polytree-ui').style.display='block'; polyTree.renderTree();}else{alert('PolyTree not loaded')}" style="cursor: pointer;" class="menu-button">
+            <g onclick="if(typeof polyTree !== 'undefined'){if(polyTree.techTree.length===0){polyTree.generateTechTree();polyTree.loadProgress();} document.getElementById('polytree-ui').style.display='block'; polyTree.renderTree();}else{alert('PolyTree not loaded - check console')}" style="cursor: pointer;" class="menu-button">
                 <rect x="405" y="615" width="95" height="40" fill="#fff" stroke="#333" stroke-width="2"/>
                 <text x="452.5" y="643" text-anchor="middle" fill="#333" font-size="24px" font-family="Arial, sans-serif" style="pointer-events: none;">polytree</text>
             </g>
