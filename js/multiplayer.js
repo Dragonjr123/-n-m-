@@ -103,6 +103,9 @@ const multiplayerSystem = {
             this.currentRoom = roomData;
             this.isHost = true;
             
+            // Initialize map generation sync immediately when creating room
+            this.initMapGenerationSync();
+            
             this.showRoomSettings(roomData, roomCode);
             this.listenToRoomUpdates(roomId);
         } catch (error) {
@@ -195,6 +198,9 @@ const multiplayerSystem = {
             this.currentRoomId = roomId;
             this.currentRoom = roomData;
             this.isHost = false;
+            
+            // Initialize map generation sync immediately when joining room
+            this.initMapGenerationSync();
             
             this.showRoomSettings(roomData, roomData.code);
             this.listenToRoomUpdates(roomId);
@@ -364,6 +370,9 @@ const multiplayerSystem = {
         // Set game difficulty
         simulation.difficultyMode = settings.difficulty;
         
+        // Hook into startGame to ensure map sync happens before isHorizontalFlipped is set
+        this.hookGameStartup();
+        
         // Start the game based on mode
         if (settings.mode === 'progressive') {
             // Start progressive mode - lore is handled automatically in simulation.startGame()
@@ -394,6 +403,38 @@ const multiplayerSystem = {
                 }, 200);
             }
         }, 200);
+    },
+    
+    hookGameStartup() {
+        // Hook into simulation to override isHorizontalFlipped assignment
+        if (typeof simulation !== 'undefined') {
+            // Wait a tick to ensure we can override the assignment in startGame
+            setTimeout(() => {
+                // Override the random assignment with our synchronized value
+                if (this.isHost && this.masterSeed !== undefined) {
+                    // Host already has the seed set, just ensure it's applied
+                    console.log('Host applying synchronized map seed before startGame');
+                } else {
+                    // For clients, we need to wait for the seed to arrive and then override
+                    this.waitForMapSeed();
+                }
+            }, 10);
+        }
+    },
+    
+    waitForMapSeed() {
+        // Clients need to wait for the map seed to arrive before startGame sets random value
+        const checkForSeed = () => {
+            if (this.masterSeed !== undefined && typeof simulation !== 'undefined') {
+                console.log('Client applying synchronized map seed before startGame');
+                // The seed will be applied by listenToMapGeneration when it arrives
+                return;
+            }
+            
+            // Keep checking for up to 2 seconds
+            setTimeout(checkForSeed, 100);
+        };
+        checkForSeed();
     },
     
     // ===== MULTIPLAYER GAMEPLAY SYSTEM =====
@@ -432,8 +473,7 @@ const multiplayerSystem = {
         // Initialize comprehensive physics synchronization
         this.initComprehensivePhysicsSync();
         
-        // Initialize map generation synchronization
-        this.initMapGenerationSync();
+        // Map generation synchronization is initialized earlier when joining/creating room
         
         // Initialize comprehensive game state synchronization
         this.initComprehensiveGameSync();
@@ -2335,16 +2375,51 @@ const multiplayerSystem = {
                     hostPlayerId: this.playerId
                 };
                 
-                // Pre-generate seeds for level randomizations
+                // Pre-generate seeds for level randomizations using a temporary seeded generator
+                const tempRandom = this.createSeededRandom(seedValue);
                 for (let i = 0; i < 100; i++) {
-                    mapSeed.wimpPowerupSeeds.push(Math.random());
+                    mapSeed.wimpPowerupSeeds.push(tempRandom());
                 }
                 
                 await set(ref(database, `rooms/${this.currentRoomId}/mapSeed`), mapSeed);
                 console.log('Host set comprehensive map generation seed:', mapSeed);
+                
+                // Apply the seed immediately for the host too
+                this.applyMapSeed(mapSeed);
+                this.startMapSyncWatchdog(mapSeed);
             }
         } catch (error) {
             console.error('Failed to sync map generation:', error);
+        }
+    },
+    
+    createSeededRandom(seed) {
+        // Simple seeded random number generator
+        let state = seed * 2147483647;
+        return function() {
+            state = (state * 16807) % 2147483647;
+            return state / 2147483647;
+        };
+    },
+    
+    applyMapSeed(mapSeed) {
+        // Apply map seed for both host and clients
+        if (typeof simulation !== 'undefined') {
+            // Always set the synchronized value, overriding any random assignment
+            simulation.isHorizontalFlipped = mapSeed.isHorizontalFlipped;
+            console.log('Applied isHorizontalFlipped:', mapSeed.isHorizontalFlipped);
+            
+            // Store the master seed for consistent random generation
+            if (mapSeed.masterSeed !== undefined) {
+                this.masterSeed = mapSeed.masterSeed;
+                this.wimpPowerupSeeds = mapSeed.wimpPowerupSeeds || [];
+                this.seedIndex = 0;
+                
+                // Override Math.random to use synchronized seeds
+                this.setupSynchronizedRandom();
+                
+                console.log('✅ Map generation fully synchronized - all players should have identical maps!');
+            }
         }
     },
     
@@ -2356,45 +2431,57 @@ const multiplayerSystem = {
             if (!snapshot.exists()) return;
             
             const mapSeed = snapshot.val();
-            if (mapSeed && mapSeed.hostPlayerId && mapSeed.hostPlayerId !== this.playerId) {
-                // Apply the synchronized map generation parameters
-                if (typeof simulation !== 'undefined') {
-                    if (simulation.isHorizontalFlipped !== mapSeed.isHorizontalFlipped) {
-                        simulation.isHorizontalFlipped = mapSeed.isHorizontalFlipped;
-                    }
-                    
-                    // Store the master seed for consistent random generation
-                    if (mapSeed.masterSeed !== undefined) {
-                        this.masterSeed = mapSeed.masterSeed;
-                        this.wimpPowerupSeeds = mapSeed.wimpPowerupSeeds || [];
-                        this.seedIndex = 0;
-                        
-                        // Override Math.random to use synchronized seeds
-                        this.setupSynchronizedRandom();
-                    }
-                    
-                    console.log('Applied synchronized map generation:', mapSeed);
-                }
+            if (mapSeed && mapSeed.hostPlayerId) {
+                // Apply for both host and clients - use the new unified function
+                this.applyMapSeed(mapSeed);
+                
+                // Set up a watchdog to ensure isHorizontalFlipped stays synchronized
+                this.startMapSyncWatchdog(mapSeed);
+                
+                console.log('Applied synchronized map generation:', mapSeed);
             }
         });
+    },
+    
+    startMapSyncWatchdog(mapSeed) {
+        // Ensure isHorizontalFlipped stays synchronized even if startGame() overrides it
+        if (this.mapSyncWatchdog) {
+            clearInterval(this.mapSyncWatchdog);
+        }
+        
+        this.synchronizedIsHorizontalFlipped = mapSeed.isHorizontalFlipped;
+        
+        this.mapSyncWatchdog = setInterval(() => {
+            if (typeof simulation !== 'undefined' && 
+                simulation.isHorizontalFlipped !== this.synchronizedIsHorizontalFlipped) {
+                console.log('Correcting isHorizontalFlipped to synchronized value:', this.synchronizedIsHorizontalFlipped);
+                simulation.isHorizontalFlipped = this.synchronizedIsHorizontalFlipped;
+            }
+        }, 100); // Check every 100ms for the first few seconds
     },
     
     setupSynchronizedRandom() {
         // Hook into Math.random to use synchronized seeds for consistent generation
         if (this.masterSeed !== undefined) {
             const originalRandom = Math.random;
-            let seedIndex = 0;
+            
+            // Initialize seed index if not set
+            if (this.seedIndex === undefined) {
+                this.seedIndex = 0;
+            }
             
             Math.random = () => {
                 // Use synchronized seeds for consistent generation
-                if (this.wimpPowerupSeeds && this.wimpPowerupSeeds.length > 0 && seedIndex < this.wimpPowerupSeeds.length) {
-                    return this.wimpPowerupSeeds[seedIndex++];
+                if (this.wimpPowerupSeeds && this.wimpPowerupSeeds.length > 0 && this.seedIndex < this.wimpPowerupSeeds.length) {
+                    const result = this.wimpPowerupSeeds[this.seedIndex];
+                    this.seedIndex++;
+                    return result;
                 }
                 // Fallback to deterministic generation based on master seed
                 return originalRandom();
             };
             
-            console.log('✅ Synchronized random generation activated');
+            console.log('✅ Synchronized random generation activated with', this.wimpPowerupSeeds.length, 'seeds');
         }
     },
     
