@@ -180,8 +180,9 @@ const polyTree = {
     },
     
     updateMinerStats() {
-        // Each level gives exponentially more polys/sec
-        this.polyPerSecond = this.minerLevel > 0 ? Math.floor(this.minerLevel * Math.pow(1.05, this.minerLevel * 0.5)) : 0;
+        // NERFED: Much slower poly generation
+        // Each level gives 0.5 polys/sec base, with very slow exponential growth
+        this.polyPerSecond = this.minerLevel > 0 ? (this.minerLevel * 0.5 * Math.pow(1.02, this.minerLevel * 0.3)).toFixed(2) : 0;
         const display = document.getElementById('poly-per-sec');
         if (display) {
             display.textContent = `+${this.polyPerSecond}/sec`;
@@ -207,9 +208,12 @@ const polyTree = {
         
         const now = Date.now();
         const deltaTime = (now - this.lastMinerTick) / 1000; // seconds
+        
+        // Cap deltaTime to prevent huge accumulation when tabbed out or paused
+        const cappedDeltaTime = Math.min(deltaTime, 1); // Max 1 second of accumulation per tick
         this.lastMinerTick = now;
         
-        const polysEarned = this.polyPerSecond * deltaTime;
+        const polysEarned = parseFloat(this.polyPerSecond) * cappedDeltaTime;
         if (polysEarned > 0) {
             simulation.polys += polysEarned;
             this.updatePolyDisplay();
