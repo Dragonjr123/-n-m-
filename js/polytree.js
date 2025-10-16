@@ -1,46 +1,44 @@
 // Progressive Mode - PolyTree System
 const polyTree = {
-    // Tech tree is dynamically generated from all available tech
     techTree: [],
+    ownedTech: [],
     
-    // Generate tech tree from game's tech list
+    // Generate tech tree from ALL available game tech
     generateTechTree() {
         if (!tech || !tech.tech) return;
         
         this.techTree = [];
-        const techPerTier = 20; // How many tech per tier
+        const techPerRow = 10;
         
         // Get all non-lore, non-junk tech
         const availableTech = tech.tech.filter(t => !t.isLore && !t.isJunk && !t.isNonRefundable);
         
-        // Sort by frequency (lower = rarer = better)
+        // Sort WEAK to STRONG: high frequency = weak (comes first)
         availableTech.sort((a, b) => {
-            // Use frequency as power indicator (lower frequency = rarer = more powerful)
             const freqA = a.frequency || 2;
             const freqB = b.frequency || 2;
-            return freqB - freqA; // Higher frequency first (weaker tech)
+            const maxA = a.maxCount || 1;
+            const maxB = b.maxCount || 1;
+            
+            if (freqA !== freqB) return freqB - freqA; // Higher freq first = weaker
+            return maxB - maxA; // Higher maxCount = weaker (stackable)
         });
         
-        // Distribute into tiers and assign costs
+        // Build tree structure
         availableTech.forEach((t, index) => {
-            const tier = Math.floor(index / techPerTier) + 1;
-            const tierIndex = index % techPerTier;
-            
-            // Cost increases exponentially with tier
-            const baseCost = 20 + (tierIndex * 5);
-            const tierMultiplier = Math.pow(1.5, tier - 1);
-            const cost = Math.floor(baseCost * tierMultiplier);
-            
+            const row = Math.floor(index / techPerRow);
+            const col = index % techPerRow;
+            const baseCost = 15 + (col * 3);
+            const cost = Math.floor(baseCost * Math.pow(1.4, row));
             const techId = t.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
             
-            // Dependencies: require one tech from previous tier
+            // Dependencies from previous row
             const dependencies = [];
-            if (tier > 1) {
-                const prevTierStart = (tier - 2) * techPerTier;
-                const prevTierEnd = Math.min(prevTierStart + techPerTier, index);
-                if (prevTierEnd > prevTierStart) {
-                    // Pick a random dependency from previous tier
-                    const depIndex = prevTierStart + Math.floor(Math.random() * (prevTierEnd - prevTierStart));
+            if (row > 0) {
+                const prevRowStart = (row - 1) * techPerRow;
+                const prevRowEnd = Math.min(prevRowStart + techPerRow, index);
+                if (prevRowEnd > prevRowStart) {
+                    const depIndex = prevRowStart + Math.floor(Math.random() * (prevRowEnd - prevRowStart));
                     const depTech = availableTech[depIndex];
                     if (depTech) {
                         dependencies.push(depTech.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
@@ -52,69 +50,45 @@ const polyTree = {
                 id: techId,
                 name: t.name,
                 cost: cost,
-                tier: tier,
+                row: row,
+                col: col,
                 dependencies: dependencies
             });
         });
     },
     
-    ownedTech: [], // Array of tech IDs that player owns
-    
-    // Initialize progressive mode
     init() {
-        this.generateTechTree(); // Build tree from all available tech
+        this.generateTechTree();
         simulation.polys = 0;
         simulation.firstPowerUpSpawned = false;
         this.ownedTech = [];
         this.updatePolyDisplay();
     },
     
-    // Add polys to player
     addPolys(amount) {
         simulation.polys += amount;
         this.updatePolyDisplay();
     },
     
-    // Update poly display
     updatePolyDisplay() {
         const polyElement = document.getElementById('poly-count');
-        const polyGameElement = document.getElementById('poly-count-game');
-        const polyDisplayElement = document.getElementById('poly-display');
-        
         if (polyElement) {
             polyElement.textContent = simulation.polys;
         }
-        if (polyGameElement) {
-            polyGameElement.textContent = simulation.polys;
-        }
-        // Show/hide in-game counter based on mode
-        if (polyDisplayElement && simulation.gameMode === 'progressive') {
-            polyDisplayElement.style.display = 'block';
-        } else if (polyDisplayElement) {
-            polyDisplayElement.style.display = 'none';
-        }
     },
     
-    // Check if player can buy a tech
     canBuy(techId) {
         const techNode = this.techTree.find(t => t.id === techId);
         if (!techNode) return false;
-        
-        // Check if already owned
         if (this.ownedTech.includes(techId)) return false;
-        
-        // Check if player has enough polys
         if (simulation.polys < techNode.cost) return false;
         
-        // Check if dependencies are met
         for (let dep of techNode.dependencies) {
             if (!this.ownedTech.includes(dep)) return false;
         }
-        
         return true;
     },
     
-    // Buy a tech
     buyTech(techId) {
         if (!this.canBuy(techId)) return false;
         
@@ -124,17 +98,15 @@ const polyTree = {
         
         this.updatePolyDisplay();
         this.renderTree();
-        
         return true;
     },
     
-    // Get random owned tech for powerup selection
     getRandomOwnedTech() {
         if (this.ownedTech.length === 0) return null;
         return this.ownedTech[Math.floor(Math.random() * this.ownedTech.length)];
     },
     
-    // Render the tech tree UI
+    // Visual tech tree renderer
     renderTree() {
         const container = document.getElementById('polytree-content');
         if (!container) return;
@@ -143,84 +115,100 @@ const polyTree = {
             this.generateTechTree();
         }
         
-        let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; padding: 10px;">';
+        const nodeW = 140;
+        const nodeH = 50;
+        const gapX = 20;
+        const gapY = 80;
+        const maxRow = Math.max(...this.techTree.map(t => t.row));
+        const svgWidth = 10 * (nodeW + gapX) + 100;
+        const svgHeight = (maxRow + 1) * (nodeH + gapY) + 100;
         
-        // Group by tier
-        const maxTier = Math.max(...this.techTree.map(t => t.tier));
+        let html = `<svg width="${svgWidth}" height="${svgHeight}" style="background: #f9f9f9; border: 2px solid #333;">`;
         
-        for (let tier = 1; tier <= maxTier; tier++) {
-            const tierTech = this.techTree.filter(t => t.tier === tier);
-            if (tierTech.length === 0) continue;
+        // Draw dependency lines
+        this.techTree.forEach(tech => {
+            const x = 50 + tech.col * (nodeW + gapX);
+            const y = 50 + tech.row * (nodeH + gapY);
             
-            html += `<div style="grid-column: 1 / -1; background: #ddd; padding: 8px; font-weight: bold; margin-top: ${tier > 1 ? '10px' : '0'};">TIER ${tier} (${tierTech.length} tech)</div>`;
-            
-            tierTech.forEach(tech => {
-                const isOwned = this.ownedTech.includes(tech.id);
-                const canBuy = this.canBuy(tech.id);
-                
-                let bgColor = '#fff';
-                let borderColor = '#999';
-                let textColor = '#333';
-                
-                if (isOwned) {
-                    bgColor = '#afa';
-                    borderColor = '#0a0';
-                } else if (canBuy) {
-                    bgColor = '#ffa';
-                    borderColor = '#f90';
-                } else {
-                    bgColor = '#eee';
-                    borderColor = '#999';
-                    textColor = '#999';
+            tech.dependencies.forEach(depId => {
+                const depTech = this.techTree.find(t => t.id === depId);
+                if (depTech) {
+                    const depX = 50 + depTech.col * (nodeW + gapX);
+                    const depY = 50 + depTech.row * (nodeH + gapY);
+                    const isPathOwned = this.ownedTech.includes(tech.id) && this.ownedTech.includes(depId);
+                    const lineColor = isPathOwned ? '#0a0' : '#ccc';
+                    html += `<line x1="${depX + nodeW/2}" y1="${depY + nodeH}" x2="${x + nodeW/2}" y2="${y}" stroke="${lineColor}" stroke-width="2"/>`;
                 }
-                
-                html += `<div onclick="polyTree.buyTech('${tech.id}')" style="
-                    padding: 10px;
-                    background: ${bgColor};
-                    border: 2px solid ${borderColor};
-                    border-radius: 5px;
-                    cursor: pointer;
-                    color: ${textColor};
-                    font-size: 12px;
-                ">`;
-                html += `<div style="font-weight: bold; margin-bottom: 5px;">${tech.name}</div>`;
-                html += `<div style="font-size: 11px;">${isOwned ? '✓ OWNED' : tech.cost + ' polys'}</div>`;
-                if (tech.dependencies.length > 0 && !isOwned) {
-                    html += `<div style="font-size: 10px; color: #666; margin-top: 3px;">Requires prev tier</div>`;
-                }
-                html += `</div>`;
             });
-        }
+        });
         
-        html += '</div>';
+        // Draw nodes
+        this.techTree.forEach(tech => {
+            const x = 50 + tech.col * (nodeW + gapX);
+            const y = 50 + tech.row * (nodeH + gapY);
+            const isOwned = this.ownedTech.includes(tech.id);
+            const canBuy = this.canBuy(tech.id);
+            
+            let fillColor, strokeColor, textColor;
+            if (isOwned) {
+                fillColor = '#c8ffc8';
+                strokeColor = '#0a0';
+                textColor = '#000';
+            } else if (canBuy) {
+                fillColor = '#fff8c8';
+                strokeColor = '#fa0';
+                textColor = '#000';
+            } else {
+                fillColor = '#fff';
+                strokeColor = '#999';
+                textColor = '#666';
+            }
+            
+            html += `<g onclick="polyTree.buyTech('${tech.id}')" style="cursor: pointer;">`;
+            html += `<rect x="${x}" y="${y}" width="${nodeW}" height="${nodeH}" rx="8" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2.5"/>`;
+            
+            const displayName = tech.name.length > 18 ? tech.name.substring(0, 16) + '...' : tech.name;
+            html += `<text x="${x + nodeW/2}" y="${y + 22}" text-anchor="middle" fill="${textColor}" font-size="11" font-weight="bold" font-family="Arial">${displayName}</text>`;
+            
+            if (isOwned) {
+                html += `<text x="${x + nodeW/2}" y="${y + 38}" text-anchor="middle" fill="#0a0" font-size="10" font-weight="bold" font-family="Arial">✓ OWNED</text>`;
+            } else {
+                // Poly diamond logo
+                const px = x + nodeW/2 - 25;
+                const py = y + 37;
+                html += `<polygon points="${px},${py-5} ${px+6},${py} ${px},${py+5} ${px-6},${py}" fill="#a8f" stroke="#66f" stroke-width="1.5"/>`;
+                html += `<text x="${x + nodeW/2 - 14}" y="${y + 39}" text-anchor="start" fill="${textColor}" font-size="11" font-family="Arial">${tech.cost}</text>`;
+            }
+            
+            html += `</g>`;
+        });
         
-        html += '<div style="margin-top: 20px; padding: 15px; border: 2px solid #333; background-color: #f5f5f5;">';
-        html += `<p><strong>All ${this.techTree.length} Tech Available!</strong></p>`;
-        html += '<p>• <span style="background: #afa; padding: 2px 5px;">Green</span> = Owned (appears in powerups) | ';
-        html += '<span style="background: #ffa; padding: 2px 5px;">Yellow</span> = Can buy | ';
-        html += '<span style="background: #eee; padding: 2px 5px;">Gray</span> = Locked</p>';
-        html += '<p>• Tech organized by rarity/power (common → rare)</p>';
-        html += '<p>• Must unlock tech from previous tier before buying higher tiers</p>';
+        html += '</svg>';
+        
+        // Legend
+        html += '<div style="margin: 20px; padding: 15px; border: 2px solid #333; background: #fff; border-radius: 8px;">';
+        html += '<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">';
+        html += '<svg width="30" height="30"><polygon points="15,8 22,15 15,22 8,15" fill="#a8f" stroke="#66f" stroke-width="2"/></svg>';
+        html += '<strong style="font-size: 18px;">Poly Currency</strong></div>';
+        html += `<p><strong>${this.techTree.length} Tech Available</strong> | Organized WEAK → STRONG (top to bottom)</p>`;
+        html += '<p>• <span style="background: #c8ffc8; padding: 3px 8px; border: 2px solid #0a0; border-radius: 4px;">Green</span> = Owned (appears in powerups)</p>';
+        html += '<p>• <span style="background: #fff8c8; padding: 3px 8px; border: 2px solid #fa0; border-radius: 4px;">Yellow</span> = Can purchase now</p>';
+        html += '<p>• <span style="background: #fff; padding: 3px 8px; border: 2px solid #999; border-radius: 4px;">Gray</span> = Locked (need previous row)</p>';
+        html += '<p style="margin-top: 12px; font-weight: bold;">Click yellow node to unlock with polys</p>';
         html += '</div>';
         
         container.innerHTML = html;
     },
     
-    // Award polys for killing a mob
     awardPolyForKill(mob) {
         if (simulation.gameMode !== 'progressive') return;
-        
-        // Base polys based on mob health
         let polyReward = Math.floor(mob.maxHealth / 100);
-        polyReward = Math.max(1, polyReward); // Minimum 1 poly
-        
+        polyReward = Math.max(1, polyReward);
         this.addPolys(polyReward);
     },
     
-    // Award polys for completing a level
     awardPolyForLevel() {
         if (simulation.gameMode !== 'progressive') return;
-        
         const levelReward = 50 + (level.levelsCleared * 10);
         this.addPolys(levelReward);
         simulation.makeTextLog(`<span class='color-text'>Level complete! +${levelReward} polys</span>`);
