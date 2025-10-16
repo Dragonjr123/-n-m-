@@ -1046,6 +1046,11 @@ const mobs = {
                 this.removeConsBB();
                 this.alive = false; //triggers mob removal in mob[i].replace(i)
 
+                // Award polys in progressive mode
+                if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined') {
+                    polyTree.awardPolyForKill(this);
+                }
+
                 if (this.isDropPowerUp) {
                     if (tech.iceIXOnDeath && this.isSlowed) {
                         for (let i = 0, len = 2 * Math.sqrt(Math.min(this.mass, 25)) * tech.iceIXOnDeath; i < len; i++) b.iceIX(3, Math.random() * 2 * Math.PI, this.position)

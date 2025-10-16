@@ -172,6 +172,11 @@ const level = {
         // const len = level.levelsCleared / level.levels.length //add 1 extra difficulty step for each time you have cleared all the levels
         // for (let i = 0; i < len; i++) 
         level.difficultyIncrease(simulation.difficultyMode)
+        
+        // Award polys for completing level in progressive mode
+        if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined') {
+            polyTree.awardPolyForLevel();
+        }
 
         level.onLevel++; //cycles map to next level
         if (level.onLevel > level.levels.length - 1) level.onLevel = 0;

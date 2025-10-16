@@ -110,6 +110,9 @@ const simulation = {
     fpsCap: null, //limits frames per second, default 60 fps to prevent issues with high refresh rate monitors
     fpsCapDefault: 60, //use to change fpsCap back to normal after a hit from a mob
     isCommunityMaps: false,
+    gameMode: 'adventure', // 'progressive' or 'adventure'
+    polys: 0, // currency for progressive mode
+    firstPowerUpSpawned: false, // tracks if first powerup has been given
     cyclePaused: 0,
     fallHeight: 3000, //below this y position the player dies
     lastTimeStamp: 0, //tracks time stamps for measuring delta
@@ -652,6 +655,13 @@ const simulation = {
         }
         simulation.isCheating = false
         simulation.firstRun = false;
+
+        // Initialize progressive mode if selected
+        if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined') {
+            polyTree.init();
+            polyTree.renderTree();
+            simulation.makeTextLog(`<span class='color-text'>Progressive Mode</span> - Earn polys and unlock tech!`);
+        }
 
         //setup FPS cap
         simulation.fpsInterval = 1000 / simulation.fpsCap;

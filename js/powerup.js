@@ -411,9 +411,28 @@ const powerUps = {
             if (m.alive) {
                 function pick(skip1 = -1, skip2 = -1, skip3 = -1, skip4 = -1) {
                     let options = [];
-                    for (let i = 0; i < tech.tech.length; i++) {
-                        if (tech.tech[i].count < tech.tech[i].maxCount && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4 && tech.tech[i].allowed()) {
-                            for (let j = 0, len = tech.tech[i].frequency; j < len; j++) options.push(i);
+                    
+                    // Progressive mode: first powerup is random, after that only owned tech
+                    if (simulation.gameMode === 'progressive' && simulation.firstPowerUpSpawned && polyTree.ownedTech.length > 0) {
+                        // Only show tech that player owns in polytree
+                        for (let i = 0; i < tech.tech.length; i++) {
+                            if (tech.tech[i].count < tech.tech[i].maxCount && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4 && tech.tech[i].allowed()) {
+                                // Check if this tech is owned in polytree
+                                const techId = tech.tech[i].name.toLowerCase().replace(/ /g, '_');
+                                if (polyTree.ownedTech.includes(techId)) {
+                                    for (let j = 0, len = tech.tech[i].frequency; j < len; j++) options.push(i);
+                                }
+                            }
+                        }
+                    } else {
+                        // Adventure mode or first powerup: show all available tech
+                        for (let i = 0; i < tech.tech.length; i++) {
+                            if (tech.tech[i].count < tech.tech[i].maxCount && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4 && tech.tech[i].allowed()) {
+                                for (let j = 0, len = tech.tech[i].frequency; j < len; j++) options.push(i);
+                            }
+                        }
+                        if (simulation.gameMode === 'progressive' && !simulation.firstPowerUpSpawned) {
+                            simulation.firstPowerUpSpawned = true; // Mark that first powerup has been spawned
                         }
                     }
                     powerUps.tech.lastTotalChoices = options.length //this is recorded so that banish can know how many tech were available

@@ -35,6 +35,18 @@
     <div id="dmg"></div>
     <div id="choose-background"></div>
     <div id="construct"></div>
+    <div id="polytree-ui" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #fff; z-index: 15; overflow-y: auto;">
+        <div style="padding: 20px;">
+            <h1 style="text-align: center; font-family: Arial Black, sans-serif;">POLY TREE</h1>
+            <div style="text-align: center; font-size: 24px; margin: 10px 0;">
+                Polys: <span id="poly-count" style="font-weight: bold;">0</span>
+            </div>
+            <div style="text-align: center; margin-bottom: 20px;">
+                <button onclick="document.getElementById('polytree-ui').style.display='none'" style="padding: 10px 20px; font-size: 18px; cursor: pointer;">Close</button>
+            </div>
+            <div id="polytree-content" style="max-width: 1200px; margin: 0 auto;"></div>
+        </div>
+    </div>
     <!-- <input type="text" id="console" spellcheck="false" /> -->
     <!-- contenteditable="true" -->
 
@@ -416,19 +428,45 @@
         <!-- Main Menu Buttons -->
         <g class="fade-in" id="main-menu-buttons">
             <!-- Play Button -->
-            <g onclick="simulation.startGame()" style="cursor: pointer;" class="menu-button">
+            <g onclick="document.getElementById('mode-selection').style.display='block'; document.getElementById('main-menu-buttons').style.display='none';" style="cursor: pointer;" class="menu-button">
                 <rect x="300" y="550" width="200" height="50" fill="#fff" stroke="#333" stroke-width="2"/>
-                <text x="310" y="583" fill="#333" font-size="28px" font-family="Arial, sans-serif" style="pointer-events: none;">play</text>
+                <text x="400" y="583" text-anchor="middle" fill="#333" font-size="28px" font-family="Arial, sans-serif" style="pointer-events: none;">play</text>
             </g>
             <!-- Settings Button -->
             <g onclick="document.getElementById('settings').open = !document.getElementById('settings').open" style="cursor: pointer;" class="menu-button">
                 <rect x="300" y="615" width="95" height="40" fill="#fff" stroke="#333" stroke-width="2"/>
-                <text x="310" y="643" fill="#333" font-size="24px" font-family="Arial, sans-serif" style="pointer-events: none;">settings</text>
+                <text x="347.5" y="643" text-anchor="middle" fill="#333" font-size="24px" font-family="Arial, sans-serif" style="pointer-events: none;">settings</text>
             </g>
-            <!-- PolyTree Button (placeholder) -->
-            <g onclick="alert('PolyTree coming soon!')" style="cursor: pointer;" class="menu-button">
+            <!-- PolyTree Button -->
+            <g onclick="if(simulation.gameMode==='progressive'){document.getElementById('polytree-ui').style.display='block'}else{alert('PolyTree only available in Progressive mode')}" style="cursor: pointer;" class="menu-button">
                 <rect x="405" y="615" width="95" height="40" fill="#fff" stroke="#333" stroke-width="2"/>
-                <text x="415" y="643" fill="#333" font-size="24px" font-family="Arial, sans-serif" style="pointer-events: none;">polytree</text>
+                <text x="452.5" y="643" text-anchor="middle" fill="#333" font-size="24px" font-family="Arial, sans-serif" style="pointer-events: none;">polytree</text>
+            </g>
+        </g>
+        
+        <!-- Mode Selection UI -->
+        <g id="mode-selection" style="display: none;">
+            <rect x="0" y="0" width="800" height="800" fill="#fff"/>
+            <text x="400" y="150" text-anchor="middle" fill="#333" font-size="36px" font-family="Arial Black, sans-serif">SELECT MODE</text>
+            
+            <!-- Progressive Mode -->
+            <g onclick="simulation.gameMode='progressive'; simulation.startGame();" style="cursor: pointer;" class="menu-button">
+                <rect x="250" y="250" width="300" height="80" fill="#fff" stroke="#333" stroke-width="3"/>
+                <text x="400" y="295" text-anchor="middle" fill="#333" font-size="32px" font-family="Arial Black, sans-serif" style="pointer-events: none;">PROGRESSIVE</text>
+                <text x="400" y="318" text-anchor="middle" fill="#666" font-size="16px" font-family="Arial, sans-serif" style="pointer-events: none;">Earn polys, upgrade in tech tree</text>
+            </g>
+            
+            <!-- Adventure Mode -->
+            <g onclick="simulation.gameMode='adventure'; simulation.startGame();" style="cursor: pointer;" class="menu-button">
+                <rect x="250" y="360" width="300" height="80" fill="#fff" stroke="#333" stroke-width="3"/>
+                <text x="400" y="405" text-anchor="middle" fill="#333" font-size="32px" font-family="Arial Black, sans-serif" style="pointer-events: none;">ADVENTURE</text>
+                <text x="400" y="428" text-anchor="middle" fill="#666" font-size="16px" font-family="Arial, sans-serif" style="pointer-events: none;">Classic mode, random powerups</text>
+            </g>
+            
+            <!-- Back Button -->
+            <g onclick="document.getElementById('mode-selection').style.display='none'; document.getElementById('main-menu-buttons').style.display='block';" style="cursor: pointer;" class="menu-button">
+                <rect x="325" y="500" width="150" height="45" fill="#fff" stroke="#333" stroke-width="2"/>
+                <text x="400" y="530" text-anchor="middle" fill="#333" font-size="24px" font-family="Arial, sans-serif" style="pointer-events: none;">back</text>
             </g>
         </g>
         <g id="gamepad" transform="translate(700,700) scale(0.2)" style="display: none;" stroke="#333" stroke-width="0.5" fill="#444">
@@ -572,6 +610,7 @@
     <script src="js/player.js"></script>
     <script src="js/powerup.js"></script>
     <script src="js/tech.js"></script>
+    <script src="js/polytree.js"></script>
     <script src="js/bullet.js"></script>
     <script src="js/mob.js"></script>
     <script src="js/spawn.js"></script>
