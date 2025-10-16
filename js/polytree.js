@@ -90,6 +90,18 @@ const polyTree = {
         if (simulation.polys === undefined) simulation.polys = 0;
         simulation.firstPowerUpSpawned = false;
         this.updatePolyDisplay();
+        
+        // Auto-save on page unload
+        window.addEventListener('beforeunload', () => {
+            this.saveProgress();
+        });
+        
+        // Auto-save every 10 seconds
+        setInterval(() => {
+            if (simulation.gameMode === 'progressive') {
+                this.saveProgress();
+            }
+        }, 10000);
     },
     
     // Save/Load functionality
@@ -181,11 +193,6 @@ const polyTree = {
         if (polysEarned > 0) {
             simulation.polys += polysEarned;
             this.updatePolyDisplay();
-            
-            // Auto-save every 5 seconds
-            if (Math.random() < 0.1) {
-                this.saveProgress();
-            }
         }
     },
     
