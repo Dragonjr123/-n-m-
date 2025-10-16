@@ -145,7 +145,7 @@
                     <label style="display: block; margin-bottom: 5px;">Password:</label>
                     <input type="password" id="room-password" placeholder="Enter password" maxlength="20" style="width: 100%; padding: 8px; font-size: 1em; border: 2px solid #ccc; border-radius: 4px;">
                 </div>
-                <button onclick="multiplayerSystem.createRoom()" class="SVG-button" style="width: 100%; padding: 12px; font-size: 1.1em; background: #0af; color: #fff;">Create Room</button>
+                <button id="create-room-btn" class="SVG-button" style="width: 100%; padding: 12px; font-size: 1.1em; background: #0af; color: #fff;">Create Room</button>
             </div>
             
             <div style="background:#fff; padding: 20px; border-radius: 6px;">
@@ -157,11 +157,11 @@
                     <label style="display: block; margin-bottom: 5px;">Room Code:</label>
                     <input type="text" id="join-room-code" placeholder="Enter room code" maxlength="10" style="width: 100%; padding: 8px; font-size: 1em; border: 2px solid #ccc; border-radius: 4px;">
                 </div>
-                <button onclick="multiplayerSystem.joinRoomByCode()" class="SVG-button" style="width: 100%; padding: 12px; font-size: 1.1em;">Join by Code</button>
+                <button id="join-room-btn" class="SVG-button" style="width: 100%; padding: 12px; font-size: 1.1em;">Join by Code</button>
             </div>
         </div>
         
-        <button onclick="menuSystem.showGameModeSelect()" class="SVG-button" style="padding: 10px 30px; font-size: 1.2em;">Back</button>
+        <button id="back-button" class="SVG-button" style="padding: 10px 30px; font-size: 1.2em;">Back</button>
     </div>
     
     <!-- Room Settings (shown when room is created) -->
@@ -217,8 +217,8 @@
         </div>
         
         <div style="display: flex; gap: 10px; justify-content: center;">
-            <button onclick="multiplayerSystem.startGame()" id="start-game-btn" class="SVG-button" style="padding: 12px 40px; font-size: 1.2em; background: #0a0; color: #fff;">Start Game</button>
-            <button onclick="multiplayerSystem.leaveRoom()" class="SVG-button" style="padding: 12px 40px; font-size: 1.2em; background: #f44; color: #fff;">Leave Room</button>
+            <button id="start-game-btn" class="SVG-button" style="padding: 12px 40px; font-size: 1.2em; background: #0a0; color: #fff;">Start Game</button>
+            <button id="leave-room-btn" class="SVG-button" style="padding: 12px 40px; font-size: 1.2em; background: #f44; color: #fff;">Leave Room</button>
         </div>
     </div>
     

@@ -1587,32 +1587,7 @@ const multiplayerSystem = {
                     remove(ref(database, `rooms/${this.currentRoomId}/notifications/${notificationId}`));
                 }
             }
-            
-            // Also notify about physics effects (knockback, etc.)
-            if (player && player.velocity && player.position) {
-                const currentVel = { x: player.velocity.x, y: player.velocity.y };
-                this.notifyPowerupPhysicsEffect({
-                    playerId: this.playerId,
-                    velocity: currentVel,
-                    position: { x: player.position.x, y: player.position.y },
-                    timestamp: Date.now()
-                });
-                    
-                    // Notify about direct spawns too
-                    if (!this.isRemoteSpawn) {
-                        this.notifyPowerupSpawn({
-                            x: typeof x === 'number' ? Math.round(x * 100) / 100 : 0,
-                            y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
-                            target: target || 'tech',
-                            moving: moving !== false,
-                            mode: mode || null,
-                            size: size || null,
-                            timestamp: Date.now()
-                        });
-                    }
-                };
-            }
-        }
+        });
     },
     
     async notifyPowerupSpawn(spawnData) {
@@ -4109,8 +4084,56 @@ const multiplayerSystem = {
     }
 };
 
-// Expose globally for onclick handlers
-window.multiplayerSystem = multiplayerSystem;
+// Add event listeners when DOM is ready
+document.addEventListener("DOMContentLoaded", () => {
+    // Create room button
+    const createRoomBtn = document.getElementById("create-room-btn");
+    if (createRoomBtn) {
+        createRoomBtn.addEventListener("click", () => {
+            multiplayerSystem.createRoom();
+        });
+    }
+    
+    // Join room button
+    const joinRoomBtn = document.getElementById("join-room-btn");
+    if (joinRoomBtn) {
+        joinRoomBtn.addEventListener("click", () => {
+            multiplayerSystem.joinRoomByCode();
+        });
+    }
+    
+    // Start game button
+    const startGameBtn = document.getElementById("start-game-btn");
+    if (startGameBtn) {
+        startGameBtn.addEventListener("click", () => {
+            multiplayerSystem.startGame();
+        });
+    }
+    
+    // Leave room button
+    const leaveRoomBtn = document.getElementById("leave-room-btn");
+    if (leaveRoomBtn) {
+        leaveRoomBtn.addEventListener("click", () => {
+            multiplayerSystem.leaveRoom();
+        });
+    }
+    
+    // Back button
+    const backButton = document.getElementById("back-button");
+    if (backButton) {
+        backButton.addEventListener("click", () => {
+            // Hide current screen and show main menu
+            const roomSettings = document.getElementById("room-settings");
+            const multiplayerLobby = document.getElementById("multiplayer-lobby");
+            if (roomSettings) roomSettings.style.display = "none";
+            if (multiplayerLobby) multiplayerLobby.style.display = "none";
+            
+            // Show main menu
+            const mainMenu = document.getElementById("main-menu");
+            if (mainMenu) mainMenu.style.display = "flex";
+        });
+    }
+});
 
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
@@ -4120,5 +4143,8 @@ if (document.readyState === 'loading') {
 } else {
     console.log('Multiplayer system loaded');
 }
+
+// Also expose globally for backward compatibility
+window.multiplayerSystem = multiplayerSystem;
 
 export default multiplayerSystem;
