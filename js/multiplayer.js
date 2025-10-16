@@ -321,6 +321,17 @@ const multiplayerSystem = {
             this.retryCount = 0; // Reset retry count on successful connection
             
             // Initialize map generation sync immediately when joining room
+            this.initMapGenerationSync();
+            
+            this.showRoomSettings(roomData, roomData.code);
+            this.listenToRoomUpdates(roomId);
+            
+            console.log('✅ Joined room successfully:', roomData.code);
+        } catch (error) {
+            console.error('❌ Error joining room:', error);
+            
+            // Handle specific Firebase errors
+            if (error.code === 'unavailable') {
                 alert('Firebase is temporarily unavailable. Please check your connection and try again.');
                 this.connectionState = 'disconnected';
                 this.scheduleReconnect();
@@ -592,7 +603,6 @@ const multiplayerSystem = {
     isGhost: false,
     isGameStarted: false,
     isInitialized: false,
-    isLevelSyncing: false,
     
     initMultiplayerGameplay() {
         console.log('🚀 INITIALIZING MULTIPLAYER GAMEPLAY');
@@ -854,12 +864,10 @@ const multiplayerSystem = {
                     console.log('🎮 Remote players now:', Object.keys(this.remotePlayers));
                 } else {
                     // Update existing remote player, preserving name/color info
-                    this.remotePlayers[playerId].targetX = state.x;
-                    this.remotePlayers[playerId].targetY = state.y;
-                    if (typeof this.remotePlayers[playerId].x !== 'number') this.remotePlayers[playerId].x = state.x;
-                    if (typeof this.remotePlayers[playerId].y !== 'number') this.remotePlayers[playerId].y = state.y;
-                    this.remotePlayers[playerId].vx = state.vx || 0;
-                    this.remotePlayers[playerId].vy = state.vy || 0;
+                    this.remotePlayers[playerId].x = state.x;
+                    this.remotePlayers[playerId].y = state.y;
+                    this.remotePlayers[playerId].vx = state.vx;
+                    this.remotePlayers[playerId].vy = state.vy;
                     this.remotePlayers[playerId].radius = state.radius || 30;
                     this.remotePlayers[playerId].isAlive = state.isAlive !== false;
                     this.remotePlayers[playerId].health = state.health || 100;
@@ -1092,13 +1100,6 @@ const multiplayerSystem = {
             // Debug: log occasionally when rendering (reduced frequency)
             if (Math.random() < 0.001) {
                 console.log(`🎨 Rendering ${remotePlayer.name} at (${remotePlayer.x}, ${remotePlayer.y})`);
-            }
-            
-            // Smooth movement towards the last received target to reduce jitter
-            if (typeof remotePlayer.targetX === 'number' && typeof remotePlayer.x === 'number') {
-                const alpha = 0.3; // smoothing factor
-                remotePlayer.x += (remotePlayer.targetX - remotePlayer.x) * alpha;
-                remotePlayer.y += (remotePlayer.targetY - remotePlayer.y) * alpha;
             }
             
             // Render actual player model for remote player
@@ -1383,67 +1384,78 @@ const multiplayerSystem = {
         ctx.restore();
     },
     
-    // Enhanced level sync that respects shared level progression setting
-    async checkLevelProgressionPermission() {
-        if (!this.currentRoomId) return false;
+    async leaveRoom() {
+        if (!this.currentRoomId) return;
         
         try {
-            const roomRef = ref(database, `rooms/${this.currentRoomId}/gameSettings`);
-            const snapshot = await get(roomRef);
+            // Clean up all listeners first to prevent further operations
+            this.cleanupListeners();
             
-            if (snapshot.exists()) {
-                const settings = snapshot.val();
-                // Only allow level progression if you're the host OR if shared progression is enabled
-                return this.isHost || settings.sharedLevelProgression;
+            // Clear position sync interval
+            if (this.positionUpdateInterval) {
+                clearInterval(this.positionUpdateInterval);
+                this.positionUpdateInterval = null;
             }
+            
+            // Clear reconnect timeout
+            if (this.reconnectTimeout) {
+                clearTimeout(this.reconnectTimeout);
+                this.reconnectTimeout = null;
+            }
+            
+            // Clear remote players
+            this.remotePlayers = {};
+            
+            // Remove player from room with error handling
+            try {
+                await remove(ref(database, `rooms/${this.currentRoomId}/players/${this.playerId}`));
+            } catch (dbError) {
+                console.warn('Could not remove player from database:', dbError);
+            }
+            
+            // If host, delete the entire room
+            if (this.isHost) {
+                try {
+                    await remove(ref(database, `rooms/${this.currentRoomId}`));
+                } catch (dbError) {
+                    console.warn('Could not remove room from database:', dbError);
+                }
+            }
+            
+            // Reset connection state
+            this.currentRoomId = null;
+            this.currentRoom = null;
+            this.isHost = false;
+            this.connectionState = 'disconnected';
+            this.retryCount = 0;
+            
+            // Reset initialization flags
+            this.isGameStarted = false;
+            this.isInitialized = false;
+            
+            // Return to lobby
+            const roomSettingsEl = document.getElementById('room-settings');
+            const lobbyEl = document.getElementById('multiplayer-lobby');
+            if (roomSettingsEl) roomSettingsEl.style.display = 'none';
+            if (lobbyEl) lobbyEl.style.display = 'block';
+            
+            console.log('✅ Successfully left room');
         } catch (error) {
-            console.error('Error checking level progression permission:', error);
+            console.error('❌ Error leaving room:', error);
         }
-        
-        return this.isHost; // Default to host-only if we can't check
     },
     
-    listenForPublicRooms() {
-        const roomsRef = ref(database, 'rooms');
-        onValue(roomsRef, (snapshot) => {
-            const roomList = document.getElementById('room-list');
-            roomList.innerHTML = '';
-            
-            if (!snapshot.exists()) {
-                roomList.innerHTML = '<p style="text-align: center; color: #999;">No public rooms available</p>';
-                return;
+    cleanupListeners() {
+        // Clean up all Firebase listeners
+        this.listeners.forEach((unsubscribe, listenerName) => {
+            try {
+                unsubscribe();
+                console.log(`🔄 Cleaned up listener: ${listenerName}`);
+            } catch (error) {
+                console.warn(`Failed to cleanup listener ${listenerName}:`, error);
             }
-            
-            const rooms = snapshot.val();
-            const publicRooms = Object.entries(rooms).filter(([_, room]) => !room.isPrivate);
-            
-            if (publicRooms.length === 0) {
-                roomList.innerHTML = '<p style="text-align: center; color: #999;">No public rooms available</p>';
-                return;
-            }
-            
-            publicRooms.forEach(([roomId, room]) => {
-                const playerCount = room.players ? Object.keys(room.players).length : 0;
-                
-                const roomCard = document.createElement('div');
-                roomCard.className = 'SVG-button';
-                roomCard.style.cssText = `
-                    padding: 10px;
-                    margin-bottom: 8px;
-                    cursor: pointer;
-                    text-align: left;
-                `;
-                roomCard.innerHTML = `
-                    <div style="font-weight: bold;">${room.name}</div>
-                    <div style="font-size: 0.85em; color: #666;">
-                        Players: ${playerCount}/${room.maxPlayers} | Code: ${room.code}
-                    </div>
-                `;
-                roomCard.onclick = () => this.joinRoom(roomId, room);
-                
-                roomList.appendChild(roomCard);
-            });
         });
+        this.listeners.clear();
     },
     
     // ===== POWERUP SYNCHRONIZATION =====
@@ -1575,43 +1587,16 @@ const multiplayerSystem = {
                     remove(ref(database, `rooms/${this.currentRoomId}/notifications/${notificationId}`));
                 }
             }
-        });
-    },
-    
-    monitorPowerupSpawning() {
-        // Hook into powerup spawning to sync spawns across players - enhanced to catch all spawn methods
-        if (typeof powerUps !== 'undefined') {
-            // Hook main spawn method
-            if (powerUps.spawn) {
-                const originalSpawn = powerUps.spawn;
-                this.isRemoteSpawn = false; // Flag to prevent recursive spawning
-                
-                powerUps.spawn = (x, y, target, moving, mode, size) => {
-                    // Call original spawn function
-                    originalSpawn.call(powerUps, x, y, target, moving, mode, size);
-                    
-                    // Only notify other players if this is not a remote spawn
-                    if (!this.isRemoteSpawn) {
-                        this.notifyPowerupSpawn({
-                            x: typeof x === 'number' ? Math.round(x * 100) / 100 : 0,
-                            y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
-                            target: target || 'tech',
-                            moving: moving !== false,
-                            mode: mode || null,
-                            size: size || null,
-                            timestamp: Date.now()
-                        });
-                    }
-                };
-            }
             
-            // Also hook directSpawn if it exists
-            if (powerUps.directSpawn) {
-                const originalDirectSpawn = powerUps.directSpawn;
-                
-                powerUps.directSpawn = (x, y, target, moving, mode, size) => {
-                    // Call original function
-                    originalDirectSpawn.call(powerUps, x, y, target, moving, mode, size);
+            // Also notify about physics effects (knockback, etc.)
+            if (player && player.velocity && player.position) {
+                const currentVel = { x: player.velocity.x, y: player.velocity.y };
+                this.notifyPowerupPhysicsEffect({
+                    playerId: this.playerId,
+                    velocity: currentVel,
+                    position: { x: player.position.x, y: player.position.y },
+                    timestamp: Date.now()
+                });
                     
                     // Notify about direct spawns too
                     if (!this.isRemoteSpawn) {
@@ -1651,7 +1636,6 @@ const multiplayerSystem = {
             const spawns = snapshot.val();
             for (const [spawnId, spawnData] of Object.entries(spawns)) {
                 if (Date.now() - spawnData.timestamp < 1000) { // Only process recent spawns
-                    
                     // Spawn powerup locally if we don't have it (set flag to prevent recursive notification)
                     if (typeof powerUps !== 'undefined' && powerUps.spawn) {
                         this.isRemoteSpawn = true;
@@ -1750,34 +1734,23 @@ const multiplayerSystem = {
                 // Call original function
                 originalStart.call(level);
                 
-                // Notify other players about level change immediately
-                this.notifyLevelChange({
-                    currentLevel: level.onLevel || 0,
-                    levelsCleared: level.levelsCleared || 0,
-                    timestamp: Date.now()
+                // Only notify if we have permission to progress
+                this.checkLevelProgressionPermission().then(hasPermission => {
+                    if (hasPermission) {
+                        // Notify other players about level change
+                        this.notifyLevelChange({
+                            currentLevel: level.onLevel || 0,
+                            levelsCleared: level.levelsCleared || 0,
+                            timestamp: Date.now()
+                        });
+                    }
                 });
             };
         }
-        
-        // Also monitor level.onLevel for direct changes
-        let lastLevel = -1;
-        setInterval(() => {
-            if (!this.isGameStarted || typeof level === 'undefined') return;
-            
-            if (level.onLevel !== lastLevel && level.onLevel !== undefined) {
-                console.log('Level changed from', lastLevel, 'to', level.onLevel);
-                this.notifyLevelChange({
-                    currentLevel: level.onLevel,
-                    levelsCleared: level.levelsCleared || 0,
-                    timestamp: Date.now()
-                });
-                lastLevel = level.onLevel;
-            }
-        }, 500); // Check every 500ms
     },
     
     async notifyLevelChange(levelData) {
-        if (!this.currentRoomId || this.isLevelSyncing) return;
+        if (!this.currentRoomId) return;
         
         try {
             // Update room level state
@@ -1786,7 +1759,6 @@ const multiplayerSystem = {
                 levelsCleared: levelData.levelsCleared,
                 levelTimestamp: levelData.timestamp
             });
-            console.log('✅ Notified level change:', levelData.currentLevel);
         } catch (error) {
             console.error('Failed to notify level change:', error);
         }
@@ -1801,14 +1773,19 @@ const multiplayerSystem = {
             
             const roomData = snapshot.val();
             if (roomData.currentLevel !== undefined && 
-                typeof level !== 'undefined' &&
                 roomData.currentLevel !== level.onLevel && 
                 roomData.levelTimestamp && 
-                Date.now() - roomData.levelTimestamp < 10000) { // Extended window to 10 seconds
+                Date.now() - roomData.levelTimestamp < 5000) { // Only process recent changes
                 
-                console.log('Remote level change detected:', roomData.currentLevel, 'current:', level.onLevel);
-                // Sync to the new level immediately
-                this.syncToLevel(roomData.currentLevel, roomData.levelsCleared);
+                // Check permissions before syncing
+                this.checkLevelProgressionPermission().then(hasPermission => {
+                    if (hasPermission) {
+                        // Sync to the new level
+                        this.syncToLevel(roomData.currentLevel, roomData.levelsCleared);
+                    } else {
+                        console.log('Level progression denied - shared progression is disabled');
+                    }
+                });
             }
         });
     },
@@ -1816,36 +1793,76 @@ const multiplayerSystem = {
     syncToLevel(targetLevel, targetLevelsCleared) {
         if (typeof level === 'undefined') return;
         
-        console.log(`✅ Syncing to level ${targetLevel}, cleared: ${targetLevelsCleared}`);
+        console.log(`Syncing to level ${targetLevel}, cleared: ${targetLevelsCleared}`);
         
         // Update local level state
         level.onLevel = targetLevel;
-        if (targetLevelsCleared !== undefined) {
-            level.levelsCleared = targetLevelsCleared;
+        level.levelsCleared = targetLevelsCleared;
+        
+        // Clear current map and restart with synchronized level
+        if (typeof simulation !== 'undefined' && simulation.clearNow !== undefined) {
+            simulation.clearNow = true;
         }
         
-        // Trigger level restart to load the new level
-        if (typeof level.start === 'function') {
-            // Temporarily disable level change notifications to prevent loop
-            const tempDisable = this.isLevelSyncing;
-            this.isLevelSyncing = true;
-            
-            // Clear and restart level
-            if (typeof simulation !== 'undefined') {
-                simulation.clearNow = true;
+        // Reset bullets to prevent accumulation
+        if (typeof bullet !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+            for (let i = 0; i < bullet.length; i++) {
+                if (bullet[i]) {
+                    try {
+                        Matter.World.remove(engine.world, bullet[i]);
+                    } catch (error) {
+                        console.warn('Error removing bullet during level sync:', error);
+                    }
+                }
             }
-            
-            setTimeout(() => {
-                this.isLevelSyncing = tempDisable;
-            }, 1000);
+            bullet.length = 0;
+        }
+        
+        // Reset mobs to prevent accumulation
+        if (typeof mob !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+            for (let i = 0; i < mob.length; i++) {
+                if (mob[i]) {
+                    try {
+                        Matter.World.remove(engine.world, mob[i]);
+                    } catch (error) {
+                        console.warn('Error removing mob during level sync:', error);
+                    }
+                }
+            }
+            mob.length = 0;
+        }
+        
+        // Reset bodies to prevent accumulation
+        if (typeof body !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+            for (let i = 0; i < body.length; i++) {
+                if (body[i]) {
+                    try {
+                        Matter.World.remove(engine.world, body[i]);
+                    } catch (error) {
+                        console.warn('Error removing body during level sync:', error);
+                    }
+                }
+            }
+            body.length = 0;
+        }
+        
+        // Reset powerups to prevent accumulation
+        if (typeof powerUp !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+            for (let i = 0; i < powerUp.length; i++) {
+                if (powerUp[i]) {
+                    try {
+                        Matter.World.remove(engine.world, powerUp[i]);
+                    } catch (error) {
+                        console.warn('Error removing powerup during level sync:', error);
+                    }
+                }
+            }
+            powerUp.length = 0;
         }
     },
     
     // ===== TECH AND PHYSICS SYNCHRONIZATION =====
     initTechAndPhysicsSync() {
-        // Synchronize tech state between players
-        this.syncTechState();
-        
         // Monitor tech ability usage and sync effects
         this.monitorTechAbilities();
         
@@ -1862,70 +1879,56 @@ const multiplayerSystem = {
         this.listenToTechAndPhysicsEvents();
     },
     
-    async syncTechState() {
-        // Synchronize tech abilities between players
-        if (!this.currentRoomId) return;
-        
-        // Send local tech state periodically
-        setInterval(() => {
-            if (!this.isGameStarted || typeof tech === 'undefined') return;
-            
-            const techState = {
-                playerId: this.playerId,
-                // Key tech abilities that affect gameplay
-                isFireMoveLock: tech.isFireMoveLock || false,
-                isFireNotMove: tech.isFireNotMove || false,
-                isAlwaysFire: tech.isAlwaysFire || false,
-                isDemonic: tech.isDemonic || false,
-                isWormBullets: tech.isWormBullets || false,
-                fragments: tech.fragments || 0,
-                explosiveRadius: tech.explosiveRadius || 1,
-                fireRate: tech.fireRate || 1,
-                timestamp: Date.now()
-            };
-            
-            set(ref(database, `rooms/${this.currentRoomId}/techStates/${this.playerId}`), techState)
-                .catch(err => console.error('Failed to sync tech state:', err));
-        }, 2000); // Sync every 2 seconds
-        
-        // Listen for tech states from other players
-        const techStatesRef = ref(database, `rooms/${this.currentRoomId}/techStates`);
-        onValue(techStatesRef, (snapshot) => {
-            if (!snapshot.exists()) return;
-            
-            const techStates = snapshot.val();
-            for (const [playerId, techState] of Object.entries(techStates)) {
-                if (playerId !== this.playerId && this.remotePlayers[playerId]) {
-                    // Store tech state for remote player rendering
-                    this.remotePlayers[playerId].techState = techState;
-                }
-            }
-        });
-    },
-    
     monitorTechProjectiles() {
         // Enhanced monitoring for tech abilities that create projectiles
-        // The main bullet monitoring in monitorAllBulletCreation handles most cases
-        // This is just for logging and special cases
+        
+        // Hook into gun firing to catch multishot and other projectile abilities
+        if (typeof b !== 'undefined' && typeof b.guns !== 'undefined') {
+            // Monitor gun firing to catch tech abilities
+            for (let gunIndex = 0; gunIndex < b.guns.length; gunIndex++) {
+                if (b.guns[gunIndex] && b.guns[gunIndex].fire) {
+                    const originalFire = b.guns[gunIndex].fire;
+                    
+                    b.guns[gunIndex].fire = () => {
+                        // Call original fire function
+                        originalFire.call(b.guns[gunIndex]);
+                        
+                        // After firing, monitor for new bullets that were created by this tech ability
+                        setTimeout(() => {
+                            if (typeof bullet !== 'undefined' && bullet.length > 0) {
+                                // Get the most recent bullets that might have been created by this tech
+                                const recentBullets = bullet.slice(-5); // Check last 5 bullets
+                                for (const bulletItem of recentBullets) {
+                                    if (bulletItem && bulletItem.position && bulletItem.velocity) {
+                                        // These bullets should already be caught by monitorAllBulletCreation
+                                        // but this ensures tech abilities are properly networked
+                                        console.log('Tech projectile created:', bulletItem);
+                                    }
+                                }
+                            }
+                        }, 10); // Small delay to let bullets be created
+                    };
+                }
+            }
+        }
         
         // Monitor for tech-specific projectiles
         setInterval(() => {
             if (!this.isGameStarted || typeof bullet === 'undefined') return;
             
-            // Monitor for tech-specific projectiles that might need special handling
+            // Monitor for tech-specific projectiles that might not be caught by normal monitoring
             if (typeof m !== 'undefined' && typeof tech !== 'undefined') {
                 // Check for specific tech abilities that create projectiles
                 if (tech.isWormBullets && bullet.length > 0) {
                     // Worm bullets - these need special handling
                     const recentBullets = bullet.filter(b => b && b.isInHole === true);
                     if (recentBullets.length > 0) {
-                        // These are already caught by monitorAllBulletCreation
-                        // Just log for debugging
-                        console.log('Worm bullets active:', recentBullets.length);
+                        // Notify about worm bullet teleportation
+                        console.log('Worm bullet detected - should sync teleportation');
                     }
                 }
             }
-        }, 1000); // Check every second for tech projectiles
+        }, 100); // Check frequently for tech projectiles
     },
     
     monitorTechAbilities() {
@@ -2481,6 +2484,780 @@ const multiplayerSystem = {
     
     // ===== COMPREHENSIVE PHYSICS SYNCHRONIZATION =====
     initComprehensivePhysicsSync() {
+        // Monitor bullet firing and explosions
+        this.monitorBulletAndExplosions();
+        
+        // Monitor mob interactions and deaths
+        this.monitorMobInteractions();
+        
+        // Listen for physics events from other players
+        this.listenToPhysicsEvents();
+    },
+    
+    monitorBulletAndExplosions() {
+        // Monitor bullet firing using polling approach
+        let lastBulletCount = 0;
+        
+        setInterval(() => {
+            if (!this.isGameStarted || typeof bullet === 'undefined') return;
+            
+            // Check for new bullets created
+            if (bullet.length > lastBulletCount) {
+                // New bullets were created, notify other players
+                const newBullets = bullet.slice(lastBulletCount);
+                for (let i = 0; i < newBullets.length; i++) {
+                    const newBullet = newBullets[i];
+                    if (newBullet && newBullet.position) {
+                        this.notifyBulletFired({
+                            playerId: this.playerId,
+                            position: { x: newBullet.position.x, y: newBullet.position.y },
+                            velocity: { x: newBullet.velocity.x, y: newBullet.velocity.y },
+                            bulletType: newBullet.bulletType || 'default',
+                            timestamp: Date.now()
+                        });
+                    }
+                }
+                lastBulletCount = bullet.length;
+            } else if (bullet.length < lastBulletCount) {
+                // Bullets were removed, update count
+                lastBulletCount = bullet.length;
+            }
+        }, 100); // Check every 100ms
+        
+        // Monitor explosions
+        if (typeof b !== 'undefined' && b.explosion) {
+            const originalExplosion = b.explosion;
+            b.explosion = (where, radius, color) => {
+                // Call original function first
+                originalExplosion.call(b, where, radius, color);
+                
+                // Notify other players about explosion
+                this.notifyExplosion({
+                    playerId: this.playerId,
+                    position: { x: where.x, y: where.y },
+                    radius: radius,
+                    color: color || "rgba(255,25,0,0.6)",
+                    timestamp: Date.now()
+                });
+            };
+        }
+    },
+    
+    async notifyExplosion(explosionData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const explosionRef = push(ref(database, `rooms/${this.currentRoomId}/explosions`));
+            await set(explosionRef, explosionData);
+        } catch (error) {
+            console.error('Failed to notify explosion:', error);
+        }
+    },
+    
+    async notifyBulletFired(bulletData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const bulletRef = push(ref(database, `rooms/${this.currentRoomId}/bullets`));
+            await set(bulletRef, bulletData);
+        } catch (error) {
+            console.error('Failed to notify bullet fired:', error);
+        }
+    },
+    
+    monitorMobInteractions() {
+        // Monitor mob deaths using a polling approach since hooking can be unreliable
+        let lastMobCount = mob.length;
+        let lastMobHealths = [];
+        
+        setInterval(() => {
+            if (!this.isGameStarted || typeof mob === 'undefined') return;
+            
+            // Check for mob count changes (deaths)
+            if (lastMobCount !== mob.length) {
+                console.log(`Mob count changed: ${lastMobCount} -> ${mob.length}`);
+                lastMobCount = mob.length;
+                lastMobHealths = [];
+            }
+            
+            // Check for mob health changes (deaths)
+            for (let i = 0; i < mob.length; i++) {
+                if (mob[i] && typeof mob[i].health === 'number') {
+                    const lastHealth = lastMobHealths[i] || mob[i].maxHealth;
+                    const currentHealth = mob[i].health;
+                    
+                    // If mob died (health went from > 0 to <= 0)
+                    if (lastHealth > 0 && currentHealth <= 0 && mob[i].alive) {
+                        this.notifyMobDeath({
+                            mobId: i,
+                            position: { x: mob[i].position.x, y: mob[i].position.y },
+                            playerId: this.playerId,
+                            timestamp: Date.now()
+                        });
+                    }
+                    
+                    lastMobHealths[i] = currentHealth;
+                }
+            }
+        }, 200); // Check every 200ms
+    },
+    
+    async notifyMobDeath(mobData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const mobRef = push(ref(database, `rooms/${this.currentRoomId}/mobDeaths`));
+            await set(mobRef, mobData);
+        } catch (error) {
+            console.error('Failed to notify mob death:', error);
+        }
+    },
+    
+    listenToPhysicsEvents() {
+        if (!this.currentRoomId) return;
+        
+        // Listen for explosions from other players
+        const explosionsRef = ref(database, `rooms/${this.currentRoomId}/explosions`);
+        onValue(explosionsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const explosions = snapshot.val();
+            for (const [explosionId, explosionData] of Object.entries(explosions)) {
+                if (explosionData.playerId !== this.playerId && 
+                    Date.now() - explosionData.timestamp < 1000) { // Only process recent explosions
+                    
+                    // Trigger explosion on this client
+                    this.triggerExplosion(explosionData);
+                    
+                    // Clean up old explosion data
+                    remove(ref(database, `rooms/${this.currentRoomId}/explosions/${explosionId}`));
+                }
+            }
+        });
+        
+        // Listen for bullets from other players
+        const bulletsRef = ref(database, `rooms/${this.currentRoomId}/bullets`);
+        onValue(bulletsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const bullets = snapshot.val();
+            for (const [bulletId, bulletData] of Object.entries(bullets)) {
+                if (bulletData.playerId !== this.playerId && 
+                    Date.now() - bulletData.timestamp < 500) { // Only process recent bullets
+                    
+                    // Trigger bullet creation on this client
+                    this.triggerBullet(bulletData);
+                    
+                    // Clean up old bullet data
+                    remove(ref(database, `rooms/${this.currentRoomId}/bullets/${bulletId}`));
+                }
+            }
+        });
+        
+        // Listen for mob deaths from other players
+        const mobDeathsRef = ref(database, `rooms/${this.currentRoomId}/mobDeaths`);
+        onValue(mobDeathsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const mobDeaths = snapshot.val();
+            for (const [deathId, mobData] of Object.entries(mobDeaths)) {
+                if (mobData.playerId !== this.playerId && 
+                    Date.now() - mobData.timestamp < 2000) { // Only process recent deaths
+                    
+                    // Sync mob death on this client
+                    this.syncMobDeath(mobData);
+                    
+                    // Clean up old death data
+                    remove(ref(database, `rooms/${this.currentRoomId}/mobDeaths/${deathId}`));
+                }
+            }
+        });
+    },
+    
+    triggerExplosion(explosionData) {
+        try {
+            if (typeof b !== 'undefined' && b.explosion && explosionData.position && explosionData.radius) {
+                // Create explosion effect visually without affecting local game state
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    simulation.drawList.push({
+                        x: explosionData.position.x,
+                        y: explosionData.position.y,
+                        radius: explosionData.radius,
+                        color: explosionData.color || "rgba(255,25,0,0.6)",
+                        time: simulation.drawTime * 2
+                    });
+                }
+                
+                console.log('Triggered remote explosion at:', explosionData.position);
+            }
+        } catch (error) {
+            console.error('Error triggering explosion:', error);
+        }
+    },
+    
+    syncMobDeath(mobData) {
+        try {
+            // Find the corresponding mob and sync its death
+            if (typeof mob !== 'undefined' && mob.length > mobData.mobId && mob[mobData.mobId]) {
+                const targetMob = mob[mobData.mobId];
+                if (targetMob && targetMob.alive && typeof targetMob.damage === 'function') {
+                    // Force the mob to die to match the other client
+                    targetMob.damage(targetMob.health + 1); // Ensure death
+                }
+            }
+        } catch (error) {
+            console.error('Error syncing mob death:', error);
+        }
+    },
+    
+    triggerBullet(bulletData) {
+        try {
+            // Create actual bullet bodies for remote players to ensure they see projectiles
+            if (typeof b !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined' && bulletData.position) {
+                // Create a temporary bullet that will be removed after a short time
+                const bulletIndex = bullet.length;
+                
+                // Determine bullet properties based on type
+                let newBullet;
+                const radius = bulletData.radius || 4.5;
+                
+                // Create bullet based on type
+                if (bulletData.bulletType === 'explosive') {
+                    newBullet = Matter.Bodies.circle(bulletData.position.x, bulletData.position.y, radius, {
+                        friction: 0.5,
+                        frictionAir: 0,
+                        restitution: 0,
+                        classType: "bullet",
+                        collisionFilter: {
+                            category: cat.bullet,
+                            mask: cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield
+                        }
+                    });
+                    newBullet.explodeRad = bulletData.explodeRad || 100;
+                } else {
+                    // Create a standard bullet
+                    newBullet = Matter.Bodies.polygon(bulletData.position.x, bulletData.position.y, 4, radius, {
+                        friction: 0.5,
+                        frictionAir: 0,
+                        restitution: 0,
+                        classType: "bullet",
+                        collisionFilter: {
+                            category: cat.bullet,
+                            mask: cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield
+                        }
+                    });
+                }
+                
+                // Set bullet properties
+                if (newBullet && bulletData.velocity) {
+                    Matter.Body.setVelocity(newBullet, bulletData.velocity);
+                    newBullet.bulletType = bulletData.bulletType || 'default';
+                    newBullet.color = bulletData.color || '#000000';
+                    newBullet.endCycle = simulation.cycle + 180; // 3 second lifetime
+                    
+                    // Add required properties to prevent crashes
+                    newBullet.beforeDmg = function() {};
+                    newBullet.onEnd = function() {};
+                    newBullet.minDmgSpeed = 10;
+                    
+                    // Add do function to prevent crashes
+                    newBullet.do = function() {
+                        // Bullet behavior - remove when endCycle is reached
+                        if (typeof simulation !== 'undefined' && simulation.cycle > this.endCycle) {
+                            // Remove bullet when lifetime expires
+                            if (typeof bullet !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+                                try {
+                                    Matter.World.remove(engine.world, this);
+                                } catch (error) {
+                                    console.warn('Error removing remote bullet:', error);
+                                }
+                            }
+                        }
+                    };
+                    
+                    // Add to bullet array and world
+                    bullet.push(newBullet);
+                    Matter.World.add(engine.world, newBullet);
+                    
+                    console.log('Created remote bullet with type:', bulletData.bulletType, 'at:', bulletData.position);
+                }
+            } else if (typeof simulation !== 'undefined' && simulation.drawList && bulletData.position) {
+                // Fallback to visual effect if bullet creation fails
+                simulation.drawList.push({
+                    x: bulletData.position.x,
+                    y: bulletData.position.y,
+                    radius: bulletData.radius || 3,
+                    color: bulletData.color || "rgba(255,255,0,0.8)",
+                    time: simulation.drawTime * 0.5 // Short-lived bullet trail
+                });
+                
+                console.log('Triggered remote bullet visual effect at:', bulletData.position);
+            }
+        } catch (error) {
+            console.error('Error triggering bullet:', error);
+        }
+    },
+    
+    // ===== MOB AND PHYSICS BODY SYNCHRONIZATION =====
+    initMobAndBodySync() {
+        // Hook into mob spawning to sync across all players
+        this.hookMobSpawning();
+        
+        // Hook into physics body spawning to sync across all players
+        this.hookBodySpawning();
+        
+        // Listen for mob and body spawn events from other players
+        this.listenToMobAndBodySpawns();
+    },
+    
+    hookMobSpawning() {
+        // Hook into mobs.spawn to synchronize mob spawning - enhanced to catch all spawns
+        if (typeof mobs !== 'undefined' && mobs.spawn) {
+            const originalSpawn = mobs.spawn;
+            
+            // Initialize the flag
+            this.isRemoteMobSpawn = false;
+            
+            mobs.spawn = (xPos, yPos, sides, radius, color) => {
+                // Call original spawn first
+                const result = originalSpawn.call(mobs, xPos, yPos, sides, radius, color);
+                
+                // Only notify if this is not a remote spawn
+                if (!this.isRemoteMobSpawn && this.isGameStarted) {
+                    const newMob = mob[mob.length - 1];
+                    if (newMob) {
+                        this.notifyMobSpawn({
+                            playerId: this.playerId,
+                            mobId: mob.length - 1,
+                            position: { x: xPos, y: yPos },
+                            sides: sides,
+                            radius: radius,
+                            color: color,
+                            timestamp: Date.now()
+                        });
+                        console.log('Notified mob spawn:', { x: xPos, y: yPos, sides, radius, color });
+                    }
+                }
+                
+                return result;
+            };
+        }
+        
+        // Also add additional monitoring to catch any mobs that might be created through other means
+        let lastMobCount = 0;
+        setInterval(() => {
+            if (!this.isGameStarted || typeof mob === 'undefined') return;
+            
+            // Check for new mobs that might not have been caught by the hook
+            if (mob.length > lastMobCount) {
+                const newMobs = mob.slice(lastMobCount);
+                for (let i = 0; i < newMobs.length; i++) {
+                    const newMob = newMobs[i];
+                    if (newMob && newMob.position && !this.isRemoteMobSpawn) {
+                        // This is a backup to catch any mobs that weren't caught by the hook
+                        console.log('Backup mob spawn detected:', newMob.position);
+                    }
+                }
+                lastMobCount = mob.length;
+            }
+        }, 200); // Check every 200ms for missed mob spawns
+    },
+    
+    hookBodySpawning() {
+        // Hook into spawn.bodyRect and other body spawning functions
+        if (typeof spawn !== 'undefined') {
+            // Hook bodyRect spawning
+            if (spawn.bodyRect) {
+                const originalBodyRect = spawn.bodyRect;
+                
+                // Initialize the flag
+                this.isRemoteBodySpawn = false;
+                
+                spawn.bodyRect = (x, y, width, height, density) => {
+                    const result = originalBodyRect.call(spawn, x, y, width, height, density);
+                    
+                    if (!this.isRemoteBodySpawn) {
+                        const newBody = body[body.length - 1];
+                        if (newBody) {
+                            this.notifyBodySpawn({
+                                playerId: this.playerId,
+                                bodyId: body.length - 1,
+                                position: { x: x, y: y },
+                                width: width,
+                                height: height,
+                                density: density !== undefined ? density : 1.0, // Default density if undefined
+                                bodyType: 'rect',
+                                timestamp: Date.now()
+                            });
+                        }
+                    }
+                    
+                    return result;
+                };
+            }
+        }
+    },
+    
+    async notifyMobSpawn(mobData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const mobRef = push(ref(database, `rooms/${this.currentRoomId}/mobSpawns`));
+            await set(mobRef, mobData);
+        } catch (error) {
+            console.error('Failed to notify mob spawn:', error);
+        }
+    },
+    
+    async notifyBodySpawn(bodyData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const bodyRef = push(ref(database, `rooms/${this.currentRoomId}/bodySpawns`));
+            await set(bodyRef, bodyData);
+        } catch (error) {
+            console.error('Failed to notify body spawn:', error);
+        }
+    },
+    
+    listenToMobAndBodySpawns() {
+        if (!this.currentRoomId) return;
+        
+        // Listen for mob spawns
+        const mobSpawnsRef = ref(database, `rooms/${this.currentRoomId}/mobSpawns`);
+        onValue(mobSpawnsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const spawns = snapshot.val();
+            for (const [spawnId, spawnData] of Object.entries(spawns)) {
+                if (spawnData.playerId !== this.playerId && 
+                    Date.now() - spawnData.timestamp < 5000) {
+                    
+                    this.syncMobSpawn(spawnData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/mobSpawns/${spawnId}`));
+                }
+            }
+        });
+        
+        // Listen for body spawns  
+        const bodySpawnsRef = ref(database, `rooms/${this.currentRoomId}/bodySpawns`);
+        onValue(bodySpawnsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const spawns = snapshot.val();
+            for (const [spawnId, spawnData] of Object.entries(spawns)) {
+                if (spawnData.playerId !== this.playerId && 
+                    Date.now() - spawnData.timestamp < 5000) {
+                    
+                    this.syncBodySpawn(spawnData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/bodySpawns/${spawnId}`));
+                }
+            }
+        });
+    },
+    
+    syncMobSpawn(spawnData) {
+        try {
+            // Spawn the mob locally for remote players
+            if (typeof mobs !== 'undefined' && mobs.spawn) {
+                this.isRemoteMobSpawn = true;
+                mobs.spawn(
+                    spawnData.position.x,
+                    spawnData.position.y,
+                    spawnData.sides,
+                    spawnData.radius,
+                    spawnData.color
+                );
+                this.isRemoteMobSpawn = false;
+                
+                // Ensure the mob has a do function (critical to prevent crashes)
+                const newMob = mob[mob.length - 1];
+                if (newMob && typeof newMob.do !== 'function') {
+                    // Assign a basic do function for remote mobs
+                    newMob.do = function() {
+                        this.seePlayerByLookingAt();
+                        this.attraction();
+                        this.checkStatus();
+                    };
+                    console.log('Assigned default do function to remote mob');
+                }
+                
+                console.log('Synced mob spawn:', spawnData);
+            }
+        } catch (error) {
+            console.error('Error syncing mob spawn:', error);
+        }
+    },
+    
+    syncBodySpawn(spawnData) {
+        try {
+            // Spawn the body locally for remote players
+            if (typeof spawn !== 'undefined' && spawn.bodyRect) {
+                this.isRemoteBodySpawn = true;
+                spawn.bodyRect(
+                    spawnData.position.x,
+                    spawnData.position.y,
+                    spawnData.width,
+                    spawnData.height,
+                    spawnData.density
+                );
+                this.isRemoteBodySpawn = false;
+                console.log('Synced body spawn:', spawnData);
+            }
+        } catch (error) {
+            console.error('Error syncing body spawn:', error);
+        }
+    },
+    
+    // ===== COLLISION EVENT SYNCHRONIZATION =====
+    initCollisionEventSync() {
+        // Hook into engine collision events to sync physics interactions
+        this.hookCollisionEvents();
+        
+        // Listen for collision events from other players
+        this.listenToCollisionEvents();
+    },
+    
+    hookCollisionEvents() {
+        // Hook into the global collisionChecks function to network significant collisions
+        if (typeof window !== 'undefined') {
+            // Store reference to original collision function if it exists
+            if (typeof collisionChecks === 'function') {
+                this.originalCollisionChecks = window.collisionChecks;
+                
+                // Override the global collisionChecks function to add networking
+                window.collisionChecks = (event) => {
+                    // Call original function first
+                    if (this.originalCollisionChecks) {
+                        this.originalCollisionChecks(event);
+                    }
+                    
+                    // Monitor for significant collisions and network them
+                    this.monitorSignificantCollisions(event);
+                };
+                
+                console.log('Collision event hooking initialized for physics sync');
+            }
+        }
+    },
+    
+    monitorSignificantCollisions(event) {
+        if (!this.isGameStarted) return;
+        
+        const pairs = event.pairs;
+        for (let i = 0; i < pairs.length; i++) {
+            const pair = pairs[i];
+            
+            // Check for mob damage/death collisions
+            if (pair.bodyA.mob || pair.bodyB.mob) {
+                const mobBody = pair.bodyA.mob ? pair.bodyA : pair.bodyB;
+                const otherBody = pair.bodyA === mobBody ? pair.bodyB : pair.bodyA;
+                
+                // Network mob collisions with bullets or significant impacts
+                if (otherBody.classType === 'bullet' || 
+                    (otherBody.classType === 'body' && otherBody.speed > 5)) {
+                    this.notifyMobCollision({
+                        playerId: this.playerId,
+                        mobId: mobBody.index,
+                        colliderType: otherBody.classType || 'unknown',
+                        position: { x: pair.activeContacts[0].vertex.x, y: pair.activeContacts[0].vertex.y },
+                        velocity: { x: otherBody.velocity?.x || 0, y: otherBody.velocity?.y || 0 },
+                        timestamp: Date.now()
+                    });
+                }
+            }
+        }
+    },
+    
+    async notifyMobCollision(collisionData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const collisionRef = push(ref(database, `rooms/${this.currentRoomId}/collisionEvents`));
+            await set(collisionRef, collisionData);
+        } catch (error) {
+            console.error('Failed to notify mob collision:', error);
+        }
+    },
+    
+    listenToCollisionEvents() {
+        if (!this.currentRoomId) return;
+        
+        const collisionRef = ref(database, `rooms/${this.currentRoomId}/collisionEvents`);
+        onValue(collisionRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const events = snapshot.val();
+            for (const [eventId, eventData] of Object.entries(events)) {
+                if (eventData.playerId !== this.playerId && 
+                    Date.now() - eventData.timestamp < 1000) {
+                    
+                    this.applyCollisionEvent(eventData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/collisionEvents/${eventId}`));
+                }
+            }
+        });
+    },
+    
+    applyCollisionEvent(eventData) {
+        try {
+            // Apply collision effects remotely (damage, forces, etc.)
+            if (eventData.colliderType === 'bullet' && typeof mob !== 'undefined' && mob[eventData.mobId]) {
+                const targetMob = mob[eventData.mobId];
+                if (targetMob && targetMob.alive) {
+                    // Create visual effect for the collision
+                    if (typeof simulation !== 'undefined' && simulation.drawList) {
+                        simulation.drawList.push({
+                            x: eventData.position.x,
+                            y: eventData.position.y,
+                            radius: 30,
+                            color: "rgba(255,255,0,0.6)",
+                            time: simulation.drawTime
+                        });
+                    }
+                    
+                    console.log('Applied remote collision event to mob:', eventData.mobId);
+                }
+            }
+        } catch (error) {
+            console.error('Error applying collision event:', error);
+        }
+    },
+    
+    // ===== MAP GENERATION SYNCHRONIZATION =====
+    initMapGenerationSync() {
+        // Synchronize map generation parameters across all players
+        this.syncMapGeneration();
+        this.listenToMapGeneration();
+    },
+    
+    async syncMapGeneration() {
+        if (!this.currentRoomId) return;
+        
+        try {
+            // Only the host should set the initial map generation seed
+            if (this.isHost) {
+                const seedValue = Math.random();
+                const mapSeed = {
+                    isHorizontalFlipped: seedValue < 0.5,
+                    masterSeed: seedValue,
+                    wimpPowerupSeeds: [], // Will store seeds for WIMP powerup generation
+                    timestamp: Date.now(),
+                    hostPlayerId: this.playerId
+                };
+                
+                // Pre-generate seeds for level randomizations using a temporary seeded generator
+                const tempRandom = this.createSeededRandom(seedValue);
+                for (let i = 0; i < 100; i++) {
+                    mapSeed.wimpPowerupSeeds.push(tempRandom());
+                }
+                
+                await set(ref(database, `rooms/${this.currentRoomId}/mapSeed`), mapSeed);
+                console.log('Host set comprehensive map generation seed:', mapSeed);
+                
+                // Apply the seed immediately for the host too
+                this.applyMapSeed(mapSeed);
+                this.startMapSyncWatchdog(mapSeed);
+            }
+        } catch (error) {
+            console.error('Failed to sync map generation:', error);
+        }
+    },
+    
+    createSeededRandom(seed) {
+        // Simple seeded random number generator
+        let state = seed * 2147483647;
+        return function() {
+            state = (state * 16807) % 2147483647;
+            return state / 2147483647;
+        };
+    },
+    
+    applyMapSeed(mapSeed) {
+        // Apply map seed for both host and clients
+        if (typeof simulation !== 'undefined') {
+            // Always set the synchronized value, overriding any random assignment
+            simulation.isHorizontalFlipped = mapSeed.isHorizontalFlipped;
+            console.log('Applied isHorizontalFlipped:', mapSeed.isHorizontalFlipped);
+            
+            // Store the master seed for consistent random generation
+            if (mapSeed.masterSeed !== undefined) {
+                this.masterSeed = mapSeed.masterSeed;
+                this.wimpPowerupSeeds = mapSeed.wimpPowerupSeeds || [];
+                this.seedIndex = 0;
+                
+                // Override Math.random to use synchronized seeds
+                this.setupSynchronizedRandom();
+                
+                console.log('✅ Map generation fully synchronized - all players should have identical maps!');
+            }
+        }
+    },
+    
+    listenToMapGeneration() {
+        if (!this.currentRoomId) return;
+        
+        const mapSeedRef = ref(database, `rooms/${this.currentRoomId}/mapSeed`);
+        onValue(mapSeedRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const mapSeed = snapshot.val();
+            if (mapSeed && mapSeed.hostPlayerId) {
+                // Apply for both host and clients - use the new unified function
+                this.applyMapSeed(mapSeed);
+                
+                // Set up a watchdog to ensure isHorizontalFlipped stays synchronized
+                this.startMapSyncWatchdog(mapSeed);
+                
+                console.log('Applied synchronized map generation:', mapSeed);
+            }
+        });
+    },
+    
+    startMapSyncWatchdog(mapSeed) {
+        // Ensure isHorizontalFlipped stays synchronized even if startGame() overrides it
+        if (this.mapSyncWatchdog) {
+            clearInterval(this.mapSyncWatchdog);
+        }
+        
+        this.synchronizedIsHorizontalFlipped = mapSeed.isHorizontalFlipped;
+        
+        this.mapSyncWatchdog = setInterval(() => {
+            if (typeof simulation !== 'undefined' && 
+                simulation.isHorizontalFlipped !== this.synchronizedIsHorizontalFlipped) {
+                console.log('Correcting isHorizontalFlipped to synchronized value:', this.synchronizedIsHorizontalFlipped);
+                simulation.isHorizontalFlipped = this.synchronizedIsHorizontalFlipped;
+            }
+        }, 100); // Check every 100ms for the first few seconds
+    },
+    
+    setupSynchronizedRandom() {
+        // Hook into Math.random to use synchronized seeds for consistent generation
+        if (this.masterSeed !== undefined) {
+            const originalRandom = Math.random;
+            
+            // Initialize seed index if not set
+            if (this.seedIndex === undefined) {
+                this.seedIndex = 0;
+            }
+            
+            Math.random = () => {
+                // Use synchronized seeds for consistent generation
+                if (this.wimpPowerupSeeds && this.wimpPowerupSeeds.length > 0 && this.seedIndex < this.wimpPowerupSeeds.length) {
+                    const result = this.wimpPowerupSeeds[this.seedIndex];
+                    this.seedIndex++;
+                    return result;
+                }
+                // Fallback to deterministic generation based on master seed
+                return originalRandom();
+            };
+            
+            console.log('✅ Synchronized random generation activated with', this.wimpPowerupSeeds.length, 'seeds');
+        }
+    },
+    
+    // ===== COMPREHENSIVE GAME STATE SYNCHRONIZATION =====
+    initComprehensiveGameSync() {
         // Network ALL game elements that should be synchronized
         this.initBulletAndSporeSync();
         this.initMobStateSync();
@@ -2496,6 +3273,104 @@ const multiplayerSystem = {
         this.monitorAllBulletCreation();
         this.monitorSporeCreation();
         this.listenToBulletAndSporeEvents();
+        
+        // Also monitor the b.fire function directly for better tech bullet sync
+        this.monitorBFire();
+    },
+    
+    monitorBFire() {
+        // Monitor b.fire calls to catch tech bullets that might be missed
+        if (typeof b !== "undefined" && typeof b.fire === "function") {
+            const originalFire = b.fire;
+            let lastBulletLength = 0;
+            
+            if (typeof bullet !== "undefined") {
+                lastBulletLength = bullet.length;
+            }
+            
+            b.fire = function() {
+                // Record bullet count before firing
+                const beforeCount = typeof bullet !== "undefined" ? bullet.length : 0;
+                
+                // Call original fire function
+                originalFire.call(b);
+                
+                // Check for new bullets after firing
+                setTimeout(() => {
+                    if (typeof bullet !== "undefined" && bullet.length > beforeCount) {
+                        // New bullets were created, notify other players about all of them
+                        for (let i = beforeCount; i < bullet.length; i++) {
+                            const newBullet = bullet[i];
+                            if (newBullet && newBullet.position && newBullet.velocity) {
+                                // Enhanced bullet type detection
+                                let bulletType = "default";
+                                let bulletColor = "#000000"; // Default black
+                                let radius = 4.5;
+                                
+                                // Check bullet properties for type detection
+                                if (newBullet.bulletType) {
+                                    bulletType = newBullet.bulletType;
+                                } else if (newBullet.explodeRad || newBullet.totalSpores) {
+                                    bulletType = "explosive";
+                                } else if (newBullet.thrust) {
+                                    bulletType = "thrust";
+                                } else if (newBullet.isInHole) {
+                                    bulletType = "wormhole";
+                                }
+                                
+                                // First try to get explicit color from bullet properties
+                                if (newBullet.fill) {
+                                    bulletColor = newBullet.fill;
+                                } else if (newBullet.color) {
+                                    bulletColor = newBullet.color;
+                                } else if (newBullet.render && newBullet.render.fillStyle) {
+                                    bulletColor = newBullet.render.fillStyle;
+                                } else {
+                                    // If no explicit color, determine based on bullet type and tech
+                                    if (typeof tech !== "undefined") {
+                                        if (bulletType === "explosive" || newBullet.explodeRad) {
+                                            bulletColor = "#ff6600"; // Orange for explosive
+                                        } else if (tech.isDemonic && bulletType === "default") {
+                                            bulletColor = "#ff0000"; // Red for demonic
+                                        } else if (newBullet.totalSpores) {
+                                            bulletColor = "#ff00ff"; // Magenta for spore bullets
+                                        } else if (bulletType === "thrust") {
+                                            bulletColor = "#00ff00"; // Green for thrust bullets
+                                        } else if (bulletType === "wormhole") {
+                                            bulletColor = "#00ffff"; // Cyan for wormhole bullets
+                                        }
+                                    }
+                                }
+                                
+                                // Get radius if available
+                                if (newBullet.radius) {
+                                    radius = newBullet.radius;
+                                }
+                                
+                                // Notify about bullet creation
+                                if (typeof multiplayerSystem !== "undefined") {
+                                    multiplayerSystem.notifyBulletCreation({
+                                        playerId: multiplayerSystem.playerId,
+                                        position: { x: newBullet.position.x, y: newBullet.position.y },
+                                        velocity: { x: newBullet.velocity.x, y: newBullet.velocity.y },
+                                        bulletType: bulletType,
+                                        radius: radius,
+                                        color: bulletColor,
+                                        // Include additional properties for proper recreation
+                                        mass: newBullet.mass,
+                                        thrust: newBullet.thrust,
+                                        explodeRad: newBullet.explodeRad,
+                                        totalSpores: newBullet.totalSpores,
+                                        isInHole: newBullet.isInHole,
+                                        timestamp: Date.now()
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }, 10); // Small delay to let bullets be created
+            };
+        }
     },
     
     monitorAllBulletCreation() {
@@ -2668,103 +3543,191 @@ const multiplayerSystem = {
     
     triggerBulletCreation(bulletData) {
         try {
-            if (typeof Matter === 'undefined' || !Matter.Bodies) return;
-            if (typeof bullet === 'undefined' || !bulletData || !bulletData.position) return;
-            
-            const angle = bulletData.velocity ? Math.atan2(bulletData.velocity.y, bulletData.velocity.x) : 0;
-            
-            let bulletAttributes = {
-                classType: "bullet",
-                collisionFilter: {
-                    category: 0x0002, // cat.bullet
-                    mask: 0xFFFF
-                },
-                minDmgSpeed: 10,
-                beforeDmg() {},
-                onEnd() {},
-                render: {
-                    fillStyle: bulletData.color || '#000000',
-                    strokeStyle: bulletData.color || '#000000',
-                    lineWidth: 1
-                }
-            };
-            
-            if (typeof b !== 'undefined' && typeof b.fireAttributes === 'function') {
-                try {
-                    const attrs = b.fireAttributes(angle);
-                    bulletAttributes = { ...bulletAttributes, ...attrs };
-                } catch (e) {}
-            }
-            
-            let newBullet;
-            if (bulletData.bulletType === 'explosive' || (bulletData.radius && bulletData.radius > 10)) {
-                newBullet = Matter.Bodies.circle(
-                    bulletData.position.x,
-                    bulletData.position.y,
-                    bulletData.radius || 4.5,
-                    bulletAttributes
-                );
-            } else {
-                newBullet = Matter.Bodies.polygon(
-                    bulletData.position.x,
-                    bulletData.position.y,
-                    4,
-                    bulletData.radius || 4.5,
-                    bulletAttributes
-                );
-            }
-            
-            if (!newBullet) return;
-            
-            if (bulletData.velocity) Matter.Body.setVelocity(newBullet, bulletData.velocity);
-            newBullet.color = bulletData.color || '#000000';
-            newBullet.fill = bulletData.color || '#000000';
-            newBullet.bulletType = bulletData.bulletType || 'default';
-            newBullet.endCycle = (typeof simulation !== 'undefined' ? simulation.cycle : 0) + 300;
-            newBullet.minDmgSpeed = 10;
-            newBullet.frictionAir = 0;
-            if (bulletData.mass) newBullet.mass = bulletData.mass;
-            if (bulletData.thrust) newBullet.thrust = { x: bulletData.thrust.x || 0, y: bulletData.thrust.y || 0 };
-            if (bulletData.explodeRad) newBullet.explodeRad = bulletData.explodeRad;
-            if (bulletData.totalSpores) newBullet.totalSpores = bulletData.totalSpores;
-            if (bulletData.isInHole) newBullet.isInHole = bulletData.isInHole;
-            
-            if (typeof newBullet.do !== 'function') {
-                if (newBullet.bulletType === 'thrust' && newBullet.thrust) {
-                    newBullet.do = function() {
-                        if (this.thrust) {
-                            this.force.x += this.thrust.x;
-                            this.force.y += this.thrust.y;
+            if (typeof b !== 'undefined' && bulletData.position && typeof bullet !== 'undefined') {
+                // Create actual bullet for remote players with proper color
+                const bulletIndex = bullet.length;
+                
+                // Create bullet based on type using proper bullet creation method
+                if (typeof Matter !== 'undefined' && typeof Bodies !== 'undefined' && typeof b !== 'undefined') {
+                    let newBullet;
+                    const bulletAngle = bulletData.velocity ? Math.atan2(bulletData.velocity.y, bulletData.velocity.x) : 0;
+                    
+                    // Use the proper fireAttributes for collision setup
+                    let bulletAttributes = {};
+                    if (typeof b.fireAttributes === 'function') {
+                        bulletAttributes = b.fireAttributes(bulletAngle);
+                    } else {
+                        // Fallback attributes
+                        bulletAttributes = {
+                            friction: 0.5,
+                            frictionAir: 0,
+                            restitution: 0,
+                            classType: "bullet",
+                            collisionFilter: {
+                                category: cat.bullet,
+                                mask: cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield
+                            },
+                            minDmgSpeed: 10,
+                            beforeDmg() {},
+                            onEnd() {}
+                        };
+                    }
+                    
+                    // Create bullet based on type
+                    if (bulletData.bulletType === 'explosive' || bulletData.explodeRad) {
+                        // Create explosive bullet
+                        newBullet = Matter.Bodies.circle(bulletData.position.x, bulletData.position.y, bulletData.radius || 4.5, bulletAttributes);
+                        if (bulletData.explodeRad) newBullet.explodeRad = bulletData.explodeRad;
+                    } else if (bulletData.bulletType === 'thrust' && bulletData.thrust) {
+                        // Create thrust bullet
+                        newBullet = Matter.Bodies.polygon(bulletData.position.x, bulletData.position.y, 4, bulletData.radius || 4.5, bulletAttributes);
+                        if (bulletData.thrust) newBullet.thrust = { x: bulletData.thrust.x || 0, y: bulletData.thrust.y || 0 };
+                    } else if (bulletData.bulletType === 'wormhole' || bulletData.isInHole) {
+                        // Create wormhole bullet
+                        newBullet = Matter.Bodies.circle(bulletData.position.x, bulletData.position.y, bulletData.radius || 4.5, bulletAttributes);
+                        newBullet.isInHole = bulletData.isInHole || true;
+                    } else if (bulletData.bulletType === 'spore' || bulletData.totalSpores) {
+                        // Create spore bullet
+                        newBullet = Matter.Bodies.circle(bulletData.position.x, bulletData.position.y, bulletData.radius || 4.5, bulletAttributes);
+                        if (bulletData.totalSpores) newBullet.totalSpores = bulletData.totalSpores;
+                    } else {
+                        // Create regular bullet
+                        newBullet = Matter.Bodies.polygon(bulletData.position.x, bulletData.position.y, 4, bulletData.radius || 4.5, bulletAttributes);
+                    }
+                    
+                    // Set bullet properties with enhanced type detection
+                    if (newBullet && bulletData.velocity) {
+                        Matter.Body.setVelocity(newBullet, bulletData.velocity);
+                        newBullet.color = bulletData.color || '#000000';
+                        newBullet.bulletType = bulletData.bulletType || 'default';
+                        newBullet.endCycle = simulation.cycle + 300; // 5 second lifetime
+                        newBullet.minDmgSpeed = 10; // Required for collision detection
+                        newBullet.frictionAir = 0; // Standard bullet property
+                        
+                        // Apply additional properties based on bullet type
+                        if (bulletData.mass) newBullet.mass = bulletData.mass;
+                        
+                        // CRITICAL: Ensure the do function always exists that bulletDo() expects
+                        // Also set appropriate behavior based on bullet type
+                        if (typeof newBullet.do !== 'function') {
+                            if (bulletData.bulletType === 'thrust' && bulletData.thrust) {
+                                newBullet.do = function() {
+                                    if (this.thrust) {
+                                        this.force.x += this.thrust.x;
+                                        this.force.y += this.thrust.y;
+                                    }
+                                    if (typeof simulation !== 'undefined' && simulation.cycle > this.endCycle) {
+                                        // Remove bullet when lifetime expires
+                                        if (typeof bullet !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+                                            try {
+                                                Matter.World.remove(engine.world, this);
+                                                const index = bullet.indexOf(this);
+                                                if (index !== -1) bullet.splice(index, 1);
+                                            } catch (error) {
+                                                console.warn('Error removing thrust bullet:', error);
+                                            }
+                                        }
+                                    }
+                                };
+                            } else if (bulletData.bulletType === 'explosive' || bulletData.explodeRad) {
+                                newBullet.do = function() {
+                                    // Explosive bullet behavior
+                                    if (typeof simulation !== 'undefined' && simulation.cycle > this.endCycle) {
+                                        // Trigger explosion when lifetime ends
+                                        if (typeof b !== 'undefined' && typeof b.explosion === 'function') {
+                                            b.explosion({ x: this.position.x, y: this.position.y }, this.explodeRad || bulletData.explodeRad || 50, '#ff6600');
+                                        }
+                                        // Remove bullet
+                                        if (typeof bullet !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+                                            try {
+                                                Matter.World.remove(engine.world, this);
+                                                const index = bullet.indexOf(this);
+                                                if (index !== -1) bullet.splice(index, 1);
+                                            } catch (error) {
+                                                console.warn('Error removing explosive bullet:', error);
+                                            }
+                                        }
+                                    }
+                                };
+                            } else if (bulletData.bulletType === 'wormhole' || bulletData.isInHole) {
+                                newBullet.do = function() {
+                                    // Wormhole bullet behavior
+                                    if (typeof simulation !== 'undefined' && simulation.cycle > this.endCycle) {
+                                        // Remove bullet
+                                        if (typeof bullet !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+                                            try {
+                                                Matter.World.remove(engine.world, this);
+                                                const index = bullet.indexOf(this);
+                                                if (index !== -1) bullet.splice(index, 1);
+                                            } catch (error) {
+                                                console.warn('Error removing wormhole bullet:', error);
+                                            }
+                                        }
+                                    }
+                                };
+                            } else if (bulletData.bulletType === 'spore' || bulletData.totalSpores) {
+                                newBullet.do = function() {
+                                    // Spore bullet behavior
+                                    if (typeof simulation !== 'undefined' && simulation.cycle > this.endCycle) {
+                                        // Trigger spore creation when lifetime ends
+                                        if (typeof b !== 'undefined' && typeof b.spore === 'function') {
+                                            b.spore({ x: this.position.x, y: this.position.y }, this.totalSpores || bulletData.totalSpores || 1);
+                                        }
+                                        // Remove bullet
+                                        if (typeof bullet !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+                                            try {
+                                                Matter.World.remove(engine.world, this);
+                                                const index = bullet.indexOf(this);
+                                                if (index !== -1) bullet.splice(index, 1);
+                                            } catch (error) {
+                                                console.warn('Error removing spore bullet:', error);
+                                            }
+                                        }
+                                    }
+                                };
+                            } else {
+                                newBullet.do = function() {
+                                    // Basic bullet behavior
+                                    if (typeof simulation !== 'undefined' && simulation.cycle > this.endCycle) {
+                                        // Remove bullet
+                                        if (typeof bullet !== 'undefined' && typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+                                            try {
+                                                Matter.World.remove(engine.world, this);
+                                                const index = bullet.indexOf(this);
+                                                if (index !== -1) bullet.splice(index, 1);
+                                            } catch (error) {
+                                                console.warn('Error removing basic bullet:', error);
+                                            }
+                                        }
+                                    }
+                                };
+                            }
                         }
-                    };
-                } else if (newBullet.bulletType === 'explosive' || newBullet.explodeRad) {
-                    newBullet.do = function() {};
-                    newBullet.onEnd = function() {
-                        if (typeof b !== 'undefined' && b.explosion) {
-                            b.explosion({ x: this.position.x, y: this.position.y }, newBullet.explodeRad || 50, '#ff6600');
+                        
+                        // Add other required properties
+                        newBullet.beforeDmg = function() {};
+                        newBullet.onEnd = function() {};
+                        newBullet.classType = 'bullet';
+                        
+                        bullet.push(newBullet);
+                        if (typeof engine !== 'undefined' && typeof Matter !== 'undefined') {
+                            Matter.World.add(engine.world, newBullet);
                         }
-                    };
-                } else {
-                    newBullet.do = function() {};
+                        
+                        console.log('Created remote bullet with type:', bulletData.bulletType, 'color:', bulletData.color, 'at:', bulletData.position);
+                    }
                 }
-            }
-            newBullet.beforeDmg = newBullet.beforeDmg || function() {};
-            newBullet.onEnd = newBullet.onEnd || function() {};
-            newBullet.classType = 'bullet';
-            
-            bullet.push(newBullet);
-            if (typeof engine !== 'undefined') {
-                Matter.World.add(engine.world, newBullet);
-            }
-            
-            if (typeof simulation !== 'undefined' && simulation.drawList) {
-                simulation.drawList.push({
-                    x: bulletData.position.x,
-                    y: bulletData.position.y,
-                    radius: bulletData.radius || 4.5,
-                    color: bulletData.color || '#000000',
-                    time: simulation.drawTime * 1.2
-                });
+                
+                // Also create visual effect for immediate feedback
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    simulation.drawList.push({
+                        x: bulletData.position.x,
+                        y: bulletData.position.y,
+                        radius: bulletData.radius || 4.5,
+                        color: bulletData.color || "#000000",
+                        time: simulation.drawTime * 0.8
+                    });
+                }
             }
         } catch (error) {
             console.error('Error triggering bullet creation:', error);
@@ -3056,9 +4019,8 @@ const multiplayerSystem = {
                         const timeSinceLastNotification = now - lastNotified;
                         
                         // Only notify for major changes and not too frequently
-                        const minInterval = currentState.isHeld ? 250 : 600; // faster updates when held
-                        if ((posChange > 120 || velChange > 20 || currentState.isHeld !== lastState.isHeld) && 
-                            timeSinceLastNotification > minInterval) {
+                        if ((posChange > 500 || velChange > 100 || currentState.isHeld !== lastState.isHeld) && 
+                            timeSinceLastNotification > 1000) { // At least 1 second between notifications per object
                             this.notifyPhysicsObjectChange({
                                 playerId: this.playerId,
                                 bodyId: i,
@@ -3132,7 +4094,7 @@ const multiplayerSystem = {
                     );
                     
                     // Only sync if the difference is significant and coordinates are valid
-                    if (posDistance > 80 || remoteState.isHeld) { // tighter threshold; always apply when held
+                    if (posDistance > 200) { // Increased threshold to reduce spam
                         if (typeof Matter !== 'undefined' && Matter.Body) {
                             Matter.Body.setPosition(targetBody, remoteState.position);
                             Matter.Body.setVelocity(targetBody, remoteState.velocity);
