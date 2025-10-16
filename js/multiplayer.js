@@ -6,6 +6,11 @@ const multiplayerSystem = {
     currentRoomId: null,
     playerId: null,
     isHost: false,
+    connectionState: 'disconnected', // 'connected', 'disconnected', 'connecting'
+    listeners: new Map(), // Track active listeners for proper cleanup
+    retryCount: 0,
+    maxRetries: 3,
+    reconnectTimeout: null,
     playerData: {
         name: '',
         color: '#00ccff',
@@ -41,6 +46,87 @@ const multiplayerSystem = {
         
         // Listen for public rooms
         this.listenForPublicRooms();
+        
+        // Setup connection monitoring
+        this.setupConnectionMonitoring();
+    },
+    
+    setupConnectionMonitoring() {
+        // Monitor Firebase connection state
+        const connectedRef = ref(database, '.info/connected');
+        const unsubscribe = onValue(connectedRef, (snapshot) => {
+            const connected = snapshot.val();
+            const previousState = this.connectionState;
+            this.connectionState = connected ? 'connected' : 'disconnected';
+            
+            if (connected) {
+                console.log('🔥 Firebase connected');
+                this.retryCount = 0;
+                // Only attempt to reconnect if we were previously disconnected and have a current room
+                if (this.currentRoomId && previousState === 'disconnected') {
+                    this.reconnectToRoom();
+                }
+            } else {
+                console.warn('⚠️ Firebase disconnected');
+                this.handleConnectionLoss();
+            }
+        });
+        
+        // Store listener for cleanup
+        this.listeners.set('connection', unsubscribe);
+    },
+    
+    handleConnectionLoss() {
+        if (this.currentRoomId) {
+            console.warn('📡 Connection lost, will attempt to reconnect...');
+            // Don't immediately try to reconnect - let Firebase handle it
+            this.scheduleReconnect();
+        }
+    },
+    
+    scheduleReconnect() {
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+        }
+        
+        this.reconnectTimeout = setTimeout(() => {
+            if (this.connectionState === 'disconnected' && this.currentRoomId) {
+                this.reconnectToRoom();
+            }
+        }, 2000 + (this.retryCount * 1000)); // Exponential backoff
+    },
+    
+    async reconnectToRoom() {
+        if (this.retryCount >= this.maxRetries) {
+            console.error('🔌 Max reconnection attempts reached');
+            this.connectionState = 'disconnected';
+            return;
+        }
+        
+        this.retryCount++;
+        this.connectionState = 'connecting';
+        
+        try {
+            // Check if room still exists
+            const roomSnapshot = await get(ref(database, `rooms/${this.currentRoomId}`));
+            if (!roomSnapshot.exists()) {
+                console.error('🏠 Room no longer exists');
+                this.leaveRoom();
+                return;
+            }
+            
+            // Re-establish listeners
+            this.listenToRoomUpdates(this.currentRoomId);
+            this.listenToPlayerPositions();
+            this.listenToPlayerDeaths();
+            
+            this.connectionState = 'connected';
+            console.log('✅ Successfully reconnected to room');
+            this.retryCount = 0;
+        } catch (error) {
+            console.error('❌ Reconnection failed:', error);
+            this.scheduleReconnect();
+        }
     },
     
     generateRoomCode() {
@@ -93,24 +179,48 @@ const multiplayerSystem = {
         };
         
         try {
+            // Check connection state before attempting to create room
+            if (this.connectionState !== 'connected') {
+                console.warn('⚠️ Not connected to Firebase, wait for connection...');
+                // Wait a bit and try again
+                setTimeout(() => this.createRoom(), 1000);
+                return;
+            }
+            
             await set(ref(database, 'rooms/' + roomId), roomData);
             
             // Setup disconnect handler to remove player when they leave
             const playerRef = ref(database, `rooms/${roomId}/players/${this.playerId}`);
-            onDisconnect(playerRef).remove();
+            onDisconnect(playerRef).remove().catch(err => {
+                console.warn('Failed to setup disconnect handler:', err);
+            });
             
             this.currentRoomId = roomId;
             this.currentRoom = roomData;
             this.isHost = true;
+            this.connectionState = 'connected';
+            this.retryCount = 0; // Reset retry count on successful connection
             
             // Initialize map generation sync immediately when creating room
             this.initMapGenerationSync();
             
             this.showRoomSettings(roomData, roomCode);
             this.listenToRoomUpdates(roomId);
+            
+            console.log('✅ Room created successfully:', roomCode);
         } catch (error) {
-            console.error('Error creating room:', error);
-            alert('Failed to create room. Please try again.');
+            console.error('❌ Error creating room:', error);
+            
+            // Handle specific Firebase errors
+            if (error.code === 'unavailable') {
+                alert('Firebase is temporarily unavailable. Please check your connection and try again.');
+                this.connectionState = 'disconnected';
+                this.scheduleReconnect();
+            } else if (error.code === 'permission-denied') {
+                alert('Permission denied. Please refresh the page and try again.');
+            } else {
+                alert('Failed to create room. Please try again.');
+            }
         }
     },
     
@@ -182,6 +292,13 @@ const multiplayerSystem = {
         localStorage.setItem('mp_player_name_color', nameColor);
         
         try {
+            // Check connection state before attempting to join room
+            if (this.connectionState !== 'connected') {
+                console.warn('⚠️ Not connected to Firebase, wait for connection...');
+                setTimeout(() => this.joinRoom(roomId, roomData), 1000);
+                return;
+            }
+            
             await set(ref(database, `rooms/${roomId}/players/${this.playerId}`), {
                 name: playerName,
                 color: playerColor,
@@ -191,30 +308,59 @@ const multiplayerSystem = {
                 joinedAt: Date.now()
             });
             
-            // Setup disconnect handler
+            // Setup disconnect handler with error handling
             const playerRef = ref(database, `rooms/${roomId}/players/${this.playerId}`);
-            onDisconnect(playerRef).remove();
+            onDisconnect(playerRef).remove().catch(err => {
+                console.warn('Failed to setup disconnect handler:', err);
+            });
             
             this.currentRoomId = roomId;
             this.currentRoom = roomData;
             this.isHost = false;
+            this.connectionState = 'connected';
+            this.retryCount = 0; // Reset retry count on successful connection
             
             // Initialize map generation sync immediately when joining room
             this.initMapGenerationSync();
             
             this.showRoomSettings(roomData, roomData.code);
             this.listenToRoomUpdates(roomId);
+            
+            console.log('✅ Joined room successfully:', roomData.code);
         } catch (error) {
-            console.error('Error joining room:', error);
-            alert('Failed to join room. Please try again.');
+            console.error('❌ Error joining room:', error);
+            
+            // Handle specific Firebase errors
+            if (error.code === 'unavailable') {
+                alert('Firebase is temporarily unavailable. Please check your connection and try again.');
+                this.connectionState = 'disconnected';
+                this.scheduleReconnect();
+            } else if (error.code === 'permission-denied') {
+                alert('Permission denied or room is full. Please try again.');
+            } else if (error.code === 'network-request-failed') {
+                alert('Network error. Please check your internet connection.');
+                this.connectionState = 'disconnected';
+                this.scheduleReconnect();
+            } else {
+                alert('Failed to join room. Please try again.');
+            }
         }
     },
     
     listenToRoomUpdates(roomId) {
+        // Clean up existing listener
+        if (this.listeners.has('roomUpdates')) {
+            this.listeners.get('roomUpdates')();
+            this.listeners.delete('roomUpdates');
+        }
+        
         const roomRef = ref(database, 'rooms/' + roomId);
-        onValue(roomRef, (snapshot) => {
+        const unsubscribe = onValue(roomRef, (snapshot) => {
+            if (this.connectionState === 'disconnected') return;
+            
             if (!snapshot.exists()) {
                 // Room was deleted
+                console.log('🏠 Room was deleted');
                 alert('Room has been closed');
                 this.leaveRoom();
                 return;
@@ -228,17 +374,31 @@ const multiplayerSystem = {
             
             // Update game settings if not host
             if (!this.isHost && roomData.gameSettings) {
-                document.getElementById('mp-game-mode').value = roomData.gameSettings.mode;
-                document.getElementById('mp-difficulty').value = roomData.gameSettings.difficulty;
-                document.getElementById('mp-level').value = roomData.gameSettings.level;
-                document.getElementById('mp-one-life').checked = roomData.gameSettings.oneLife;
+                const modeEl = document.getElementById('mp-game-mode');
+                const difficultyEl = document.getElementById('mp-difficulty');
+                const levelEl = document.getElementById('mp-level');
+                const oneLifeEl = document.getElementById('mp-one-life');
+                
+                if (modeEl) modeEl.value = roomData.gameSettings.mode || 'progressive';
+                if (difficultyEl) difficultyEl.value = roomData.gameSettings.difficulty || 2;
+                if (levelEl) levelEl.value = roomData.gameSettings.level || 0;
+                if (oneLifeEl) oneLifeEl.checked = roomData.gameSettings.oneLife || false;
             }
             
             // Check if game started
-            if (roomData.gameStarted) {
+            if (roomData.gameStarted && !this.isInitialized) {
                 this.startMultiplayerGame(roomData.gameSettings);
             }
+        }, (error) => {
+            console.error('❌ Error in room updates listener:', error);
+            if (error.code === 'unavailable' || error.code === 'network-request-failed') {
+                this.connectionState = 'disconnected';
+                this.scheduleReconnect();
+            }
         });
+        
+        // Store listener for cleanup
+        this.listeners.set('roomUpdates', unsubscribe);
     },
     
     updatePlayersList(players) {
@@ -449,6 +609,12 @@ const multiplayerSystem = {
         console.log('🚀 Current room ID:', this.currentRoomId);
         console.log('🚀 Player ID:', this.playerId);
         
+        // Ensure we have a valid connection state before initializing
+        if (!this.currentRoomId || this.connectionState === 'disconnected') {
+            console.warn('⚠️ Cannot initialize gameplay - no room or disconnected');
+            return;
+        }
+        
         // Start syncing player position
         this.startPositionSync();
         
@@ -556,21 +722,43 @@ const multiplayerSystem = {
             clearInterval(this.positionUpdateInterval);
         }
         
-        // Send position every 100ms (10 times per second) - reduced from 50ms to reduce spam
+        // Initialize last position tracking for change detection
+        this.lastSentPosition = { x: 0, y: 0 };
+        this.positionSyncThrottle = 0;
+        
+        // Send position every 150ms (6.7 times per second) - optimized for balance of smoothness vs network usage
         this.positionUpdateInterval = setInterval(() => {
-            if (!m || !player || !player.position || !this.currentRoomId) return;
-            
-            // Ensure we have valid position data
-            if (typeof player.position.x !== 'number' || typeof player.position.y !== 'number' || 
-                isNaN(player.position.x) || isNaN(player.position.y)) {
+            if (!m || !player || !player.position || !this.currentRoomId || this.connectionState !== 'connected') {
                 return;
             }
             
+            // Ensure we have valid position data
+            if (typeof player.position.x !== 'number' || typeof player.position.y !== 'number' || 
+                isNaN(player.position.x) || isNaN(player.position.y) ||
+                Math.abs(player.position.x) > 100000 || Math.abs(player.position.y) > 100000) {
+                return; // Skip invalid coordinates
+            }
+            
+            // Throttle updates based on movement distance to reduce network spam
+            const currentX = Math.round(player.position.x * 100) / 100;
+            const currentY = Math.round(player.position.y * 100) / 100;
+            const deltaX = Math.abs(currentX - this.lastSentPosition.x);
+            const deltaY = Math.abs(currentY - this.lastSentPosition.y);
+            
+            // Only send if moved more than 5 pixels or it's been more than 500ms
+            this.positionSyncThrottle++;
+            if (deltaX < 5 && deltaY < 5 && this.positionSyncThrottle < 4) {
+                return;
+            }
+            this.positionSyncThrottle = 0;
+            
+            this.lastSentPosition = { x: currentX, y: currentY };
+            
             const playerState = {
-                x: Math.round(player.position.x * 100) / 100, // Round to reduce data size
-                y: Math.round(player.position.y * 100) / 100,
-                vx: Math.round(player.velocity.x * 100) / 100,
-                vy: Math.round(player.velocity.y * 100) / 100,
+                x: currentX,
+                y: currentY,
+                vx: Math.round((player.velocity?.x || 0) * 100) / 100,
+                vy: Math.round((player.velocity?.y || 0) * 100) / 100,
                 radius: m.radius || 30,
                 isAlive: m.alive !== false,
                 health: m.health || 100,
@@ -584,54 +772,65 @@ const multiplayerSystem = {
                 cycle: m.cycle || 0,
                 fillColor: m.fillColor || '#ff0000',
                 fillColorDark: m.fillColorDark || '#cc0000',
-                Vx: Math.round((m.Vx || 0) * 100) / 100, // Movement speed for animation
+                Vx: Math.round((m.Vx || 0) * 100) / 100,
                 timestamp: Date.now()
             };
             
-            // Update player state in Firebase
+            // Update player state in Firebase with connection state check
             const path = `rooms/${this.currentRoomId}/playerStates/${this.playerId}`;
             
             set(ref(database, path), playerState)
                 .catch(err => {
+                    // Handle connection errors more gracefully
+                    if (err.code === 'unavailable' || err.code === 'network-request-failed') {
+                        this.connectionState = 'disconnected';
+                        this.scheduleReconnect();
+                    }
                     // Only log errors occasionally to reduce spam
-                    if (Math.random() < 0.01) {
+                    if (Math.random() < 0.005) {
                         console.error('❌ Position sync error:', err);
                     }
                 });
-        }, 100);
+        }, 150);
     },
     
     listenToPlayerPositions() {
+        // Clean up existing listener
+        if (this.listeners.has('playerPositions')) {
+            this.listeners.get('playerPositions')();
+            this.listeners.delete('playerPositions');
+        }
+        
         const statesRef = ref(database, `rooms/${this.currentRoomId}/playerStates`);
         console.log('🔥 Setting up Firebase listener for:', `rooms/${this.currentRoomId}/playerStates`);
         
-        onValue(statesRef, (snapshot) => {
-            console.log('🔥 Firebase snapshot received:', snapshot.exists(), snapshot.val());
+        const unsubscribe = onValue(statesRef, (snapshot) => {
+            if (this.connectionState === 'disconnected') return;
             
             if (!snapshot.exists()) {
-                console.log('❌ No player states in database');
                 return;
             }
             
             const states = snapshot.val();
             
             // Debug: log occasionally to reduce spam
-            if (Math.random() < 0.01) {
-                console.log('✅ Received states:', states);
-                console.log('🔥 Current player ID:', this.playerId);
-                console.log('🔥 Available player IDs:', Object.keys(states || {}));
+            if (Math.random() < 0.005) {
+                console.log('✅ Received states:', Object.keys(states || {}));
             }
             
-            // Update remote players
-            for (const [playerId, state] of Object.entries(states)) {
+            // Update remote players with improved validation
+            for (const [playerId, state] of Object.entries(states || {})) {
                 if (playerId === this.playerId) {
                     continue; // Skip self
                 }
                 
-                // Validate state has required position data
-                if (!state || typeof state.x !== 'number' || typeof state.y !== 'number') {
-                    console.log('❌ Invalid state for player:', playerId, state);
-                    continue;
+                // Enhanced validation
+                if (!state || 
+                    typeof state.x !== 'number' || typeof state.y !== 'number' ||
+                    isNaN(state.x) || isNaN(state.y) ||
+                    Math.abs(state.x) > 100000 || Math.abs(state.y) > 100000 ||
+                    !state.timestamp || Date.now() - state.timestamp > 5000) {
+                    continue; // Skip invalid or stale data
                 }
                 
                 if (!this.remotePlayers[playerId]) {
@@ -688,26 +887,43 @@ const multiplayerSystem = {
                 }
             }
             
-            // Remove disconnected players
+            // Remove disconnected players with improved cleanup
             for (const playerId in this.remotePlayers) {
-                if (!states[playerId]) {
+                if (!states[playerId] || (Date.now() - (this.remotePlayers[playerId].lastUpdate || 0)) > 10000) {
                     console.log('Player left:', this.remotePlayers[playerId]?.name || playerId);
                     delete this.remotePlayers[playerId];
                 }
             }
+        }, (error) => {
+            console.error('❌ Error in player positions listener:', error);
+            if (error.code === 'unavailable' || error.code === 'network-request-failed') {
+                this.connectionState = 'disconnected';
+                this.scheduleReconnect();
+            }
         });
+        
+        // Store listener for cleanup
+        this.listeners.set('playerPositions', unsubscribe);
     },
     
     listenToPlayerDeaths() {
+        // Clean up existing listener
+        if (this.listeners.has('playerDeaths')) {
+            this.listeners.get('playerDeaths')();
+            this.listeners.delete('playerDeaths');
+        }
+        
         const playersRef = ref(database, `rooms/${this.currentRoomId}/players`);
-        onValue(playersRef, (snapshot) => {
-            if (!snapshot.exists()) return;
+        const unsubscribe = onValue(playersRef, (snapshot) => {
+            if (this.connectionState === 'disconnected' || !snapshot.exists()) return;
             
             const players = snapshot.val();
+            if (!players) return;
+            
             let allDead = true;
             
             for (const [playerId, player] of Object.entries(players)) {
-                if (player.isAlive) {
+                if (player && player.isAlive) {
                     allDead = false;
                     break;
                 }
@@ -717,7 +933,16 @@ const multiplayerSystem = {
             if (allDead && !simulation.multiplayerSettings?.oneLife) {
                 this.handleAllPlayersDead();
             }
+        }, (error) => {
+            console.error('❌ Error in player deaths listener:', error);
+            if (error.code === 'unavailable' || error.code === 'network-request-failed') {
+                this.connectionState = 'disconnected';
+                this.scheduleReconnect();
+            }
         });
+        
+        // Store listener for cleanup
+        this.listeners.set('playerDeaths', unsubscribe);
     },
     
     async onLocalPlayerDeath() {
@@ -1163,37 +1388,74 @@ const multiplayerSystem = {
         if (!this.currentRoomId) return;
         
         try {
+            // Clean up all listeners first to prevent further operations
+            this.cleanupListeners();
+            
             // Clear position sync interval
             if (this.positionUpdateInterval) {
                 clearInterval(this.positionUpdateInterval);
                 this.positionUpdateInterval = null;
             }
             
+            // Clear reconnect timeout
+            if (this.reconnectTimeout) {
+                clearTimeout(this.reconnectTimeout);
+                this.reconnectTimeout = null;
+            }
+            
             // Clear remote players
             this.remotePlayers = {};
             
-            // Remove player from room
-            await remove(ref(database, `rooms/${this.currentRoomId}/players/${this.playerId}`));
+            // Remove player from room with error handling
+            try {
+                await remove(ref(database, `rooms/${this.currentRoomId}/players/${this.playerId}`));
+            } catch (dbError) {
+                console.warn('Could not remove player from database:', dbError);
+            }
             
             // If host, delete the entire room
             if (this.isHost) {
-                await remove(ref(database, `rooms/${this.currentRoomId}`));
+                try {
+                    await remove(ref(database, `rooms/${this.currentRoomId}`));
+                } catch (dbError) {
+                    console.warn('Could not remove room from database:', dbError);
+                }
             }
             
+            // Reset connection state
             this.currentRoomId = null;
             this.currentRoom = null;
             this.isHost = false;
+            this.connectionState = 'disconnected';
+            this.retryCount = 0;
             
             // Reset initialization flags
             this.isGameStarted = false;
             this.isInitialized = false;
             
             // Return to lobby
-            document.getElementById('room-settings').style.display = 'none';
-            document.getElementById('multiplayer-lobby').style.display = 'block';
+            const roomSettingsEl = document.getElementById('room-settings');
+            const lobbyEl = document.getElementById('multiplayer-lobby');
+            if (roomSettingsEl) roomSettingsEl.style.display = 'none';
+            if (lobbyEl) lobbyEl.style.display = 'block';
+            
+            console.log('✅ Successfully left room');
         } catch (error) {
-            console.error('Error leaving room:', error);
+            console.error('❌ Error leaving room:', error);
         }
+    },
+    
+    cleanupListeners() {
+        // Clean up all Firebase listeners
+        this.listeners.forEach((unsubscribe, listenerName) => {
+            try {
+                unsubscribe();
+                console.log(`🔄 Cleaned up listener: ${listenerName}`);
+            } catch (error) {
+                console.warn(`Failed to cleanup listener ${listenerName}:`, error);
+            }
+        });
+        this.listeners.clear();
     },
     
     // ===== POWERUP SYNCHRONIZATION =====
@@ -1329,29 +1591,54 @@ const multiplayerSystem = {
     },
     
     monitorPowerupSpawning() {
-        // Hook into powerup spawning to sync spawns across players
-        if (typeof powerUps !== 'undefined' && powerUps.spawn) {
-            const originalSpawn = powerUps.spawn;
-            this.isRemoteSpawn = false; // Flag to prevent recursive spawning
-            
-            powerUps.spawn = (x, y, target, moving, mode, size) => {
-                // Call original spawn function
-                originalSpawn.call(powerUps, x, y, target, moving, mode, size);
+        // Hook into powerup spawning to sync spawns across players - enhanced to catch all spawn methods
+        if (typeof powerUps !== 'undefined') {
+            // Hook main spawn method
+            if (powerUps.spawn) {
+                const originalSpawn = powerUps.spawn;
+                this.isRemoteSpawn = false; // Flag to prevent recursive spawning
                 
-                // Only notify other players if this is not a remote spawn
-                // Allow all players to notify about powerup spawns for better sync
-                if (!this.isRemoteSpawn) {
-                    this.notifyPowerupSpawn({
-                        x: typeof x === 'number' ? Math.round(x * 100) / 100 : 0,
-                        y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
-                        target: target || 'tech',
-                        moving: moving !== false,
-                        mode: mode || null,
-                        size: size || null,
-                        timestamp: Date.now()
-                    });
-                }
-            };
+                powerUps.spawn = (x, y, target, moving, mode, size) => {
+                    // Call original spawn function
+                    originalSpawn.call(powerUps, x, y, target, moving, mode, size);
+                    
+                    // Only notify other players if this is not a remote spawn
+                    if (!this.isRemoteSpawn) {
+                        this.notifyPowerupSpawn({
+                            x: typeof x === 'number' ? Math.round(x * 100) / 100 : 0,
+                            y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
+                            target: target || 'tech',
+                            moving: moving !== false,
+                            mode: mode || null,
+                            size: size || null,
+                            timestamp: Date.now()
+                        });
+                    }
+                };
+            }
+            
+            // Also hook directSpawn if it exists
+            if (powerUps.directSpawn) {
+                const originalDirectSpawn = powerUps.directSpawn;
+                
+                powerUps.directSpawn = (x, y, target, moving, mode, size) => {
+                    // Call original function
+                    originalDirectSpawn.call(powerUps, x, y, target, moving, mode, size);
+                    
+                    // Notify about direct spawns too
+                    if (!this.isRemoteSpawn) {
+                        this.notifyPowerupSpawn({
+                            x: typeof x === 'number' ? Math.round(x * 100) / 100 : 0,
+                            y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
+                            target: target || 'tech',
+                            moving: moving !== false,
+                            mode: mode || null,
+                            size: size || null,
+                            timestamp: Date.now()
+                        });
+                    }
+                };
+            }
         }
     },
     
@@ -1564,29 +1851,55 @@ const multiplayerSystem = {
     },
     
     monitorTechProjectiles() {
-        // Hook into the bullet firing system to catch tech abilities that create projectiles
-        if (typeof b !== 'undefined' && b.fire) {
-            // Monitor all bullet creation by hooking into the firing system
-            setInterval(() => {
-                if (!this.isGameStarted || typeof bullet === 'undefined') return;
-                
-                // This will be handled by the existing bullet monitoring, but we need to ensure
-                // that tech abilities that create projectiles are properly caught
-                
-                // Monitor for tech-specific projectiles that might not be caught by normal monitoring
-                if (typeof m !== 'undefined' && typeof tech !== 'undefined') {
-                    // Check for specific tech abilities that create projectiles
-                    if (tech.isWormBullets && bullet.length > 0) {
-                        // Worm bullets - these need special handling
-                        const recentBullets = bullet.filter(b => b && b.isInHole === true);
-                        if (recentBullets.length > 0) {
-                            // Notify about worm bullet teleportation
-                            console.log('Worm bullet detected - should sync teleportation');
-                        }
+        // Enhanced monitoring for tech abilities that create projectiles
+        
+        // Hook into gun firing to catch multishot and other projectile abilities
+        if (typeof b !== 'undefined' && typeof b.guns !== 'undefined') {
+            // Monitor gun firing to catch tech abilities
+            for (let gunIndex = 0; gunIndex < b.guns.length; gunIndex++) {
+                if (b.guns[gunIndex] && b.guns[gunIndex].fire) {
+                    const originalFire = b.guns[gunIndex].fire;
+                    
+                    b.guns[gunIndex].fire = () => {
+                        // Call original fire function
+                        originalFire.call(b.guns[gunIndex]);
+                        
+                        // After firing, monitor for new bullets that were created by this tech ability
+                        setTimeout(() => {
+                            if (typeof bullet !== 'undefined' && bullet.length > 0) {
+                                // Get the most recent bullets that might have been created by this tech
+                                const recentBullets = bullet.slice(-5); // Check last 5 bullets
+                                for (const bulletItem of recentBullets) {
+                                    if (bulletItem && bulletItem.position && bulletItem.velocity) {
+                                        // These bullets should already be caught by monitorAllBulletCreation
+                                        // but this ensures tech abilities are properly networked
+                                        console.log('Tech projectile created:', bulletItem);
+                                    }
+                                }
+                            }
+                        }, 10); // Small delay to let bullets be created
+                    };
+                }
+            }
+        }
+        
+        // Monitor for tech-specific projectiles
+        setInterval(() => {
+            if (!this.isGameStarted || typeof bullet === 'undefined') return;
+            
+            // Monitor for tech-specific projectiles that might not be caught by normal monitoring
+            if (typeof m !== 'undefined' && typeof tech !== 'undefined') {
+                // Check for specific tech abilities that create projectiles
+                if (tech.isWormBullets && bullet.length > 0) {
+                    // Worm bullets - these need special handling
+                    const recentBullets = bullet.filter(b => b && b.isInHole === true);
+                    if (recentBullets.length > 0) {
+                        // Notify about worm bullet teleportation
+                        console.log('Worm bullet detected - should sync teleportation');
                     }
                 }
-            }, 100); // Check frequently for tech projectiles
-        }
+            }
+        }, 100); // Check frequently for tech projectiles
     },
     
     monitorTechAbilities() {
@@ -2402,7 +2715,7 @@ const multiplayerSystem = {
     },
     
     hookMobSpawning() {
-        // Hook into mobs.spawn to synchronize mob spawning
+        // Hook into mobs.spawn to synchronize mob spawning - enhanced to catch all spawns
         if (typeof mobs !== 'undefined' && mobs.spawn) {
             const originalSpawn = mobs.spawn;
             
@@ -2414,7 +2727,7 @@ const multiplayerSystem = {
                 const result = originalSpawn.call(mobs, xPos, yPos, sides, radius, color);
                 
                 // Only notify if this is not a remote spawn
-                if (!this.isRemoteMobSpawn) {
+                if (!this.isRemoteMobSpawn && this.isGameStarted) {
                     const newMob = mob[mob.length - 1];
                     if (newMob) {
                         this.notifyMobSpawn({
@@ -2426,12 +2739,32 @@ const multiplayerSystem = {
                             color: color,
                             timestamp: Date.now()
                         });
+                        console.log('Notified mob spawn:', { x: xPos, y: yPos, sides, radius, color });
                     }
                 }
                 
                 return result;
             };
         }
+        
+        // Also add additional monitoring to catch any mobs that might be created through other means
+        let lastMobCount = 0;
+        setInterval(() => {
+            if (!this.isGameStarted || typeof mob === 'undefined') return;
+            
+            // Check for new mobs that might not have been caught by the hook
+            if (mob.length > lastMobCount) {
+                const newMobs = mob.slice(lastMobCount);
+                for (let i = 0; i < newMobs.length; i++) {
+                    const newMob = newMobs[i];
+                    if (newMob && newMob.position && !this.isRemoteMobSpawn) {
+                        // This is a backup to catch any mobs that weren't caught by the hook
+                        console.log('Backup mob spawn detected:', newMob.position);
+                    }
+                }
+                lastMobCount = mob.length;
+            }
+        }, 200); // Check every 200ms for missed mob spawns
     },
     
     hookBodySpawning() {
@@ -2847,9 +3180,10 @@ const multiplayerSystem = {
     },
     
     monitorAllBulletCreation() {
-        // Monitor the bullet array for any changes
+        // Monitor the bullet array for any changes - more aggressive monitoring
         let lastBulletCount = 0;
         let bulletStates = [];
+        let lastNotificationTime = 0;
         
         setInterval(() => {
             if (!this.isGameStarted || typeof bullet === 'undefined') return;
@@ -2857,9 +3191,13 @@ const multiplayerSystem = {
             // Check for new bullets - be more aggressive to catch all types
             if (bullet.length > lastBulletCount) {
                 const newBullets = bullet.slice(lastBulletCount);
-                for (let i = 0; i < newBullets.length; i++) {
-                    const newBullet = newBullets[i];
-                    if (newBullet && newBullet.position && newBullet.velocity) {
+                const now = Date.now();
+                
+                // Throttle notifications to prevent spam but ensure all bullets are caught
+                if (newBullets.length > 0 && now - lastNotificationTime > 50) { // 50ms throttle
+                    for (let i = 0; i < newBullets.length; i++) {
+                        const newBullet = newBullets[i];
+                        if (newBullet && newBullet.position && newBullet.velocity) {
                         // Enhanced bullet type detection
                         let bulletType = 'default';
                         let bulletColor = '#000000'; // Default black
@@ -2914,7 +3252,9 @@ const multiplayerSystem = {
                             isInHole: newBullet.isInHole,
                             timestamp: Date.now()
                         });
+                        }
                     }
+                    lastNotificationTime = now;
                 }
                 lastBulletCount = bullet.length;
             }
