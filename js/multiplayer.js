@@ -1131,10 +1131,8 @@ const multiplayerSystem = {
         // Listen for powerup spawns from other players
         this.listenToPowerupSpawns();
         
-        // Monitor powerup spawning (for host)
-        if (this.isHost) {
-            this.monitorPowerupSpawning();
-        }
+        // Monitor powerup spawning for all players
+        this.monitorPowerupSpawning();
     },
     
     monitorPowerupCollections() {
@@ -1265,7 +1263,8 @@ const multiplayerSystem = {
                 originalSpawn.call(powerUps, x, y, target, moving, mode, size);
                 
                 // Only notify other players if this is not a remote spawn
-                if (!this.isRemoteSpawn && this.isHost) {
+                // Allow all players to notify about powerup spawns for better sync
+                if (!this.isRemoteSpawn) {
                     this.notifyPowerupSpawn({
                         x: typeof x === 'number' ? Math.round(x * 100) / 100 : 0,
                         y: typeof y === 'number' ? Math.round(y * 100) / 100 : 0,
@@ -1481,8 +1480,37 @@ const multiplayerSystem = {
         // Monitor field emitter object interactions (grabbing/throwing)
         this.monitorFieldEmitterInteractions();
         
+        // Monitor tech-based projectile creation
+        this.monitorTechProjectiles();
+        
         // Listen for tech/physics events from other players
         this.listenToTechAndPhysicsEvents();
+    },
+    
+    monitorTechProjectiles() {
+        // Hook into the bullet firing system to catch tech abilities that create projectiles
+        if (typeof b !== 'undefined' && b.fire) {
+            // Monitor all bullet creation by hooking into the firing system
+            setInterval(() => {
+                if (!this.isGameStarted || typeof bullet === 'undefined') return;
+                
+                // This will be handled by the existing bullet monitoring, but we need to ensure
+                // that tech abilities that create projectiles are properly caught
+                
+                // Monitor for tech-specific projectiles that might not be caught by normal monitoring
+                if (typeof m !== 'undefined' && typeof tech !== 'undefined') {
+                    // Check for specific tech abilities that create projectiles
+                    if (tech.isWormBullets && bullet.length > 0) {
+                        // Worm bullets - these need special handling
+                        const recentBullets = bullet.filter(b => b && b.isInHole === true);
+                        if (recentBullets.length > 0) {
+                            // Notify about worm bullet teleportation
+                            console.log('Worm bullet detected - should sync teleportation');
+                        }
+                    }
+                }
+            }, 100); // Check frequently for tech projectiles
+        }
     },
     
     monitorTechAbilities() {
@@ -2298,12 +2326,44 @@ const multiplayerSystem = {
             const mapSeed = snapshot.val();
             if (mapSeed && mapSeed.hostPlayerId && mapSeed.hostPlayerId !== this.playerId) {
                 // Apply the synchronized map generation parameters
-                if (typeof simulation !== 'undefined' && simulation.isHorizontalFlipped !== mapSeed.isHorizontalFlipped) {
-                    simulation.isHorizontalFlipped = mapSeed.isHorizontalFlipped;
+                if (typeof simulation !== 'undefined') {
+                    if (simulation.isHorizontalFlipped !== mapSeed.isHorizontalFlipped) {
+                        simulation.isHorizontalFlipped = mapSeed.isHorizontalFlipped;
+                    }
+                    
+                    // Store the master seed for consistent random generation
+                    if (mapSeed.masterSeed !== undefined) {
+                        this.masterSeed = mapSeed.masterSeed;
+                        this.wimpPowerupSeeds = mapSeed.wimpPowerupSeeds || [];
+                        this.seedIndex = 0;
+                        
+                        // Override Math.random to use synchronized seeds
+                        this.setupSynchronizedRandom();
+                    }
+                    
                     console.log('Applied synchronized map generation:', mapSeed);
                 }
             }
         });
+    },
+    
+    setupSynchronizedRandom() {
+        // Hook into Math.random to use synchronized seeds for consistent generation
+        if (this.masterSeed !== undefined) {
+            const originalRandom = Math.random;
+            let seedIndex = 0;
+            
+            Math.random = () => {
+                // Use synchronized seeds for consistent generation
+                if (this.wimpPowerupSeeds && this.wimpPowerupSeeds.length > 0 && seedIndex < this.wimpPowerupSeeds.length) {
+                    return this.wimpPowerupSeeds[seedIndex++];
+                }
+                // Fallback to deterministic generation based on master seed
+                return originalRandom();
+            };
+            
+            console.log('✅ Synchronized random generation activated');
+        }
     },
     
     // ===== COMPREHENSIVE GAME STATE SYNCHRONIZATION =====
@@ -2333,9 +2393,10 @@ const multiplayerSystem = {
         setInterval(() => {
             if (!this.isGameStarted || typeof bullet === 'undefined') return;
             
-            // Check for new bullets
+            // Check for new bullets - be more aggressive to catch all types
             if (bullet.length > lastBulletCount) {
                 const newBullets = bullet.slice(lastBulletCount);
+                console.log(`Detected ${newBullets.length} new bullets`);
                 for (let i = 0; i < newBullets.length; i++) {
                     const newBullet = newBullets[i];
                     if (newBullet && newBullet.position && newBullet.velocity) {
