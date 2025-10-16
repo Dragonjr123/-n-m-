@@ -572,43 +572,40 @@ const multiplayerSystem = {
     
     // ===== POWERUP SYNC =====
     startPowerupSync() {
-        // Track powerup positions to identify which was collected
-        this.powerupPositions = [];
+        // Flag to prevent infinite loop when removing powerups from network
+        this.isRemovingFromNetwork = false;
         
-        // Monitor powerup collection
-        if (typeof powerUp !== 'undefined') {
-            setInterval(() => {
-                if (!this.isGameStarted || !powerUp) return;
+        // Hook into Array.prototype.splice for powerUp array to capture removals
+        if (typeof powerUp !== 'undefined' && Array.isArray(powerUp)) {
+            const originalSplice = Array.prototype.splice;
+            const self = this;
+            
+            // We need to override the splice behavior when it's called on powerUp array
+            // Since we can't directly override just for powerUp, we'll use a wrapper approach
+            window.powerUpSpliceHook = function(index, deleteCount) {
+                // Don't send network event if we're removing due to network event
+                if (self.isRemovingFromNetwork) return;
                 
-                // Update position tracking and check for removed powerups
-                const currentPositions = powerUp.map((p, idx) => ({
-                    idx: idx,
-                    x: Math.round(p.position.x),
-                    y: Math.round(p.position.y)
-                }));
-                
-                // Find removed powerups by comparing positions
-                if (this.powerupPositions.length > currentPositions.length) {
-                    // Find which powerup was removed
-                    const removedPowerup = this.powerupPositions.find(oldPos => 
-                        !currentPositions.some(newPos => 
-                            Math.abs(newPos.x - oldPos.x) < 5 && Math.abs(newPos.y - oldPos.y) < 5
-                        )
-                    );
+                // Capture the powerup being removed BEFORE splice
+                if (deleteCount > 0 && powerUp && powerUp[index] && powerUp[index].position) {
+                    const removed = powerUp[index];
+                    const pos = { x: Math.round(removed.position.x), y: Math.round(removed.position.y) };
+                    console.log(`🎁 Local powerup collected at (${pos.x}, ${pos.y})`);
                     
-                    if (removedPowerup) {
-                        // Notify other players with position of removed powerup
-                        this.notifyPowerupCollection({
-                            playerId: this.playerId,
-                            x: removedPowerup.x,
-                            y: removedPowerup.y,
+                    // Notify other players
+                    if (self.isGameStarted && self.currentRoomId) {
+                        self.notifyPowerupCollection({
+                            playerId: self.playerId,
+                            x: pos.x,
+                            y: pos.y,
                             timestamp: Date.now()
                         });
+                        console.log(`📡 Sent powerup collection event`);
                     }
                 }
-                
-                this.powerupPositions = currentPositions;
-            }, 100);
+            };
+            
+            console.log('✅ Powerup sync hook installed');
         }
         
         // Listen for powerup collections from other players
@@ -626,6 +623,8 @@ const multiplayerSystem = {
                 
                 // Find and remove the powerup at the same position
                 if (typeof powerUp !== 'undefined' && event.x !== undefined && event.y !== undefined) {
+                    console.log(`📥 Received powerup event at (${event.x}, ${event.y}) from ${this.currentRoom?.players?.[event.playerId]?.name}`);
+                    let found = false;
                     for (let i = powerUp.length - 1; i >= 0; i--) {
                         const dx = Math.abs(powerUp[i].position.x - event.x);
                         const dy = Math.abs(powerUp[i].position.y - event.y);
@@ -635,10 +634,17 @@ const multiplayerSystem = {
                             if (typeof Matter !== 'undefined') {
                                 Matter.World.remove(engine.world, powerUp[i]);
                             }
+                            // Set flag to prevent hook from sending another event
+                            this.isRemovingFromNetwork = true;
                             powerUp.splice(i, 1);
-                            console.log(`Synced powerup collection from ${this.currentRoom?.players?.[event.playerId]?.name}`);
+                            this.isRemovingFromNetwork = false;
+                            console.log(`✅ Synced powerup removal at index ${i}`);
+                            found = true;
                             break; // Only remove one powerup per event
                         }
+                    }
+                    if (!found) {
+                        console.log(`⚠️ No matching powerup found for event at (${event.x}, ${event.y})`);
                     }
                 }
                 
@@ -746,7 +752,8 @@ const multiplayerSystem = {
             ctx.fill();
             ctx.restore();
             
-            // Draw body
+            // Draw body (rotated)
+            ctx.save();
             ctx.rotate(remote.angle || 0);
             ctx.beginPath();
             ctx.arc(0, 0, remote.radius || 30, 0, 2 * Math.PI);
@@ -768,8 +775,9 @@ const multiplayerSystem = {
             ctx.strokeStyle = "#333";
             ctx.lineWidth = 2;
             ctx.stroke();
+            ctx.restore();
             
-            // Draw name (before restore, so it's relative to player position)
+            // Draw name and health bar (NOT rotated - outside the rotation context)
             ctx.fillStyle = remote.nameColor || '#ffffff';
             ctx.strokeStyle = '#000';
             ctx.lineWidth = 3;

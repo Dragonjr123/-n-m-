@@ -1298,6 +1298,7 @@ const m = {
                     });
                     powerUp[i].effect();
                     Matter.World.remove(engine.world, powerUp[i]);
+                    if (typeof window.powerUpSpliceHook === 'function') window.powerUpSpliceHook(i, 1);
                     powerUp.splice(i, 1);
                     return; //because the array order is messed up after splice
                 }
@@ -2338,6 +2339,7 @@ const m = {
                                         powerUps.onPickUp(powerUp[i]);
                                         powerUp[i].effect();
                                         Matter.World.remove(engine.world, powerUp[i]);
+                                        if (typeof window.powerUpSpliceHook === 'function') window.powerUpSpliceHook(i, 1);
                                         powerUp.splice(i, 1);
                                         // m.fieldRadius += 50
                                         break; //because the array order is messed up after splice
@@ -2508,6 +2510,7 @@ const m = {
                                     powerUps.onPickUp(powerUp[i]);
                                     powerUp[i].effect();
                                     Matter.World.remove(engine.world, powerUp[i]);
+                                    if (typeof window.powerUpSpliceHook === 'function') window.powerUpSpliceHook(i, 1);
                                     powerUp.splice(i, 1);
                                     break; //because the array order is messed up after splice
                                 }

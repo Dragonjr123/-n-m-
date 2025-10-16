@@ -2113,6 +2113,7 @@ const b = {
                                         powerUps.onPickUp(powerUp[i]);
                                         powerUp[i].effect();
                                         Matter.World.remove(engine.world, powerUp[i]);
+                                        if (typeof window.powerUpSpliceHook === 'function') window.powerUpSpliceHook(i, 1);
                                         powerUp.splice(i, 1);
                                         if (tech.isDroneGrab) {
                                             this.isImproved = true;
@@ -2144,6 +2145,7 @@ const b = {
                                             powerUps.onPickUp(powerUp[i]);
                                             powerUp[i].effect();
                                             Matter.World.remove(engine.world, powerUp[i]);
+                                            if (typeof window.powerUpSpliceHook === 'function') window.powerUpSpliceHook(i, 1);
                                             powerUp.splice(i, 1);
                                             if (tech.isDroneGrab) {
                                                 this.isImproved = true;
