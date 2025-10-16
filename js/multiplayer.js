@@ -380,9 +380,65 @@ const multiplayerSystem = {
         
         setTimeout(() => {
             if (player && m) {
+                // Apply player color from localPlayer settings
+                this.applyPlayerColor();
                 this.initGameplay();
             }
         }, 200);
+    },
+    
+    applyPlayerColor() {
+        if (!m || !this.localPlayer.color) return;
+        
+        // Convert hex color to HSL and apply to player
+        const hex = this.localPlayer.color;
+        const rgb = this.hexToRgb(hex);
+        const hsl = this.rgbToHsl(rgb.r, rgb.g, rgb.b);
+        
+        m.color.hue = Math.round(hsl.h);
+        m.color.sat = Math.round(hsl.s);
+        m.color.light = Math.round(hsl.l);
+        m.setFillColors();
+        
+        console.log(`Applied player color: ${hex} -> HSL(${m.color.hue}, ${m.color.sat}%, ${m.color.light}%)`);
+    },
+    
+    hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : { r: 0, g: 204, b: 255 };
+    },
+    
+    rgbToHsl(r, g, b) {
+        r /= 255;
+        g /= 255;
+        b /= 255;
+        
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        let h, s, l = (max + min) / 2;
+        
+        if (max === min) {
+            h = s = 0;
+        } else {
+            const d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            
+            switch (max) {
+                case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+                case g: h = ((b - r) / d + 2) / 6; break;
+                case b: h = ((r - g) / d + 4) / 6; break;
+            }
+        }
+        
+        return {
+            h: h * 360,
+            s: s * 100,
+            l: l * 100
+        };
     },
     
     // ===== GAMEPLAY SYSTEMS =====
@@ -563,11 +619,12 @@ const multiplayerSystem = {
     
     // ===== RENDERING =====
     hookRenderLoop() {
-        if (typeof simulation === 'undefined' || !simulation.draw) return;
+        if (typeof simulation === 'undefined' || !simulation.normalLoop) return;
         
-        const originalDraw = simulation.draw;
-        simulation.draw = () => {
-            originalDraw.call(simulation);
+        // Hook into the main game loop instead of simulation.draw
+        const originalNormalLoop = simulation.normalLoop;
+        simulation.normalLoop = () => {
+            originalNormalLoop.call(simulation);
             this.renderRemotePlayers();
         };
     },

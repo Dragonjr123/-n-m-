@@ -88,7 +88,7 @@ const simulation = {
         level.custom();
         powerUps.do();
         mobs.draw();
-        simulation.draw.cons();
+        if (typeof simulation.draw.cons === 'function') simulation.draw.cons();
         simulation.draw.body();
         mobs.loop();
         mobs.healthBar();
@@ -132,7 +132,7 @@ const simulation = {
         m.draw();
         level.customTopLayer();
         simulation.draw.wireFrame();
-        simulation.draw.cons();
+        if (typeof simulation.draw.cons === 'function') simulation.draw.cons();
         simulation.draw.testing();
         simulation.drawCircle();
         simulation.constructCycle()
