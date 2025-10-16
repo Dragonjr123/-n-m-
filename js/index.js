@@ -1165,6 +1165,11 @@ function cycle() {
             simulation.clearMap();
             level.start();
         }
+        
+        // Tick poly miners if in progressive mode
+        if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined') {
+            polyTree.tickMiners();
+        }
 
         simulation.loop();
         // if (isNaN(m.health) || isNaN(m.energy)) {

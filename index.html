@@ -35,17 +35,18 @@
     <div id="dmg"></div>
     <div id="choose-background"></div>
     <div id="construct"></div>
-    <div id="polytree-ui" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #fff; z-index: 15; overflow-y: auto;">
-        <div style="padding: 20px;">
+    <div id="polytree-ui" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #fff; z-index: 15; overflow: auto;">
+        <div style="padding: 20px; width: 100%; box-sizing: border-box;">
             <h1 style="text-align: center; font-family: Arial Black, sans-serif;">POLY TREE</h1>
             <div style="text-align: center; font-size: 24px; margin: 10px 0; display: flex; align-items: center; justify-content: center; gap: 10px;">
                 <svg width="35" height="35"><polygon points="17,7 26,17 17,27 8,17" fill="#a8f" stroke="#66f" stroke-width="3"/></svg>
                 <span style="font-weight: bold; font-size: 32px;" id="poly-count">0</span>
+                <span style="font-size: 16px; color: #0a0; margin-left: 10px;" id="poly-per-sec">+0/sec</span>
             </div>
             <div style="text-align: center; margin-bottom: 20px;">
                 <button onclick="document.getElementById('polytree-ui').style.display='none'" style="padding: 10px 30px; font-size: 18px; cursor: pointer; background: #333; color: #fff; border: none; border-radius: 5px; font-weight: bold;">Close</button>
             </div>
-            <div id="polytree-content" style="max-width: 100%; margin: 0 auto;"></div>
+            <div id="polytree-content" style="width: 100%; box-sizing: border-box;"></div>
         </div>
     </div>
     <!-- <input type="text" id="console" spellcheck="false" /> -->

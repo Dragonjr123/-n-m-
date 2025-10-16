@@ -9,6 +9,12 @@ const polyTree = {
     lastMouseX: 0,
     lastMouseY: 0,
     
+    // Poly Miners
+    minerLevel: 0,
+    maxMinerLevel: 100,
+    polyPerSecond: 0,
+    lastMinerTick: Date.now(),
+    
     // Generate tech tree from ALL available game tech
     generateTechTree() {
         if (!tech || !tech.tech) return;
@@ -30,12 +36,12 @@ const polyTree = {
             return maxB - maxA; // Higher maxCount = weaker (stackable)
         });
         
-        // Build TREE structure with branching
+        // Build TREE structure with branching - MUCH CHEAPER COSTS
         availableTech.forEach((t, index) => {
             const row = Math.floor(index / branchWidth);
             const col = index % branchWidth;
-            const baseCost = 20 + (row * 10);
-            const cost = Math.floor(baseCost * Math.pow(1.3, row));
+            const baseCost = 5 + (row * 2);
+            const cost = Math.floor(baseCost * Math.pow(1.15, row)); // Reduced from 1.3 to 1.15
             const techId = t.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
             
             // Tree-like dependencies: each node connects to 1-2 parents
@@ -91,7 +97,8 @@ const polyTree = {
         const saveData = {
             polys: simulation.polys || 0,
             ownedTech: this.ownedTech,
-            version: 1
+            minerLevel: this.minerLevel,
+            version: 2
         };
         localStorage.setItem('polytree_save', JSON.stringify(saveData));
     },
@@ -105,15 +112,19 @@ const polyTree = {
                     simulation.polys = data.polys || 0;
                 }
                 this.ownedTech = data.ownedTech || [];
-                console.log('Loaded polytree progress:', simulation.polys, 'polys,', this.ownedTech.length, 'tech owned');
+                this.minerLevel = data.minerLevel || 0;
+                this.updateMinerStats();
+                console.log('Loaded polytree progress:', simulation.polys, 'polys,', this.ownedTech.length, 'tech owned, miner level', this.minerLevel);
             } catch (e) {
                 console.error('Failed to load polytree save:', e);
                 if (!simulation.polys) simulation.polys = 0;
                 this.ownedTech = [];
+                this.minerLevel = 0;
             }
         } else {
             if (!simulation.polys) simulation.polys = 0;
             this.ownedTech = [];
+            this.minerLevel = 0;
             console.log('No saved polytree progress found');
         }
     },
@@ -122,9 +133,59 @@ const polyTree = {
         if (confirm('Reset all poly progress? This cannot be undone!')) {
             simulation.polys = 0;
             this.ownedTech = [];
+            this.minerLevel = 0;
+            this.polyPerSecond = 0;
             localStorage.removeItem('polytree_save');
             this.updatePolyDisplay();
             this.renderTree();
+        }
+    },
+    
+    // Poly Miner System
+    getMinerCost() {
+        if (this.minerLevel >= this.maxMinerLevel) return Infinity;
+        return Math.floor(10 * Math.pow(1.12, this.minerLevel));
+    },
+    
+    updateMinerStats() {
+        // Each level gives exponentially more polys/sec
+        this.polyPerSecond = this.minerLevel > 0 ? Math.floor(this.minerLevel * Math.pow(1.05, this.minerLevel * 0.5)) : 0;
+        const display = document.getElementById('poly-per-sec');
+        if (display) {
+            display.textContent = `+${this.polyPerSecond}/sec`;
+        }
+    },
+    
+    upgradeMiner() {
+        const cost = this.getMinerCost();
+        if (simulation.polys >= cost && this.minerLevel < this.maxMinerLevel) {
+            simulation.polys -= cost;
+            this.minerLevel++;
+            this.updateMinerStats();
+            this.updatePolyDisplay();
+            this.saveProgress();
+            this.renderTree();
+            return true;
+        }
+        return false;
+    },
+    
+    tickMiners() {
+        if (this.minerLevel === 0) return;
+        
+        const now = Date.now();
+        const deltaTime = (now - this.lastMinerTick) / 1000; // seconds
+        this.lastMinerTick = now;
+        
+        const polysEarned = this.polyPerSecond * deltaTime;
+        if (polysEarned > 0) {
+            simulation.polys += polysEarned;
+            this.updatePolyDisplay();
+            
+            // Auto-save every 5 seconds
+            if (Math.random() < 0.1) {
+                this.saveProgress();
+            }
         }
     },
     
@@ -137,7 +198,11 @@ const polyTree = {
     updatePolyDisplay() {
         const polyElement = document.getElementById('poly-count');
         if (polyElement) {
-            polyElement.textContent = simulation.polys || 0;
+            polyElement.textContent = Math.floor(simulation.polys || 0);
+        }
+        const perSecElement = document.getElementById('poly-per-sec');
+        if (perSecElement) {
+            perSecElement.textContent = `+${this.polyPerSecond}/sec`;
         }
     },
     
@@ -261,6 +326,27 @@ const polyTree = {
         
         // Tooltip container
         html += '<div id="tech-tooltip" style="display: none; position: fixed; background: rgba(0,0,0,0.9); color: #fff; padding: 12px 16px; border-radius: 8px; max-width: 350px; pointer-events: none; z-index: 1000; border: 2px solid #66f; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>';
+        
+        // Poly Miner Upgrade Section
+        const minerCost = this.getMinerCost();
+        const canUpgradeMiner = simulation.polys >= minerCost && this.minerLevel < this.maxMinerLevel;
+        html += '<div style="margin: 20px; padding: 20px; border: 3px solid #a8f; background: linear-gradient(135deg, #f0f0ff 0%, #fff 100%); border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">';
+        html += '<h2 style="margin: 0 0 15px 0; color: #66f; display: flex; align-items: center; gap: 10px;"><svg width="30" height="30"><polygon points="15,5 25,15 15,25 5,15" fill="#a8f" stroke="#66f" stroke-width="2"/></svg> POLY MINER</h2>';
+        html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">`;
+        html += `<div><strong style="font-size: 18px;">Level: ${this.minerLevel} / ${this.maxMinerLevel}</strong><br><span style="color: #0a0; font-size: 16px;">Earning: ${this.polyPerSecond} polys/sec</span></div>`;
+        if (this.minerLevel < this.maxMinerLevel) {
+            const btnColor = canUpgradeMiner ? '#0a0' : '#999';
+            const btnText = canUpgradeMiner ? `Upgrade (${minerCost} polys)` : `Need ${minerCost} polys`;
+            html += `<button onclick="polyTree.upgradeMiner()" style="padding: 12px 24px; font-size: 18px; cursor: ${canUpgradeMiner ? 'pointer' : 'not-allowed'}; background: ${btnColor}; color: #fff; border: none; border-radius: 8px; font-weight: bold;">${btnText}</button>`;
+        } else {
+            html += `<div style="padding: 12px 24px; font-size: 18px; background: #fa0; color: #fff; border-radius: 8px; font-weight: bold;">MAX LEVEL! 🎉</div>`;
+        }
+        html += '</div>';
+        if (this.minerLevel < this.maxMinerLevel) {
+            const nextLevelProduction = Math.floor((this.minerLevel + 1) * Math.pow(1.05, (this.minerLevel + 1) * 0.5));
+            html += `<p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">Next level: +${nextLevelProduction} polys/sec</p>`;
+        }
+        html += '</div>';
         
         // Controls
         html += '<div style="margin: 20px; padding: 15px; border: 2px solid #333; background: #fff; border-radius: 8px;">';
