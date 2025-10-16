@@ -942,9 +942,3 @@ summary {
     right: 10px;
     z-index: 3;
 } */
-
-/* ===== MENU / POLYTREE STYLES (using existing UI) ===== */
-#tesseract-count {
-    font-weight: bold;
-    color: #0cf;
-}

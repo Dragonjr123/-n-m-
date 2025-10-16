@@ -1,74 +1,6 @@
 // game Object ********************************************************
 //*********************************************************************
 const simulation = {
-    // Survival mode properties
-    isSurvivalMode: false,
-    survivalWave: 1,
-    survivalKillCount: 0,
-    survivalKillsNeeded: 15,
-    survivalAliveAtWaveStart: 0,
-    
-    startSurvivalWave() {
-        // compute kills needed and spawn mobs
-        simulation.survivalKillCount = 0;
-        simulation.survivalKillsNeeded = Math.floor(15 + simulation.survivalWave * 2.5);
-        simulation.survivalAliveAtWaveStart = mob.length;
-        
-        // Ensure enough killable mobs exist to complete the wave
-        let existingKillable = 0;
-        for (let i = 0; i < mob.length; i++) {
-            if (mob[i].alive && !mob[i].isShielded && mob[i].isDropPowerUp) existingKillable++;
-        }
-        const toSpawn = Math.max(simulation.survivalKillsNeeded - existingKillable, Math.ceil(simulation.survivalKillsNeeded * 0.4));
-        for (let i = 0; i < toSpawn; i++) {
-            const angle = Math.random() * 2 * Math.PI;
-            const distance = 900 + Math.random() * 500;
-            const spawnX = m.pos.x + Math.cos(angle) * distance;
-            const spawnY = -400 - Math.random() * 300; // Spawn above ground level
-            
-            // Spawn varied mob types instead of just red spawns
-            if (Math.random() < 0.3) {
-                spawn.randomSmallMob(spawnX, spawnY);
-            } else {
-                spawn.spawns(spawnX, spawnY);
-            }
-        }
-        simulation.makeTextLog(`🌊 Wave ${simulation.survivalWave} - Kills needed: ${simulation.survivalKillsNeeded}`);
-    },
-
-    survivalWaveComplete() {
-        // Increment wave
-        simulation.survivalWave++;
-        simulation.survivalKillCount = 0;
-        simulation.survivalKillsNeeded = Math.floor(15 + simulation.survivalWave * 2.5); // More kills per wave
-        
-        // Spawn powerups around player (above ground level)
-        const powerupCount = 3 + Math.floor(simulation.survivalWave / 3);
-        for (let i = 0; i < powerupCount; i++) {
-            const types = ["heal", "ammo", "tech", "field", "gun"];
-            const type = types[Math.floor(Math.random() * types.length)];
-            const angle = (Math.PI * 2 * i) / powerupCount;
-            const distance = 100 + Math.random() * 100;
-            const spawnX = m.pos.x + Math.cos(angle) * distance;
-            const spawnY = m.pos.y - 100 - Math.random() * 50; // Spawn above player
-            powerUps.spawn(spawnX, spawnY, type, false);
-        }
-        
-        // Show wave complete message
-        simulation.makeTextLog(`✓ Wave ${simulation.survivalWave - 1} Complete! Next wave in 5 seconds...`);
-        
-        // Increase difficulty
-        simulation.difficulty += 0.15 * simulation.survivalWave;
-        
-        // Spawn next wave after delay (don't pause the game)
-        setTimeout(() => {
-            if (m.alive && simulation.isSurvivalMode) {
-                simulation.makeTextLog(`🌊 Wave ${simulation.survivalWave} starting!`);
-                simulation.startSurvivalWave();
-            }
-        }, 5000); // 5 second delay between waves
-    },
-    
     loop() {}, //main game loop, gets se tto normal or testing loop
     normalLoop() {
         simulation.gravity();
@@ -88,7 +20,7 @@ const simulation = {
         level.custom();
         powerUps.do();
         mobs.draw();
-        if (typeof simulation.draw.cons === 'function') simulation.draw.cons();
+        simulation.draw.cons();
         simulation.draw.body();
         mobs.loop();
         mobs.healthBar();
@@ -103,12 +35,6 @@ const simulation = {
         b.bulletDo();
         simulation.drawCircle();
         // simulation.clip();
-        
-        // Render multiplayer remote players (must be inside camera transform)
-        if (typeof multiplayerSystem !== 'undefined' && simulation.isMultiplayer) {
-            multiplayerSystem.renderRemotePlayers();
-        }
-        
         ctx.restore();
         simulation.drawCursor();
         // simulation.pixelGraphics();
@@ -132,7 +58,7 @@ const simulation = {
         m.draw();
         level.customTopLayer();
         simulation.draw.wireFrame();
-        if (typeof simulation.draw.cons === 'function') simulation.draw.cons();
+        simulation.draw.cons();
         simulation.draw.testing();
         simulation.drawCircle();
         simulation.constructCycle()
@@ -181,8 +107,8 @@ const simulation = {
     isChoosing: false,
     testing: false, //testing mode: shows wire frame and some variables
     cycle: 0, //total cycles, 60 per second
-    fpsCap: null, //limits frames per second to 60 fps to match physics engine
-    fpsCapDefault: 60, //use to change fpsCap back to normal after a hit from a mob
+    fpsCap: null, //limits frames per second to 144/2=72,  on most monitors the fps is capped at 60fps by the hardware
+    fpsCapDefault: 72, //use to change fpsCap back to normal after a hit from a mob
     isCommunityMaps: false,
     cyclePaused: 0,
     fallHeight: 3000, //below this y position the player dies
@@ -543,25 +469,18 @@ const simulation = {
     splashReturn() {
         simulation.clearTimeouts();
         simulation.onTitlePage = true;
-        simulation.isSurvivalMode = false; // Reset survival mode flag
-        
-        // Hide all game UI
-        document.getElementById("choose-grid").style.display = "none";
-        document.getElementById("info").style.display = "none";
-        document.getElementById("experiment-button").style.display = "none";
-        document.getElementById("experiment-grid").style.display = "none";
-        document.getElementById("pause-grid-left").style.display = "none";
-        document.getElementById("pause-grid-right").style.display = "none";
-        document.getElementById("splash").style.display = "none";
+        document.getElementById("splash").onclick = function() {
+            simulation.startGame();
+        };
+        document.getElementById("choose-grid").style.display = "none"
+        document.getElementById("info").style.display = "inline";
+        document.getElementById("experiment-button").style.display = "inline"
+        document.getElementById("experiment-grid").style.display = "none"
+        document.getElementById("pause-grid-left").style.display = "none"
+        document.getElementById("pause-grid-right").style.display = "none"
+        document.getElementById("splash").style.display = "inline";
         document.getElementById("dmg").style.display = "none";
         document.getElementById("health-bg").style.display = "none";
-        document.getElementById("gamemode-select").style.display = "none";
-        document.getElementById("settings-menu").style.display = "none";
-        
-        // Show main menu with main UI elements
-        document.getElementById("main-menu").style.display = "block";
-        document.getElementById("info").style.display = "block";
-        document.getElementById("experiment-button").style.display = "block";
         document.body.style.cursor = "auto";
     },
     fpsInterval: 0, //set in startGame
@@ -593,39 +512,34 @@ const simulation = {
         m.look = m.lookDefault
 
         simulation.isHorizontalFlipped = (Math.random() < 0.5) ? true : false //if true, some maps are flipped horizontally
-        if (simulation.isSurvivalMode) {
-            // Force survival sequence: survivalArena only (no intro needed)
-            level.levels = ["survivalArena"];
-        } else {
-            level.levels = level.playableLevels.slice(0) //copy array, not by just by assignment
-            if (simulation.isCommunityMaps) {
-                level.levels.push("stronghold");
-                level.levels.push("basement");
-                level.levels.push("crossfire");
-                level.levels.push("vats")
-                level.levels.push("n-gon")
-                level.levels.push("house");
-                level.levels.push("perplex");
-                level.levels.push("coliseum");
-                level.levels.push("tunnel");
-                level.levels = shuffle(level.levels); //shuffles order of maps
-                level.levels.splice(0, 9); //remove some random levels to make up for adding the community levels
+        level.levels = level.playableLevels.slice(0) //copy array, not by just by assignment
+        if (simulation.isCommunityMaps) {
+            level.levels.push("stronghold");
+            level.levels.push("basement");
+            level.levels.push("crossfire");
+            level.levels.push("vats")
+            level.levels.push("{n/m}")
+            level.levels.push("house");
+            level.levels.push("perplex");
+            level.levels.push("coliseum");
+            level.levels.push("tunnel");
+            level.levels = shuffle(level.levels); //shuffles order of maps
+            level.levels.splice(0, 9); //remove some random levels to make up for adding the community levels
 
-                lore.techCount = 0; //remove undefined tech for community maps
-                for (let i = 0, len = tech.tech.length; i < len; i++) {
-                    if (tech.tech[i].isLore) {
-                        tech.tech[i].frequency = 0;
-                        tech.tech[i].count = 0;
-                    }
+            lore.techCount = 0; //remove undefined tech for community maps
+            for (let i = 0, len = tech.tech.length; i < len; i++) {
+                if (tech.tech[i].isLore) {
+                    tech.tech[i].frequency = 0;
+                    tech.tech[i].count = 0;
                 }
-            } else {
-                level.levels = shuffle(level.levels); //shuffles order of maps
             }
-
-            level.levels.unshift("intro"); //add level to the start
-            level.levels.push("gauntlet"); //end caps for normal runs
-            level.levels.push("final");
+        } else {
+            level.levels = shuffle(level.levels); //shuffles order of maps
         }
+
+        level.levels.unshift("intro"); //add level to the start of the randomized levels list
+        level.levels.push("gauntlet"); //add level to the end of the randomized levels list
+        level.levels.push("final"); //add level to the end of the randomized levels list
 
         input.endKeySensing();
         b.removeAllGuns();
@@ -676,18 +590,13 @@ const simulation = {
         simulation.lookFreqScale = 1;
         simulation.CDScale = 1;
         simulation.difficulty = 0;
-        const diffSelect = document.getElementById("difficulty-select");
-        if (diffSelect) {
-            simulation.difficultyMode = Number(diffSelect.value);
-        } else if (!simulation.difficultyMode) {
-            simulation.difficultyMode = 2; // Default to normal
-        }
+        simulation.difficultyMode = Number(document.getElementById("difficulty-select").value)
         build.isExperimentSelection = false;
 
         simulation.clearNow = true;
         document.getElementById("text-log").style.opacity = 0;
         document.getElementById("fade-out").style.opacity = 0;
-        document.title = "n-gon";
+        document.title = "{n/m}";
 
         m.alive = true;
         m.setMaxHealth()

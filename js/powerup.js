@@ -337,18 +337,6 @@ const powerUps = {
             function pick(who, skip1 = -1, skip2 = -1, skip3 = -1, skip4 = -1) {
                 let options = [];
                 for (let i = 1; i < who.length; i++) {
-                    // In Progressive mode, only show unlocked fields
-                    if (polyTree.gameMode === 'progressive') {
-                        // Check if this field is unlocked in tech tree
-                        let fieldUnlocked = false;
-                        for (let techIndex = 0; techIndex < tech.tech.length; techIndex++) {
-                            if (tech.tech[techIndex].name === who[i].name && polyTree.isUnlocked(techIndex)) {
-                                fieldUnlocked = true;
-                                break;
-                            }
-                        }
-                        if (!fieldUnlocked && i !== m.fieldMode) continue;
-                    }
                     if (i !== m.fieldMode && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4) options.push(i);
                 }
                 //remove repeats from last selection
@@ -424,10 +412,6 @@ const powerUps = {
                 function pick(skip1 = -1, skip2 = -1, skip3 = -1, skip4 = -1) {
                     let options = [];
                     for (let i = 0; i < tech.tech.length; i++) {
-                        // In Progressive mode, only show unlocked techs
-                        if (polyTree.gameMode === 'progressive' && !polyTree.isUnlocked(i)) {
-                            continue;
-                        }
                         if (tech.tech[i].count < tech.tech[i].maxCount && i !== skip1 && i !== skip2 && i !== skip3 && i !== skip4 && tech.tech[i].allowed()) {
                             for (let j = 0, len = tech.tech[i].frequency; j < len; j++) options.push(i);
                         }

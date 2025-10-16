@@ -11,7 +11,7 @@ const level = {
     levels: [],
 
     start() {
-        if (level.levelsCleared === 0 && !simulation.isSurvivalMode) { //this code only runs on the first level (except survival)
+        if (level.levelsCleared === 0) { //this code only runs on the first level
             // simulation.zoomScale = 1000;
             // simulation.setZoom();
             // simulation.enableConstructMode() //used to build maps in testing mode
@@ -52,7 +52,7 @@ const level = {
             // level.coliseum() //community level
             // level.crossfire() //community level
             // level.vats() //community level
-            // level["n-gon"]() //community level
+            // level["{n/m}"]() //community level
             // level.tunnel() //community level
             // tech.giveTech("undefined")
             // lore.techCount = 6
@@ -148,9 +148,9 @@ const level = {
     levelAnnounce() {
         const difficulty = simulation.isCheating ? "testing" : level.difficultyText()
         if (level.levelsCleared === 0) {
-            document.title = "n-gon: (" + difficulty + ")";
+            document.title = "{n/m}: (" + difficulty + ")";
         } else {
-            document.title = `n-gon: ${level.levelsCleared} ${level.levels[level.onLevel]} (${difficulty})`
+            document.title = `{n/m}: ${level.levelsCleared} ${level.levels[level.onLevel]} (${difficulty})`
             simulation.makeTextLog(`<span class='color-var'>level</span>.onLevel <span class='color-symbol'>=</span> "<span class='color-text'>${level.levels[level.onLevel]}</span>"`);
         }
         // simulation.makeTextLog(`
@@ -166,21 +166,12 @@ const level = {
     },
     nextLevel() {
         level.levelsCleared++;
-        
-        // Progressive mode: Award currency for completing room
-        if (polyTree.gameMode === 'progressive') {
-            const baseReward = 15;
-            const bonusReward = Math.floor(level.levelsCleared * 2); // More currency as you progress
-            const totalReward = baseReward + bonusReward;
-            polyTree.addCurrency(totalReward);
-            simulation.makeTextLog(`+${totalReward} ◆ Tesseracts for completing room!`);
-            
-            // Apply difficulty scaling based on purchased tech
-            const techScaling = polyTree.getDifficultyScaling();
-            level.difficultyIncrease(simulation.difficultyMode + techScaling);
-        } else {
-            level.difficultyIncrease(simulation.difficultyMode);
-        }
+        // level.difficultyIncrease(simulation.difficultyMode) //increase difficulty based on modes
+
+        //difficulty is increased 5 times when finalBoss dies
+        // const len = level.levelsCleared / level.levels.length //add 1 extra difficulty step for each time you have cleared all the levels
+        // for (let i = 0; i < len; i++) 
+        level.difficultyIncrease(simulation.difficultyMode)
 
         level.onLevel++; //cycles map to next level
         if (level.onLevel > level.levels.length - 1) level.onLevel = 0;
@@ -1195,62 +1186,6 @@ const level = {
         // spawn.snakeBoss(1200, -500)
         // spawn.suckerBoss(2900, -500)
         // spawn.randomMob(1600, -500)
-    },
-    survivalArena() {
-        // Custom flat arena for survival mode
-        level.custom = () => {
-            // No exit drawing needed
-        };
-        level.customTopLayer = () => {};
-        level.setPosToSpawn(0, -200); // Spawn in center, elevated
-        level.exit.x = 0;
-        level.exit.y = 0;
-        level.defaultZoom = 2200;
-        simulation.zoomTransition(level.defaultZoom);
-        document.body.style.backgroundColor = "#dcdcde";
-        
-        // Large flat ground
-        spawn.mapRect(-2000, 0, 4000, 300);
-        
-        // Raised platforms for tactical gameplay
-        spawn.mapRect(-1200, -200, 400, 25); // Left platform
-        spawn.mapRect(800, -200, 400, 25);    // Right platform
-        spawn.mapRect(-600, -400, 400, 25);   // Left high platform
-        spawn.mapRect(200, -400, 400, 25);    // Right high platform
-        spawn.mapRect(-200, -600, 400, 25);   // Center top platform
-        
-        // Some walls for cover
-        spawn.mapRect(-1500, -300, 50, 300);  // Left wall
-        spawn.mapRect(1450, -300, 50, 300);   // Right wall
-        
-        // Small obstacles on ground
-        spawn.mapRect(-800, -100, 100, 100);
-        spawn.mapRect(700, -100, 100, 100);
-        spawn.mapRect(-50, -100, 100, 100);
-        
-        // Give player a starting field so field powerups work
-        if (simulation.isSurvivalMode && simulation.survivalWave === 1) {
-            m.setField("push");
-        }
-        
-        // Spawn starting powerups so player can actually fight
-        powerUps.spawnStartingPowerUps(0, -400);
-        
-        // Add some extra powerups scattered around
-        for (let i = 0; i < 8; i++) {
-            const angle = (Math.PI * 2 * i) / 8;
-            const distance = 300 + Math.random() * 200;
-            powerUps.spawn(Math.cos(angle) * distance, -200 + Math.sin(angle) * distance, "heal", false);
-        }
-        
-        // Start first wave after a short delay to let player get ready
-        setTimeout(() => {
-            if (simulation.isSurvivalMode && simulation.survivalWave === 1) {
-                simulation.startSurvivalWave();
-            }
-        }, 2000);
-        
-        powerUps.addResearchToLevel();
     },
     template() {
         level.custom = () => {
@@ -5773,7 +5708,7 @@ const level = {
             portal2[2].draw()
         }
     },
-    "n-gon"() { // Made by Oranger on Discord
+    "{n/m}"() { // Made by Oranger on Discord
         let needGravity = [];
         let s = { //mech statue
             x: -200,
@@ -6446,7 +6381,7 @@ const level = {
                     ctx.textAlign = "center";
                     ctx.fillStyle = "#00ffff" + Math.floor((secretAnimTrans - 40) * 12.75).toString(16);
                     ctx.font = "30px monospace";
-                    ctx.fillText("n-gon inc", 3300, -3630);
+                    ctx.fillText("{n/m} inc", 3300, -3630);
 
                     ctx.font = "25px Arial";
                 }
@@ -6472,7 +6407,7 @@ const level = {
                     ctx.textAlign = "center";
                     ctx.fillStyle = "#00ffff" + Math.floor((secretAnimTrans2 - 40) * 12.75).toString(16);
                     ctx.font = "30px monospace";
-                    ctx.fillText("n-gon inc", 1950, -3630);
+                    ctx.fillText("{n/m} inc", 1950, -3630);
 
                     ctx.font = "25px Arial";
                     if (secretAnimTrans2 >= 60) {

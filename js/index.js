@@ -504,11 +504,11 @@ const build = {
         if (isCustom) {
             url += `&level=${Math.abs(Number(document.getElementById("starting-level").value))}`
             url += `&noPower=${Number(document.getElementById("no-power-ups").checked)}`
-            alert('n-gon build URL copied to clipboard.\nPaste into browser address bar.')
+            alert('{n/m} build URL copied to clipboard.\nPaste into browser address bar.')
         } else {
-            simulation.makeTextLog("n-gon build URL copied to clipboard.<br>Paste into browser address bar.")
+            simulation.makeTextLog("{n/m} build URL copied to clipboard.<br>Paste into browser address bar.")
         }
-        console.log('n-gon build URL copied to clipboard.\nPaste into browser address bar.')
+        console.log('{n/m} build URL copied to clipboard.\nPaste into browser address bar.')
         console.log(url)
         simulation.copyToClipBoard(url)
     },
@@ -641,19 +641,12 @@ const input = {
     focus: null,
     setTextFocus() {
         const backgroundColor = "#fff"
-        const keyField = document.getElementById("key-field");
-        const keyUp = document.getElementById("key-up");
-        const keyDown = document.getElementById("key-down");
-        const keyLeft = document.getElementById("key-left");
-        const keyRight = document.getElementById("key-right");
-        const keyPause = document.getElementById("key-pause");
-        
-        if (keyField) keyField.style.background = backgroundColor;
-        if (keyUp) keyUp.style.background = backgroundColor;
-        if (keyDown) keyDown.style.background = backgroundColor;
-        if (keyLeft) keyLeft.style.background = backgroundColor;
-        if (keyRight) keyRight.style.background = backgroundColor;
-        if (keyPause) keyPause.style.background = backgroundColor;
+        document.getElementById("key-field").style.background = backgroundColor
+        document.getElementById("key-up").style.background = backgroundColor
+        document.getElementById("key-down").style.background = backgroundColor
+        document.getElementById("key-left").style.background = backgroundColor
+        document.getElementById("key-right").style.background = backgroundColor
+        document.getElementById("key-pause").style.background = backgroundColor
         document.getElementById("key-next-gun").style.background = backgroundColor
         document.getElementById("key-previous-gun").style.background = backgroundColor
         document.getElementById("key-testing").style.background = backgroundColor
@@ -1060,7 +1053,7 @@ if (localSettings) {
     simulation.difficultyMode = localSettings.difficultyMode
     document.getElementById("difficulty-select").value = localSettings.difficultyMode
     if (localSettings.fpsCapDefault === 'max') {
-        simulation.fpsCapDefault = 60;
+        simulation.fpsCapDefault = 999999999;
     } else {
         simulation.fpsCapDefault = Number(localSettings.fpsCapDefault)
     }
@@ -1087,17 +1080,13 @@ document.getElementById("control-testing").style.visibility = (localSettings.lor
 
 input.controlTextUpdate()
 
-// Initialize systems after all scripts loaded
-polyTree.init();
-menuSystem.init();
-
 //**********************************************************************
 // settings 
 //**********************************************************************
 document.getElementById("fps-select").addEventListener("input", () => {
     let value = document.getElementById("fps-select").value
     if (value === 'max') {
-        simulation.fpsCapDefault = 60;
+        simulation.fpsCapDefault = 999999999;
     } else {
         simulation.fpsCapDefault = Number(value)
     }
@@ -1137,7 +1126,7 @@ document.getElementById("updates").addEventListener("toggle", function() {
         xhr.open("GET", path, true);
         xhr.send();
     }
-    let text = `<strong>n-gon</strong>: <a href="https://github.com/landgreen/n-gon/blob/master/todo.txt">todo list</a> and complete <a href="https://github.com/landgreen/n-gon/commits/master">change-log</a><hr>`
+    let text = `<strong>{n/m}</strong>: <a href="https://github.com/landgreen/n-gon/blob/master/todo.txt">todo list</a> and complete <a href="https://github.com/landgreen/n-gon/commits/master">change-log</a><hr>`
     document.getElementById("updates-div").innerHTML = text
 
     ///  https://api.github.com/repos/landgreen/n-gon/stats/commit_activity
@@ -1178,7 +1167,6 @@ function cycle() {
         }
 
         simulation.loop();
-        
         // if (isNaN(m.health) || isNaN(m.energy)) {
         //   console.log(`m.health = ${m.health}`)
         //   simulation.paused = true;

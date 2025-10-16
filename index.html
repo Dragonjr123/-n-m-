@@ -29,221 +29,12 @@
     <div id="field"></div>
     <div id="tech"></div>
     <div id="text-log"></div>
-    <!-- Survival HUD (top center) -->
-    <div id="survival-hud" style="position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 25; font-weight: bold; font-size: 18px; color: #111; background: rgba(255,255,255,0.8); padding: 6px 10px; border-radius: 6px; display: none;"></div>
     <div id="fade-out"></div>
     <div id="health-bg"></div>
     <div id="health"></div>
     <div id="dmg"></div>
-    <!-- Escape overlay (static, used by menuSystem) -->
-    <div id="escape-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 0, 0, 0); pointer-events: none; z-index: 999999; transition: background 0.1s linear; display: none;"></div>
     <div id="choose-background"></div>
     <div id="construct"></div>
-    
-    <!-- Main Menu - Replaces info/experiment button area -->
-    <div id="main-menu" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20;">
-        <div style="display: flex; flex-direction: column; gap: 15px; align-items: center;">
-            <!-- {n/m} logo -->
-            <svg id="menu-logo" viewBox="-0.5 -0.5 13.5 4.5" style="width: 240px; height: auto; margin-bottom: 20px;">
-                <g fill="#333" stroke="none" stroke-width="0.08" stroke-linecap="round">
-                    <!-- { -->
-                    <path d="M0.3 0 q-0.3 0 -0.3 0.3 v1 q0 0.2 -0.2 0.2 q-0.2 0 -0.2 0.2 q0 0.2 0.2 0.2 q0.2 0 0.2 0.2 v1 q0 0.3 0.3 0.3" stroke="#333"></path>
-                    <!-- n -->
-                    <path transform="translate(1.5,0)" d="M0 0 v3.4 h0.6 v-2 q0 -0.4 0.4 -0.4 h0.8 q0.4 0 0.4 0.4 v2 h0.6 v-2.2 q0 -0.6 -0.6 -0.6 h-1.2 q-0.5 0 -0.7 0.4 v-1 z" stroke="#333"></path>
-                    <!-- / -->
-                    <path transform="translate(5.2,0.4)" d="M0 2.6 l1.2 -2.6" stroke="#333" fill="none"></path>
-                    <!-- m -->
-                    <path transform="translate(7,0)" d="M0 1.2 v2.2 h0.6 v-1.6 q0 -0.4 0.4 -0.4 h0.5 q0.4 0 0.4 0.4 v1.6 h0.6 v-1.6 q0 -0.4 0.4 -0.4 h0.5 q0.4 0 0.4 0.4 v1.6 h0.6 v-1.8 q0 -0.6 -0.6 -0.6 h-0.9 q-0.3 0 -0.5 0.2 q-0.2 -0.2 -0.5 -0.2 h-0.9 q-0.5 0 -0.7 0.4 v-0.2 z"></path>
-                    <!-- } -->
-                    <path transform="translate(12,0)" d="M0 0 q0.3 0 0.3 0.3 v1 q0 0.2 0.2 0.2 q0.2 0 0.2 0.2 q0 0.2 -0.2 0.2 q-0.2 0 -0.2 0.2 v1 q0 0.3 -0.3 0.3"></path>
-                </g>
-            </svg>
-            <button onclick="menuSystem.showGameModeSelect()" class="SVG-button" style="padding: 15px 50px; font-size: 1.5em; background:#fff; min-width: 250px;">Play</button>
-            <button onclick="menuSystem.showSettings()" class="SVG-button" style="padding: 12px 40px; font-size: 1.2em; background:#fff; min-width: 250px;">Settings</button>
-            <button onclick="polyTree.showPolyTree()" class="SVG-button" style="padding: 12px 40px; font-size: 1.2em; background:#fff; min-width: 250px;">PolyTree</button>
-        </div>
-    </div>
-    
-    <!-- Game Mode Selection -->
-    <div id="gamemode-select" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20; background:#ddd; padding: 30px; border-radius: 8px; max-width: 1000px;">
-        <h2 style="margin: 0 0 20px 0; font-size: 2em; text-align: center;">Select Game Mode</h2>
-        <div style="margin-bottom: 20px;">
-            <label for="difficulty-gamemode" style="font-size: 1.2em;">Difficulty:</label>
-            <select id="difficulty-gamemode" style="font-size: 1.1em; padding: 5px 10px; margin-left: 10px;">
-                <option value="1">Easy</option>
-                <option value="2" selected>Normal</option>
-                <option value="4">Hard</option>
-                <option value="6">Why?</option>
-            </select>
-        </div>
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0;">
-            <div class="SVG-button" onclick="menuSystem.startGame('progressive')" style="padding: 20px; cursor: pointer; text-align: left;">
-                <h3 style="margin: 0 0 10px 0; font-size: 1.3em;">Progressive</h3>
-                <p style="margin: 0 0 10px 0; font-size: 0.85em;">Earn Tesseracts to unlock upgrades. Only unlocked items spawn.</p>
-                <div style="background: #333; color: #fff; padding: 5px 10px; display: inline-block; border-radius: 4px; font-size: 0.85em;">◆ Currency Mode</div>
-            </div>
-            <div class="SVG-button" onclick="menuSystem.startGame('adventure')" style="padding: 20px; cursor: pointer; text-align: left;">
-                <h3 style="margin: 0 0 10px 0; font-size: 1.3em;">Adventure</h3>
-                <p style="margin: 0 0 10px 0; font-size: 0.85em;">Classic mode. All items available. Travel through rooms.</p>
-                <div style="background: #333; color: #fff; padding: 5px 10px; display: inline-block; border-radius: 4px; font-size: 0.85em;">⚔️ Classic Mode</div>
-            </div>
-            <div class="SVG-button" style="padding: 20px; cursor: not-allowed; text-align: left; opacity: 0.6;">
-                <h3 style="margin: 0 0 10px 0; font-size: 1.3em;">Survival</h3>
-                <p style="margin: 0 0 10px 0; font-size: 0.85em;">One map, endless waves. Get powerups between waves.</p>
-                <div style="background: #f90; color: #fff; padding: 5px 10px; display: inline-block; border-radius: 4px; font-size: 0.85em;">🚧 Coming Soon</div>
-            </div>
-            <div class="SVG-button" onclick="menuSystem.showMultiplayerLobby()" style="padding: 20px; cursor: pointer; text-align: left; border: 2px solid #0af;">
-                <h3 style="margin: 0 0 10px 0; font-size: 1.3em;">Multiplayer <span style="background: #0af; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 0.7em;">BETA</span></h3>
-                <p style="margin: 0 0 10px 0; font-size: 0.85em;">Team up with friends. Create or join rooms up to 10 players.</p>
-                <div style="background: #0af; color: #fff; padding: 5px 10px; display: inline-block; border-radius: 4px; font-size: 0.85em;">👥 Co-op Mode</div>
-            </div>
-        </div>
-        <button onclick="menuSystem.showMainMenu()" class="SVG-button" style="padding: 10px 30px; font-size: 1.2em;">Back</button>
-    </div>
-    
-    <!-- PolyTree Container -->
-    <div id="polytree-container" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #ddd; z-index: 1000; overflow: auto;"></div>
-    
-    <!-- Multiplayer Lobby -->
-    <div id="multiplayer-lobby" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20; background:#ddd; padding: 30px; border-radius: 8px; max-width: 900px; width: 90%;">
-        <h2 style="margin: 0 0 20px 0; font-size: 2em; text-align: center;">Multiplayer Lobby</h2>
-        
-        <!-- Player Customization -->
-        <div style="background:#fff; padding: 20px; border-radius: 6px; margin-bottom: 20px;">
-            <h3 style="margin: 0 0 15px 0;">Player Settings</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                <div>
-                    <label style="display: block; margin-bottom: 5px;">Player Name:</label>
-                    <input type="text" id="player-name" placeholder="Enter your name" maxlength="20" style="width: 100%; padding: 8px; font-size: 1em; border: 2px solid #ccc; border-radius: 4px;">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 5px;">Player Color:</label>
-                    <input type="color" id="player-color" value="#00ccff" style="width: 100%; height: 40px; border: 2px solid #ccc; border-radius: 4px; cursor: pointer;">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 5px;">Name Color:</label>
-                    <input type="color" id="player-name-color" value="#ffffff" style="width: 100%; height: 40px; border: 2px solid #ccc; border-radius: 4px; cursor: pointer;">
-                </div>
-            </div>
-        </div>
-        
-        <!-- Room Selection -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-            <div style="background:#fff; padding: 20px; border-radius: 6px;">
-                <h3 style="margin: 0 0 15px 0;">Create Room</h3>
-                <div style="margin-bottom: 10px;">
-                    <label style="display: block; margin-bottom: 5px;">Room Name:</label>
-                    <input type="text" id="room-name" placeholder="My Room" maxlength="30" style="width: 100%; padding: 8px; font-size: 1em; border: 2px solid #ccc; border-radius: 4px;">
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <label style="display: flex; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="room-private" style="width: 20px; height: 20px;">
-                        <span>Private Room</span>
-                    </label>
-                </div>
-                <div id="room-password-container" style="margin-bottom: 10px; display: none;">
-                    <label style="display: block; margin-bottom: 5px;">Password:</label>
-                    <input type="password" id="room-password" placeholder="Enter password" maxlength="20" style="width: 100%; padding: 8px; font-size: 1em; border: 2px solid #ccc; border-radius: 4px;">
-                </div>
-                <button onclick="multiplayerSystem.createRoom()" class="SVG-button" style="width: 100%; padding: 12px; font-size: 1.1em; background: #0af; color: #fff;">Create Room</button>
-            </div>
-            
-            <div style="background:#fff; padding: 20px; border-radius: 6px;">
-                <h3 style="margin: 0 0 15px 0;">Join Room</h3>
-                <div id="room-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 10px; border: 2px solid #eee; border-radius: 4px; padding: 10px;">
-                    <p style="text-align: center; color: #999;">Loading rooms...</p>
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <label style="display: block; margin-bottom: 5px;">Room Code:</label>
-                    <input type="text" id="join-room-code" placeholder="Enter room code" maxlength="10" style="width: 100%; padding: 8px; font-size: 1em; border: 2px solid #ccc; border-radius: 4px;">
-                </div>
-                <button onclick="multiplayerSystem.joinRoomByCode()" class="SVG-button" style="width: 100%; padding: 12px; font-size: 1.1em;">Join by Code</button>
-            </div>
-        </div>
-        
-        <button onclick="menuSystem.showGameModeSelect()" class="SVG-button" style="padding: 10px 30px; font-size: 1.2em;">Back</button>
-    </div>
-    
-    <!-- Room Settings (shown when room is created) -->
-    <div id="room-settings" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 21; background:#ddd; padding: 30px; border-radius: 8px; max-width: 900px; width: 90%;">
-        <h2 style="margin: 0 0 20px 0; font-size: 2em; text-align: center;">Room: <span id="current-room-name"></span></h2>
-        <p style="text-align: center; margin: 0 0 20px 0; font-size: 1.2em;">Room Code: <strong id="current-room-code" style="background: #fff; padding: 5px 15px; border-radius: 4px;"></strong></p>
-        
-        <!-- Players List -->
-        <div style="background:#fff; padding: 20px; border-radius: 6px; margin-bottom: 20px;">
-            <h3 style="margin: 0 0 15px 0;">Players (<span id="player-count">1</span>/10)</h3>
-            <div id="players-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
-                <!-- Players will be added here dynamically -->
-            </div>
-        </div>
-        
-        <!-- Game Settings (Host Only) -->
-        <div id="host-settings" style="background:#fff; padding: 20px; border-radius: 6px; margin-bottom: 20px;">
-            <h3 style="margin: 0 0 15px 0;">Game Settings (Host Only)</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                <div>
-                    <label style="display: block; margin-bottom: 5px;">Game Mode:</label>
-                    <select id="mp-game-mode" style="width: 100%; padding: 8px; font-size: 1em; border: 2px solid #ccc; border-radius: 4px;">
-                        <option value="progressive">Progressive</option>
-                        <option value="adventure">Adventure</option>
-                    </select>
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 5px;">Difficulty:</label>
-                    <select id="mp-difficulty" style="width: 100%; padding: 8px; font-size: 1em; border: 2px solid #ccc; border-radius: 4px;">
-                        <option value="1">Easy</option>
-                        <option value="2" selected>Normal</option>
-                        <option value="4">Hard</option>
-                        <option value="6">Why?</option>
-                    </select>
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 5px;">Starting Level:</label>
-                    <input type="number" id="mp-level" value="0" min="0" max="50" style="width: 100%; padding: 8px; font-size: 1em; border: 2px solid #ccc; border-radius: 4px;">
-                </div>
-                <div>
-                    <label style="display: flex; align-items: center; gap: 10px; padding: 8px;">
-                        <input type="checkbox" id="mp-one-life" style="width: 20px; height: 20px;">
-                        <span>One Life Mode (Permadeath)</span>
-                    </label>
-                </div>
-                <div>
-                    <label style="display: flex; align-items: center; gap: 10px; padding: 8px;">
-                        <input type="checkbox" id="mp-shared-level-progression" style="width: 20px; height: 20px;" checked>
-                        <span>Shared Level Progression (Others can teleport)</span>
-                    </label>
-                </div>
-            </div>
-        </div>
-        
-        <div style="display: flex; gap: 10px; justify-content: center;">
-            <button onclick="multiplayerSystem.startGame()" id="start-game-btn" class="SVG-button" style="padding: 12px 40px; font-size: 1.2em; background: #0a0; color: #fff;">Start Game</button>
-            <button onclick="multiplayerSystem.leaveRoom()" class="SVG-button" style="padding: 12px 40px; font-size: 1.2em; background: #f44; color: #fff;">Leave Room</button>
-        </div>
-    </div>
-    
-    <!-- Settings Menu -->
-    <div id="settings-menu" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20; background:#ddd; padding: 30px; border-radius: 8px; min-width: 400px;">
-        <h2 style="margin: 0 0 20px 0; font-size: 2em; text-align: center;">Settings</h2>
-        <div style="margin: 20px 0;">
-            <div style="margin: 15px 0; padding: 15px; background:#fff; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-                <label for="fps-select-menu" style="font-size: 1.1em;">FPS Limit:</label>
-                <select id="fps-select-menu" style="padding: 5px 10px; font-size: 1em;">
-                    <option value="max" selected>60 fps</option>
-                    <option value="45">45 fps</option>
-                    <option value="30">30 fps</option>
-                </select>
-            </div>
-            <div style="margin: 15px 0; padding: 15px; background:#fff; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-                <label for="community-maps-menu" style="font-size: 1.1em;">Community Maps:</label>
-                <input type="checkbox" id="community-maps-menu" style="width: 20px; height: 20px;">
-            </div>
-            <div style="margin: 15px 0; padding: 15px; background:#fff; border-radius: 6px;">
-                <button onclick="polyTree.reset()" class="SVG-button" style="width: 100%; padding: 12px; background: #f44; color: #fff; font-size: 1.1em;">Reset PolyTree</button>
-            </div>
-        </div>
-        <button onclick="menuSystem.applySettings()" class="SVG-button" style="padding: 10px 30px; font-size: 1.2em;">Back</button>
-    </div>
     <!-- <input type="text" id="console" spellcheck="false" /> -->
     <!-- contenteditable="true" -->
 
@@ -314,6 +105,18 @@
                     <!-- <br>
 					<label for="body-damage" title="allow damage from the ground and large fast moving blocks">collision damage from blocks:</label>
 					<input type="checkbox" id="body-damage" name="body-damage" checked style="width:17px; height:17px;"> -->
+                    <br>
+                    <label for="classic-select" title="play older versions of {n/m}">classic {n/m}:</label>
+                    <select name="classic-select" id="classic-select" onchange="window.location.href=this.value">
+                        <option value="https://scratch.mit.edu/projects/14005697/fullscreen/" selected="">scratch: 2014</option>
+                        <option value="https://scratch.mit.edu/projects/22573757/fullscreen/" selected="">scratch: 2015</option>
+                        <option value="https://codepen.io/lilgreenland/full/ozXNWZ" selected="">codepen: 2016</option>
+                        <option value="https://codepen.io/lilgreenland/full/wzARJY">codepen: 2016</option>
+                        <option value="classic/7-1-2017/">{n/m}: 2017</option>
+                        <option value="classic/4-15-2018/">{n/m}: 2018</option>
+                        <option value="classic/7-11-2019/">{n/m}: summer-2019</option>
+                        <option value="classic/9-8-2019/">{n/m}: fall-2019</option>
+                    </select>
                     <br>
                     <label for="fps-select" title="use this to slow the game down">limit frames per second:</label>
                     <select name="fps-select" id="fps-select">
@@ -470,21 +273,21 @@
             animation: dash 4.8s ease-in forwards;
         }
 
-        .draw-lines-brace {
-            stroke-dasharray: 15;
-            stroke-dashoffset: 15;
+        .draw-lines-dash {
+            stroke-dasharray: 4;
+            stroke-dashoffset: 4;
             animation: dash 4.8s ease-in forwards;
         }
 
-        .draw-lines-slash {
-            stroke-dasharray: 8;
-            stroke-dashoffset: 8;
+        .draw-lines-o {
+            stroke-dasharray: 11;
+            stroke-dashoffset: 11;
             animation: dash 4.8s ease-in forwards;
         }
 
-        .draw-lines-m {
-            stroke-dasharray: 20;
-            stroke-dashoffset: 20;
+        .draw-lines-g {
+            stroke-dasharray: 17;
+            stroke-dashoffset: 17;
             animation: dash 4.8s ease-in forwards;
         }
 
@@ -521,32 +324,39 @@
             animation: dash 5s ease-in forwards;
         }
     </style>
-    <svg id="splash" class="intro" viewBox="0 0 800 800" onclick="menuSystem.showMainMenuFromSplash()">
-        <!-- title: {n/m} -->
-        <g class="fade-in" transform="translate(150,210) scale(32)" fill="#bbb" stroke="none">
-            <!-- { -->
-            <path d="M0.3 0 q-0.3 0 -0.3 0.3 v1 q0 0.2 -0.2 0.2 q-0.2 0 -0.2 0.2 q0 0.2 0.2 0.2 q0.2 0 0.2 0.2 v1 q0 0.3 0.3 0.3"></path>
-            <!-- n -->
-            <path transform="translate(1.5,0)" d="M0 0 v3.4 h0.6 v-2 q0 -0.4 0.4 -0.4 h0.8 q0.4 0 0.4 0.4 v2 h0.6 v-2.2 q0 -0.6 -0.6 -0.6 h-1.2 q-0.5 0 -0.7 0.4 v-1 z"></path>
-            <!-- / -->
-            <path transform="translate(5.2,0.4)" d="M0 2.6 l1.2 -2.6"></path>
-            <!-- m -->
-            <path transform="translate(7,0)" d="M0 1.2 v2.2 h0.6 v-1.6 q0 -0.4 0.4 -0.4 h0.5 q0.4 0 0.4 0.4 v1.6 h0.6 v-1.6 q0 -0.4 0.4 -0.4 h0.5 q0.4 0 0.4 0.4 v1.6 h0.6 v-1.8 q0 -0.6 -0.6 -0.6 h-0.9 q-0.3 0 -0.5 0.2 q-0.2 -0.2 -0.5 -0.2 h-0.9 q-0.5 0 -0.7 0.4 v-0.2 z"></path>
-            <!-- } -->
-            <path transform="translate(12,0)" d="M0 0 q0.3 0 0.3 0.3 v1 q0 0.2 0.2 0.2 q0.2 0 0.2 0.2 q0 0.2 -0.2 0.2 q-0.2 0 -0.2 0.2 v1 q0 0.3 -0.3 0.3"></path>
+    <svg id="splash" class="intro" viewBox="0 0 800 800" onclick="simulation.startGame()">
+        <!-- title -->
+        <!-- <g class="fade-in" transform="translate(100,210) scale(34)" fill='#bbb' stroke='none'>
+			<path d="M0 0  h1  v0.2  h1.7  l0.3 0.3  v2.6  h-1  v-1.7  h-1  v1.7  h-1 z" fill="rgb(50,200,255)" />
+			<rect x="4" y="1.25" width="1" height="0.5" rx='0.03' />
+			<path transform="translate(6.9,0) scale(1.25)" d="M0 0  h1  l 0.7 0.7  v2.3  l-0.2 0.2 h-1.8 v-0.5 h1.4   L 1.1 2.4   h-1.1  l -0.7 -0.7  v-1  l 0.7 -0.7 Z"
+			 fill='rgb(255,70,140)' />
+			<path transform="translate(10.9,0) scale(1.25)" d="M0 0  h1  l 0.7 0.7  v1  l -0.7 0.7  h-1  l -0.7 -0.7  v-1  l 0.7 -0.7 Z"
+			 fill="none" />
+			<path transform="translate(14,0)" d="M0 0  h1  v0.2  h1.7  l0.3 0.3  v2.6  h-1  v-1.7  h-1  v1.7  h-1 z" fill='rgb(10,220,190)'
+			/>
+		</g> -->
+        <g class="fade-in" transform="translate(100,210) scale(34)" fill="#bbb" stroke="none">
+            <path d="M0 0  h1  v0.2  h1.7  l0.3 0.3  v2.6  h-1  v-1.7  h-1  v1.7  h-1 z"></path>
+            <rect x="4" y="1.25" width="1" height="0.5" rx="0.03"></rect>
+            <path transform="translate(6.9,0) scale(1.25)" d="M0 0  h1  l 0.7 0.7  v2.3  l-0.2 0.2 h-1.8 v-0.5 h1.4   L 1.1 2.4   h-1.1  l -0.7 -0.7  v-1  l 0.7 -0.7 Z"></path>
+            <path transform="translate(10.9,0) scale(1.25)" d="M0 0  h1  l 0.7 0.7  v1  l -0.7 0.7  h-1  l -0.7 -0.7  v-1  l 0.7 -0.7 Z"></path>
+            <path transform="translate(14,0)" d="M0 0  h1  v0.2  h1.7  l0.3 0.3  v2.6  h-1  v-1.7  h-1  v1.7  h-1 z"></path>
         </g>
-        <g transform="translate(150,210) scale(32)" fill="none" stroke="#222" stroke-linejoin="round" stroke-linecap="round">
-            <!-- { -->
-            <path class="draw-lines-brace" d="M0.3 0 q-0.3 0 -0.3 0.3 v1 q0 0.2 -0.2 0.2 q-0.2 0 -0.2 0.2 q0 0.2 0.2 0.2 q0.2 0 0.2 0.2 v1 q0 0.3 0.3 0.3" stroke-width="0.08"></path>
-            <!-- n -->
-            <path class="draw-lines" transform="translate(1.5,0)" d="M0 0 v3.4 h0.6 v-2 q0 -0.4 0.4 -0.4 h0.8 q0.4 0 0.4 0.4 v2 h0.6 v-2.2 q0 -0.6 -0.6 -0.6 h-1.2 q-0.5 0 -0.7 0.4 v-1 z" stroke-width="0.08"></path>
-            <!-- / -->
-            <path class="draw-lines-slash" transform="translate(5.2,0.4)" d="M0 2.6 l1.2 -2.6" stroke-width="0.08"></path>
-            <!-- m -->
-            <path class="draw-lines-m" transform="translate(7,0)" d="M0 1.2 v2.2 h0.6 v-1.6 q0 -0.4 0.4 -0.4 h0.5 q0.4 0 0.4 0.4 v1.6 h0.6 v-1.6 q0 -0.4 0.4 -0.4 h0.5 q0.4 0 0.4 0.4 v1.6 h0.6 v-1.8 q0 -0.6 -0.6 -0.6 h-0.9 q-0.3 0 -0.5 0.2 q-0.2 -0.2 -0.5 -0.2 h-0.9 q-0.5 0 -0.7 0.4 v-0.2 z" stroke-width="0.08"></path>
-            <!-- } -->
-            <path class="draw-lines-brace" transform="translate(12,0)" d="M0 0 q0.3 0 0.3 0.3 v1 q0 0.2 0.2 0.2 q0.2 0 0.2 0.2 q0 0.2 -0.2 0.2 q-0.2 0 -0.2 0.2 v1 q0 0.3 -0.3 0.3" stroke-width="0.08"></path>
+        <g transform="translate(100,210) scale(34)" fill="none" stroke="#222" stroke-linejoin="round" stroke-linecap="round">
+            <path class="draw-lines" d="M0 0  h1  v0.2  h1.7  l0.3 0.3  v2.6  h-1  v-1.7  h-1  v1.7  h-1 z" stroke-width="0.0875"></path>
+            <rect class="draw-lines-dash" x="4" y="1.25" width="1" height="0.5" stroke-width="0.0875" rx="0.03"></rect>
+            <path class="draw-lines-g" transform="translate(6.9,0) scale(1.25)" d="M0 0  h1  l 0.7 0.7  v2.3  l-0.2 0.2 h-1.8 v-0.5 h1.4   L 1.1 2.4   h-1.1  l -0.7 -0.7  v-1  l 0.7 -0.7 Z" stroke-width="0.07"></path>
+            <path class="draw-lines-o" transform="translate(10.9,0) scale(1.25)" d="M0 0  h1  l 0.7 0.7  v1  l -0.7 0.7  h-1  l -0.7 -0.7  v-1  l 0.7 -0.7 Z" stroke-width="0.07"></path>
+            <path class="draw-lines" transform="translate(14,0)" d="M0 0  h1  v0.2  h1.7  l0.3 0.3  v2.6  h-1  v-1.7  h-1  v1.7  h-1 z" stroke-width="0.0875"></path>
         </g>
+        <!-- <g class="draw-lines" transform="translate(100,210) scale(34)" fill='none' stroke='#222' stroke-linejoin="round" stroke-linecap="round">
+			<path d="M0 0  v3.1 h1 v-1.7 h1 v1.7 h1 v-2.6 l-0.3-0.3 h-1.7 v-0.2 h-1" stroke-width='0.0875' />
+			<rect x="4" y="1.25" width="1" height="0.5" stroke-width='0.0875' rx='0.03' />
+			<path transform="translate(6.9,0) scale(1.25)" d="M0 0  h1  l 0.7 0.7  v2.3  l-0.2 0.2 h-1.8 v-0.5 h1.4   L 1.1 2.4   h-1.1  l -0.7 -0.7  v-1  l 0.7 -0.7 Z" stroke-width='0.07' />
+			<path transform="translate(10.9,0) scale(1.25)" d="M0 0  l-0.7 0.7 v1 l0.7 0.7 h1 l0.7 -0.7 v-1 l-0.7 -0.7 h-1 Z" stroke-width='0.07' />
+			<path transform="translate(14,0)" d="M0 0  h1  v0.2  h1.7  l0.3 0.3  v2.6  h-1  v-1.7  h-1  v1.7  h-1 z" stroke-width='0.0875' />
+		</g> -->
         <!-- mouse -->
         <g class="draw-lines3" transform="translate(290,430) scale(0.28)" stroke-linecap="round" stroke-linejoin="round" stroke-width="10px" stroke="#222" fill="none">
             <path class="fade-in" d="M832.41,106.64 V322 H651.57 V255 c0-82,67.5-148,150-148 Z" fill="rgb(0, 200, 255)" stroke="none"></path>
@@ -740,9 +550,6 @@
     <script src="js/matter.min.js"></script>
     <script src="js/decomp.min.js"></script>
     <script src="js/randomColor.min.js"></script>
-    <script src="js/polytree.js"></script>
-    <script type="module" src="js/multiplayer.js"></script>
-    <script src="js/menu.js"></script>
     <script src="js/simulation.js"></script>
     <script src="js/player.js"></script>
     <script src="js/powerup.js"></script>

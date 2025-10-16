@@ -1064,20 +1064,6 @@ const mobs = {
                     if (tech.isEnergyLoss) m.energy *= 0.75;
                     powerUps.spawnRandomPowerUp(this.position.x, this.position.y);
                     m.lastKillCycle = m.cycle; //tracks the last time a kill was made, mostly used in simulation.checks()
-                    
-                    // Survival mode kill tracking
-                    if (simulation.isSurvivalMode) {
-                        simulation.survivalKillCount++;
-                        // Update Survival HUD immediately
-                        const hud = document.getElementById("survival-hud");
-                        if (hud) {
-                            hud.style.display = "block";
-                            hud.innerHTML = `Wave ${simulation.survivalWave} — ${simulation.survivalKillCount}/${simulation.survivalKillsNeeded}`;
-                        }
-                        if (simulation.survivalKillCount >= simulation.survivalKillsNeeded) {
-                            simulation.survivalWaveComplete();
-                        }
-                    }
                     if (Math.random() < tech.sporesOnDeath) {
                         const len = Math.min(25, Math.floor(2 + this.mass * (0.5 + 0.5 * Math.random())))
                         for (let i = 0; i < len; i++) b.spore(this.position)

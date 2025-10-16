@@ -454,22 +454,9 @@ const m = {
             }, 6 * swapPeriod);
         } else if (m.alive) { //normal death code here
             m.alive = false;
+            simulation.paused = true;
             m.health = 0;
             m.displayHealth();
-            
-            // Multiplayer death handling
-            if (simulation.isMultiplayer && typeof multiplayerSystem !== 'undefined') {
-                multiplayerSystem.onLocalPlayerDeath();
-                
-                // Don't pause or return to splash in multiplayer
-                if (!simulation.multiplayerSettings?.oneLife) {
-                    // Ghost mode - keep playing
-                    return;
-                }
-            }
-            
-            // Single player death
-            simulation.paused = true;
             document.getElementById("text-log").style.opacity = 0; //fade out any active text logs
             document.getElementById("fade-out").style.opacity = 1; //slowly fades out
             // build.shareURL(false)
@@ -504,18 +491,6 @@ const m = {
             id.classList.add("low-health");
         } else {
             id.classList.remove("low-health");
-        }
-        
-        // Display survival mode wave progress
-        const hud = document.getElementById("survival-hud");
-        if (hud) {
-            if (simulation.isSurvivalMode) {
-                hud.style.display = "block";
-                hud.innerHTML = `Wave ${simulation.survivalWave} — ${simulation.survivalKillCount}/${simulation.survivalKillsNeeded}`;
-            } else {
-                hud.style.display = "none";
-                hud.innerHTML = "";
-            }
         }
     },
     addHealth(heal) {
@@ -1298,7 +1273,6 @@ const m = {
                     });
                     powerUp[i].effect();
                     Matter.World.remove(engine.world, powerUp[i]);
-                    if (typeof window.powerUpSpliceHook === 'function') window.powerUpSpliceHook(i, 1);
                     powerUp.splice(i, 1);
                     return; //because the array order is messed up after splice
                 }
@@ -2339,7 +2313,6 @@ const m = {
                                         powerUps.onPickUp(powerUp[i]);
                                         powerUp[i].effect();
                                         Matter.World.remove(engine.world, powerUp[i]);
-                                        if (typeof window.powerUpSpliceHook === 'function') window.powerUpSpliceHook(i, 1);
                                         powerUp.splice(i, 1);
                                         // m.fieldRadius += 50
                                         break; //because the array order is messed up after splice
@@ -2510,7 +2483,6 @@ const m = {
                                     powerUps.onPickUp(powerUp[i]);
                                     powerUp[i].effect();
                                     Matter.World.remove(engine.world, powerUp[i]);
-                                    if (typeof window.powerUpSpliceHook === 'function') window.powerUpSpliceHook(i, 1);
                                     powerUp.splice(i, 1);
                                     break; //because the array order is messed up after splice
                                 }
