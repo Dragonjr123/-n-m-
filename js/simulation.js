@@ -659,8 +659,10 @@ const simulation = {
         // Initialize progressive mode if selected
         if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined') {
             polyTree.init();
-            polyTree.renderTree();
+            polyTree.updatePolyDisplay(); // Show poly counter
             simulation.makeTextLog(`<span class='color-text'>Progressive Mode</span> - Earn polys and unlock tech!`);
+        } else if (simulation.gameMode === 'adventure' && typeof polyTree !== 'undefined') {
+            polyTree.updatePolyDisplay(); // Hide poly counter in adventure mode
         }
 
         //setup FPS cap

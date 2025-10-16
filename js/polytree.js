@@ -1,33 +1,68 @@
 // Progressive Mode - PolyTree System
 const polyTree = {
-    // Tech tree structure with costs and dependencies
-    techTree: [
-        // Tier 1 - Starter tech (cheap, no dependencies)
-        { id: "supply_chain", name: "supply chain", cost: 50, tier: 1, dependencies: [] },
-        { id: "logistics", name: "logistics", cost: 75, tier: 1, dependencies: [] },
-        { id: "gun_sciences", name: "gun sciences", cost: 100, tier: 1, dependencies: [] },
+    // Tech tree is dynamically generated from all available tech
+    techTree: [],
+    
+    // Generate tech tree from game's tech list
+    generateTechTree() {
+        if (!tech || !tech.tech) return;
         
-        // Tier 2 - Basic upgrades (require tier 1)
-        { id: "arsenal", name: "arsenal", cost: 150, tier: 2, dependencies: ["gun_sciences"] },
-        { id: "active_cooling", name: "active cooling", cost: 150, tier: 2, dependencies: ["gun_sciences"] },
-        { id: "desublimated_ammunition", name: "desublimated ammunition", cost: 125, tier: 2, dependencies: ["logistics"] },
+        this.techTree = [];
+        const techPerTier = 20; // How many tech per tier
         
-        // Tier 3 - Advanced upgrades
-        { id: "integrated_armament", name: "integrated armament", cost: 250, tier: 3, dependencies: ["arsenal"] },
-        { id: "entanglement", name: "entanglement", cost: 200, tier: 3, dependencies: ["arsenal"] },
-        { id: "generalist", name: "generalist", cost: 300, tier: 3, dependencies: ["active_cooling"] },
-        { id: "specialist", name: "specialist", cost: 300, tier: 3, dependencies: ["gun_sciences"] },
+        // Get all non-lore, non-junk tech
+        const availableTech = tech.tech.filter(t => !t.isLore && !t.isJunk && !t.isNonRefundable);
         
-        // Tier 4 - Elite upgrades
-        { id: "gun_turret", name: "gun turret", cost: 400, tier: 4, dependencies: ["desublimated_ammunition"] },
-        { id: "inertial_frame", name: "inertial frame", cost: 350, tier: 4, dependencies: ["active_cooling"] },
-        { id: "automatic", name: "automatic", cost: 500, tier: 4, dependencies: ["inertial_frame"] },
-    ],
+        // Sort by frequency (lower = rarer = better)
+        availableTech.sort((a, b) => {
+            // Use frequency as power indicator (lower frequency = rarer = more powerful)
+            const freqA = a.frequency || 2;
+            const freqB = b.frequency || 2;
+            return freqB - freqA; // Higher frequency first (weaker tech)
+        });
+        
+        // Distribute into tiers and assign costs
+        availableTech.forEach((t, index) => {
+            const tier = Math.floor(index / techPerTier) + 1;
+            const tierIndex = index % techPerTier;
+            
+            // Cost increases exponentially with tier
+            const baseCost = 20 + (tierIndex * 5);
+            const tierMultiplier = Math.pow(1.5, tier - 1);
+            const cost = Math.floor(baseCost * tierMultiplier);
+            
+            const techId = t.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+            
+            // Dependencies: require one tech from previous tier
+            const dependencies = [];
+            if (tier > 1) {
+                const prevTierStart = (tier - 2) * techPerTier;
+                const prevTierEnd = Math.min(prevTierStart + techPerTier, index);
+                if (prevTierEnd > prevTierStart) {
+                    // Pick a random dependency from previous tier
+                    const depIndex = prevTierStart + Math.floor(Math.random() * (prevTierEnd - prevTierStart));
+                    const depTech = availableTech[depIndex];
+                    if (depTech) {
+                        dependencies.push(depTech.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+                    }
+                }
+            }
+            
+            this.techTree.push({
+                id: techId,
+                name: t.name,
+                cost: cost,
+                tier: tier,
+                dependencies: dependencies
+            });
+        });
+    },
     
     ownedTech: [], // Array of tech IDs that player owns
     
     // Initialize progressive mode
     init() {
+        this.generateTechTree(); // Build tree from all available tech
         simulation.polys = 0;
         simulation.firstPowerUpSpawned = false;
         this.ownedTech = [];
@@ -43,8 +78,20 @@ const polyTree = {
     // Update poly display
     updatePolyDisplay() {
         const polyElement = document.getElementById('poly-count');
+        const polyGameElement = document.getElementById('poly-count-game');
+        const polyDisplayElement = document.getElementById('poly-display');
+        
         if (polyElement) {
             polyElement.textContent = simulation.polys;
+        }
+        if (polyGameElement) {
+            polyGameElement.textContent = simulation.polys;
+        }
+        // Show/hide in-game counter based on mode
+        if (polyDisplayElement && simulation.gameMode === 'progressive') {
+            polyDisplayElement.style.display = 'block';
+        } else if (polyDisplayElement) {
+            polyDisplayElement.style.display = 'none';
         }
     },
     
@@ -92,80 +139,68 @@ const polyTree = {
         const container = document.getElementById('polytree-content');
         if (!container) return;
         
-        let html = '<svg width="1100" height="800" style="border: 1px solid #ccc;">';
+        if (this.techTree.length === 0) {
+            this.generateTechTree();
+        }
         
-        // Group techs by tier
-        const tierPositions = {
-            1: { x: 100, y: 100 },
-            2: { x: 300, y: 100 },
-            3: { x: 500, y: 100 },
-            4: { x: 700, y: 100 }
-        };
+        let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; padding: 10px;">';
         
-        const techPositions = {};
+        // Group by tier
+        const maxTier = Math.max(...this.techTree.map(t => t.tier));
         
-        // Calculate positions for each tech
-        this.techTree.forEach((tech, index) => {
-            const tierTechs = this.techTree.filter(t => t.tier === tech.tier);
-            const tierIndex = tierTechs.indexOf(tech);
-            const basePos = tierPositions[tech.tier];
+        for (let tier = 1; tier <= maxTier; tier++) {
+            const tierTech = this.techTree.filter(t => t.tier === tier);
+            if (tierTech.length === 0) continue;
             
-            techPositions[tech.id] = {
-                x: basePos.x,
-                y: basePos.y + (tierIndex * 120)
-            };
-        });
-        
-        // Draw dependency lines
-        this.techTree.forEach(tech => {
-            const pos = techPositions[tech.id];
-            tech.dependencies.forEach(depId => {
-                const depPos = techPositions[depId];
-                if (depPos && pos) {
-                    const isOwned = this.ownedTech.includes(tech.id) && this.ownedTech.includes(depId);
-                    html += `<line x1="${depPos.x + 80}" y1="${depPos.y + 25}" x2="${pos.x}" y2="${pos.y + 25}" stroke="${isOwned ? '#0a0' : '#999'}" stroke-width="2"/>`;
+            html += `<div style="grid-column: 1 / -1; background: #ddd; padding: 8px; font-weight: bold; margin-top: ${tier > 1 ? '10px' : '0'};">TIER ${tier} (${tierTech.length} tech)</div>`;
+            
+            tierTech.forEach(tech => {
+                const isOwned = this.ownedTech.includes(tech.id);
+                const canBuy = this.canBuy(tech.id);
+                
+                let bgColor = '#fff';
+                let borderColor = '#999';
+                let textColor = '#333';
+                
+                if (isOwned) {
+                    bgColor = '#afa';
+                    borderColor = '#0a0';
+                } else if (canBuy) {
+                    bgColor = '#ffa';
+                    borderColor = '#f90';
+                } else {
+                    bgColor = '#eee';
+                    borderColor = '#999';
+                    textColor = '#999';
                 }
+                
+                html += `<div onclick="polyTree.buyTech('${tech.id}')" style="
+                    padding: 10px;
+                    background: ${bgColor};
+                    border: 2px solid ${borderColor};
+                    border-radius: 5px;
+                    cursor: pointer;
+                    color: ${textColor};
+                    font-size: 12px;
+                ">`;
+                html += `<div style="font-weight: bold; margin-bottom: 5px;">${tech.name}</div>`;
+                html += `<div style="font-size: 11px;">${isOwned ? '✓ OWNED' : tech.cost + ' polys'}</div>`;
+                if (tech.dependencies.length > 0 && !isOwned) {
+                    html += `<div style="font-size: 10px; color: #666; margin-top: 3px;">Requires prev tier</div>`;
+                }
+                html += `</div>`;
             });
-        });
+        }
         
-        // Draw tech nodes
-        this.techTree.forEach(tech => {
-            const pos = techPositions[tech.id];
-            const isOwned = this.ownedTech.includes(tech.id);
-            const canBuy = this.canBuy(tech.id);
-            
-            let fillColor = '#fff';
-            let strokeColor = '#333';
-            let textColor = '#333';
-            
-            if (isOwned) {
-                fillColor = '#afa';
-                strokeColor = '#0a0';
-            } else if (canBuy) {
-                fillColor = '#ffa';
-                strokeColor = '#f90';
-            } else {
-                fillColor = '#ddd';
-                strokeColor = '#999';
-                textColor = '#999';
-            }
-            
-            html += `<g onclick="polyTree.buyTech('${tech.id}')" style="cursor: pointer;">`;
-            html += `<rect x="${pos.x}" y="${pos.y}" width="160" height="50" rx="5" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2"/>`;
-            html += `<text x="${pos.x + 80}" y="${pos.y + 22}" text-anchor="middle" fill="${textColor}" font-size="12" font-family="Arial">${tech.name}</text>`;
-            html += `<text x="${pos.x + 80}" y="${pos.y + 38}" text-anchor="middle" fill="${textColor}" font-size="11" font-family="Arial">${isOwned ? 'OWNED' : tech.cost + ' polys'}</text>`;
-            html += `</g>`;
-        });
+        html += '</div>';
         
-        html += '</svg>';
-        
-        html += '<div style="margin-top: 20px; padding: 10px; border: 1px solid #333; background-color: #f5f5f5;">';
-        html += '<p><strong>How to use:</strong></p>';
-        html += '<p>• <span style="color: #0a0;">Green</span> = Owned tech (appears in powerup choices)</p>';
-        html += '<p>• <span style="color: #f90;">Yellow</span> = Can purchase now</p>';
-        html += '<p>• <span style="color: #999;">Gray</span> = Locked (need dependencies or more polys)</p>';
-        html += '<p>• Click a yellow tech to purchase it</p>';
-        html += '<p>• Must buy prerequisites before advanced tech</p>';
+        html += '<div style="margin-top: 20px; padding: 15px; border: 2px solid #333; background-color: #f5f5f5;">';
+        html += `<p><strong>All ${this.techTree.length} Tech Available!</strong></p>`;
+        html += '<p>• <span style="background: #afa; padding: 2px 5px;">Green</span> = Owned (appears in powerups) | ';
+        html += '<span style="background: #ffa; padding: 2px 5px;">Yellow</span> = Can buy | ';
+        html += '<span style="background: #eee; padding: 2px 5px;">Gray</span> = Locked</p>';
+        html += '<p>• Tech organized by rarity/power (common → rare)</p>';
+        html += '<p>• Must unlock tech from previous tier before buying higher tiers</p>';
         html += '</div>';
         
         container.innerHTML = html;
