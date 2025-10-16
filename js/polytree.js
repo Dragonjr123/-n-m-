@@ -16,18 +16,58 @@ const polyTree = {
     polyPerSecond: 0,
     lastMinerTick: Date.now(),
     
-    // Generate tech tree from ALL available game tech
+    // Generate tech tree from ALL available game tech, guns, and fields
     generateTechTree() {
-        if (!tech || !tech.tech) return;
+        if (!tech || !tech.tech || !b || !b.guns || !m || !m.fieldUpgrades) return;
         
         this.techTree = [];
         const branchWidth = 3; // Nodes per branch
         
-        // Get all non-lore, non-junk tech
-        const availableTech = tech.tech.filter(t => !t.isLore && !t.isJunk && !t.isNonRefundable);
+        // Collect all items: tech, guns, and fields
+        const allItems = [];
+        
+        // Add tech (non-lore, non-junk)
+        tech.tech.filter(t => !t.isLore && !t.isJunk && !t.isNonRefundable).forEach(t => {
+            allItems.push({
+                type: 'tech',
+                data: t,
+                name: t.name,
+                description: t.description || 'No description',
+                frequency: t.frequency || 2,
+                maxCount: t.maxCount || 1
+            });
+        });
+        
+        // Add guns
+        b.guns.forEach((gun, idx) => {
+            allItems.push({
+                type: 'gun',
+                data: gun,
+                gunIndex: idx,
+                name: gun.name,
+                description: gun.description || 'No description',
+                frequency: 1, // Guns are rarer
+                maxCount: 1
+            });
+        });
+        
+        // Add fields
+        m.fieldUpgrades.forEach((field, idx) => {
+            if (idx > 0) { // Skip default field
+                allItems.push({
+                    type: 'field',
+                    data: field,
+                    fieldIndex: idx,
+                    name: field.name,
+                    description: field.description || 'No description',
+                    frequency: 0.5, // Fields are rarest
+                    maxCount: 1
+                });
+            }
+        });
         
         // Sort WEAK to STRONG: high frequency = weak (comes first)
-        availableTech.sort((a, b) => {
+        allItems.sort((a, b) => {
             const freqA = a.frequency || 2;
             const freqB = b.frequency || 2;
             const maxA = a.maxCount || 1;
@@ -38,12 +78,12 @@ const polyTree = {
         });
         
         // Build TREE structure with branching - MUCH CHEAPER COSTS
-        availableTech.forEach((t, index) => {
+        allItems.forEach((item, index) => {
             const row = Math.floor(index / branchWidth);
             const col = index % branchWidth;
             const baseCost = 5 + (row * 2);
             const cost = Math.floor(baseCost * Math.pow(1.15, row)); // Reduced from 1.3 to 1.15
-            const techId = t.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+            const techId = item.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
             
             // Tree-like dependencies: each node connects to 1-2 parents
             const dependencies = [];
@@ -54,9 +94,9 @@ const polyTree = {
                 // Connect to parent in same column
                 const sameColParent = prevRowStart + col;
                 if (sameColParent < index && sameColParent >= prevRowStart) {
-                    const depTech = availableTech[sameColParent];
-                    if (depTech) {
-                        dependencies.push(depTech.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+                    const depItem = allItems[sameColParent];
+                    if (depItem) {
+                        dependencies.push(depItem.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
                     }
                 }
                 
@@ -65,9 +105,9 @@ const polyTree = {
                     const altCol = (col + 1) % branchWidth;
                     const altParent = prevRowStart + altCol;
                     if (altParent < index && altParent >= prevRowStart) {
-                        const depTech = availableTech[altParent];
-                        if (depTech && !dependencies.includes(depTech.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'))) {
-                            dependencies.push(depTech.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+                        const depItem = allItems[altParent];
+                        if (depItem && !dependencies.includes(depItem.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'))) {
+                            dependencies.push(depItem.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
                         }
                     }
                 }
@@ -75,12 +115,16 @@ const polyTree = {
             
             this.techTree.push({
                 id: techId,
-                name: t.name,
-                description: t.description || 'No description available',
+                name: item.name,
+                description: item.description || 'No description available',
                 cost: cost,
                 row: row,
                 col: col,
-                dependencies: dependencies
+                dependencies: dependencies,
+                type: item.type,
+                gunIndex: item.gunIndex,
+                fieldIndex: item.fieldIndex,
+                techData: item.data
             });
         });
     },
@@ -219,10 +263,14 @@ const polyTree = {
         if (this.ownedTech.includes(techId)) return false;
         if (simulation.polys < techNode.cost) return false;
         
+        // Allow purchase if you own ANY of the parent dependencies (branching)
+        // OR if there are no dependencies (root nodes)
+        if (techNode.dependencies.length === 0) return true;
+        
         for (let dep of techNode.dependencies) {
-            if (!this.ownedTech.includes(dep)) return false;
+            if (this.ownedTech.includes(dep)) return true; // Only need ONE parent
         }
-        return true;
+        return false;
     },
     
     buyTech(techId) {
@@ -231,6 +279,28 @@ const polyTree = {
         const techNode = this.techTree.find(t => t.id === techId);
         simulation.polys -= techNode.cost;
         this.ownedTech.push(techId);
+        
+        // Give the player the item based on type
+        if (techNode.type === 'tech') {
+            // Find the tech index and give it
+            const techIndex = tech.tech.findIndex(t => t.name === techNode.name);
+            if (techIndex !== -1) {
+                tech.giveTech(techIndex);
+                simulation.makeTextLog(`<span class='color-text'>Unlocked Tech:</span> ${techNode.name}`);
+            }
+        } else if (techNode.type === 'gun') {
+            // Give the gun
+            if (techNode.gunIndex !== undefined) {
+                b.giveGuns(techNode.gunIndex);
+                simulation.makeTextLog(`<span class='color-text'>Unlocked Gun:</span> ${techNode.name}`);
+            }
+        } else if (techNode.type === 'field') {
+            // Give the field
+            if (techNode.fieldIndex !== undefined) {
+                m.setField(techNode.fieldIndex);
+                simulation.makeTextLog(`<span class='color-text'>Unlocked Field:</span> ${techNode.name}`);
+            }
+        }
         
         this.updatePolyDisplay();
         this.saveProgress();
@@ -308,8 +378,22 @@ const polyTree = {
             // Clean description for tooltip
             const cleanDesc = tech.description.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
             
+            // Type indicator colors
+            let typeColor = '#a8f'; // default purple for tech
+            let typeIcon = '◆';
+            if (tech.type === 'gun') {
+                typeColor = '#f80';
+                typeIcon = '⚡';
+            } else if (tech.type === 'field') {
+                typeColor = '#0af';
+                typeIcon = '◉';
+            }
+            
             html += `<g class="tech-node" data-tech-id="${tech.id}" data-description="${cleanDesc.replace(/"/g, '&quot;')}" onclick="polyTree.buyTech('${tech.id}')" style="cursor: pointer;">`;
             html += `<rect x="${x}" y="${y}" width="${nodeW}" height="${nodeH}" rx="10" fill="${fillColor}" stroke="${strokeColor}" stroke-width="3"/>`;
+            
+            // Type indicator in corner
+            html += `<text x="${x + 8}" y="${y + 18}" fill="${typeColor}" font-size="16" font-weight="bold" font-family="Arial">${typeIcon}</text>`;
             
             const displayName = tech.name.length > 20 ? tech.name.substring(0, 18) + '...' : tech.name;
             html += `<text x="${x + nodeW/2}" y="${y + 28}" text-anchor="middle" fill="${textColor}" font-size="13" font-weight="bold" font-family="Arial">${displayName}</text>`;
@@ -366,11 +450,12 @@ const polyTree = {
         html += '<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">';
         html += '<svg width="30" height="30"><polygon points="15,8 22,15 15,22 8,15" fill="#a8f" stroke="#66f" stroke-width="2"/></svg>';
         html += '<strong style="font-size: 18px;">Poly Currency</strong></div>';
-        html += `<p><strong>${this.techTree.length} Tech Available</strong> | Tree structure: WEAK → STRONG (top to bottom)</p>`;
-        html += '<p>• <span style="background: #c8ffc8; padding: 3px 8px; border: 2px solid #0a0; border-radius: 4px;">Green</span> = Owned (appears in powerups)</p>';
+        html += `<p><strong>${this.techTree.length} Items Available</strong> | Tree structure: WEAK → STRONG (top to bottom)</p>`;
+        html += '<p><strong>Item Types:</strong> <span style="color: #a8f; font-size: 16px;">◆</span> Tech &nbsp; <span style="color: #f80; font-size: 16px;">⚡</span> Gun &nbsp; <span style="color: #0af; font-size: 16px;">◉</span> Field</p>';
+        html += '<p>• <span style="background: #c8ffc8; padding: 3px 8px; border: 2px solid #0a0; border-radius: 4px;">Green</span> = Owned (unlocked)</p>';
         html += '<p>• <span style="background: #fff8c8; padding: 3px 8px; border: 2px solid #fa0; border-radius: 4px;">Yellow</span> = Can purchase now</p>';
-        html += '<p>• <span style="background: #fff; padding: 3px 8px; border: 2px solid #999; border-radius: 4px;">Gray</span> = Locked (need parent tech)</p>';
-        html += '<p style="margin-top: 12px; font-weight: bold;">Click yellow node to unlock • Hover for description • Drag to pan</p>';
+        html += '<p>• <span style="background: #fff; padding: 3px 8px; border: 2px solid #999; border-radius: 4px;">Gray</span> = Locked (need ANY parent)</p>';
+        html += '<p style="margin-top: 12px; font-weight: bold;">Click yellow node to unlock • Hover for description • Drag to pan • Branch freely!</p>';
         html += '</div>';
         
         container.innerHTML = html;
