@@ -185,7 +185,8 @@ const multiplayer = {
     
     // Get current player data
     getPlayerData() {
-        if (!m || !m.pos) {
+        // Check if player exists and is in game
+        if (typeof m === 'undefined' || !m.pos || !m.velocity) {
             return {
                 name: this.settings.name,
                 color: this.settings.color,
@@ -205,13 +206,13 @@ const multiplayer = {
             name: this.settings.name,
             color: this.settings.color,
             nameColor: this.settings.nameColor,
-            x: m.pos.x,
-            y: m.pos.y,
-            vx: m.velocity.x,
-            vy: m.velocity.y,
-            angle: m.angle,
-            health: m.health,
-            fieldActive: m.fieldMode > 0 && m.energy > 0,
+            x: m.pos.x || 0,
+            y: m.pos.y || 0,
+            vx: m.velocity.x || 0,
+            vy: m.velocity.y || 0,
+            angle: m.angle || 0,
+            health: m.health || 1,
+            fieldActive: (m.fieldMode > 0 && m.energy > 0) || false,
             lastUpdate: Date.now()
         };
     },

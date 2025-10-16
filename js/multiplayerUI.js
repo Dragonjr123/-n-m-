@@ -160,24 +160,28 @@ const multiplayerUI = {
             return;
         }
         
-        try {
-            const lobbyId = await multiplayer.createLobby(isPrivate, password, gameMode);
-            this.closeCreateLobby();
-            this.close();
-            
-            // Show lobby code if private
-            if (isPrivate) {
-                alert(`Lobby created!\nCode: ${lobbyId}\nPassword: ${password}\nShare this with your friends!`);
-            } else {
-                alert(`Public lobby created!\nCode: ${lobbyId}`);
+        this.closeCreateLobby();
+        this.close();
+        
+        // Start game FIRST, then create lobby
+        simulation.gameMode = gameMode;
+        simulation.startGame();
+        
+        // Wait for game to initialize, then create lobby
+        setTimeout(async () => {
+            try {
+                const lobbyId = await multiplayer.createLobby(isPrivate, password, gameMode);
+                
+                // Show lobby code if private
+                if (isPrivate) {
+                    simulation.makeTextLog(`<span class='color-text'>Lobby created!</span><br>Code: ${lobbyId}<br>Password: ${password}`);
+                } else {
+                    simulation.makeTextLog(`<span class='color-text'>Public lobby created!</span><br>Code: ${lobbyId}`);
+                }
+            } catch (error) {
+                simulation.makeTextLog(`<span class='color-d'>Failed to create lobby:</span> ${error.message}`);
             }
-            
-            // Start game
-            simulation.gameMode = gameMode;
-            simulation.startGame();
-        } catch (error) {
-            alert('Failed to create lobby: ' + error.message);
-        }
+        }, 500);
     },
     
     // Join public lobby
@@ -187,11 +191,13 @@ const multiplayerUI = {
             this.closeJoinLobby();
             this.close();
             
-            alert('Joined lobby!');
-            
-            // Start game
+            // Start game FIRST
             simulation.gameMode = gameMode;
             simulation.startGame();
+            
+            setTimeout(() => {
+                simulation.makeTextLog(`<span class='color-text'>Joined lobby!</span>`);
+            }, 500);
         } catch (error) {
             alert('Failed to join lobby: ' + error.message);
         }
@@ -212,11 +218,13 @@ const multiplayerUI = {
             this.closeJoinLobby();
             this.close();
             
-            alert('Joined private lobby!');
-            
-            // Start game
+            // Start game FIRST
             simulation.gameMode = gameMode;
             simulation.startGame();
+            
+            setTimeout(() => {
+                simulation.makeTextLog(`<span class='color-text'>Joined private lobby!</span>`);
+            }, 500);
         } catch (error) {
             alert('Failed to join lobby: ' + error.message);
         }
