@@ -46,8 +46,38 @@ const multiplayerSystem = {
         });
         
         this.listenForPublicRooms();
+        this.startRoomCleanup();
         
         console.log('✅ Multiplayer initialized');
+    },
+    
+    startRoomCleanup() {
+        // Clean up empty rooms every 30 seconds
+        setInterval(async () => {
+            try {
+                const roomsRef = ref(database, 'rooms');
+                const snapshot = await get(roomsRef);
+                
+                if (!snapshot.exists()) return;
+                
+                const rooms = snapshot.val();
+                for (const [roomId, roomData] of Object.entries(rooms)) {
+                    const players = roomData.players || {};
+                    const connectedPlayers = Object.values(players).filter(p => p.connected).length;
+                    
+                    // Delete rooms with no connected players or rooms older than 24 hours
+                    const roomAge = Date.now() - (roomData.createdAt || 0);
+                    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+                    
+                    if (connectedPlayers === 0 || roomAge > maxAge) {
+                        await remove(ref(database, `rooms/${roomId}`));
+                        console.log(`🗑️ Cleaned up room: ${roomId} (${connectedPlayers} players, age: ${Math.round(roomAge / 1000 / 60)} min)`);
+                    }
+                }
+            } catch (error) {
+                console.error('Room cleanup error:', error);
+            }
+        }, 30000); // Run every 30 seconds
     },
     
     // ===== ROOM MANAGEMENT =====
@@ -199,8 +229,17 @@ const multiplayerSystem = {
     async leaveRoom() {
         if (this.currentRoomId) {
             try {
-                await remove(ref(database, `rooms/${this.currentRoomId}/players/${this.playerId}`));
-                await remove(ref(database, `rooms/${this.currentRoomId}/playerStates/${this.playerId}`));
+                const roomId = this.currentRoomId;
+                
+                // Remove player from room
+                await remove(ref(database, `rooms/${roomId}/players/${this.playerId}`));
+                await remove(ref(database, `rooms/${roomId}/playerStates/${this.playerId}`));
+                
+                // Check if room is now empty and delete it
+                setTimeout(async () => {
+                    await this.cleanupEmptyRoom(roomId);
+                }, 500); // Small delay to ensure removal is processed
+                
             } catch (error) {
                 console.error('Error leaving room:', error);
             }
@@ -217,6 +256,29 @@ const multiplayerSystem = {
         
         if (typeof simulation !== 'undefined') {
             simulation.isMultiplayer = false;
+        }
+    },
+    
+    async cleanupEmptyRoom(roomId) {
+        try {
+            const roomRef = ref(database, `rooms/${roomId}`);
+            const snapshot = await get(roomRef);
+            
+            if (!snapshot.exists()) return;
+            
+            const roomData = snapshot.val();
+            const players = roomData.players || {};
+            
+            // Count connected players
+            const connectedPlayers = Object.values(players).filter(p => p.connected).length;
+            
+            // If no players are connected, delete the room
+            if (connectedPlayers === 0) {
+                await remove(roomRef);
+                console.log(`🗑️ Deleted empty room: ${roomId}`);
+            }
+        } catch (error) {
+            console.error('Error cleaning up room:', error);
         }
     },
     
@@ -316,7 +378,7 @@ const multiplayerSystem = {
     listenForPublicRooms() {
         const roomsRef = ref(database, 'rooms');
         onValue(roomsRef, (snapshot) => {
-            const roomsList = document.getElementById('public-rooms-list');
+            const roomsList = document.getElementById('room-list');
             if (!roomsList) return;
             
             roomsList.innerHTML = '';
@@ -510,27 +572,41 @@ const multiplayerSystem = {
     
     // ===== POWERUP SYNC =====
     startPowerupSync() {
+        // Track powerup IDs to detect which ones were collected
+        this.powerupIds = new Set();
+        
         // Monitor powerup collection
         if (typeof powerUp !== 'undefined') {
-            let lastPowerupCount = powerUp.length;
-            
             setInterval(() => {
-                if (!this.isGameStarted) return;
+                if (!this.isGameStarted || typeof powerUp === 'undefined') return;
                 
-                // Check if powerups were collected
-                if (powerUp.length < lastPowerupCount) {
-                    // Find which powerup was collected
-                    const collected = lastPowerupCount - powerUp.length;
-                    
-                    // Notify other players
+                // Build current powerup ID set
+                const currentIds = new Set();
+                for (let i = 0; i < powerUp.length; i++) {
+                    if (!powerUp[i].mpId) {
+                        powerUp[i].mpId = `${this.playerId}_${Date.now()}_${i}_${Math.random()}`;
+                    }
+                    currentIds.add(powerUp[i].mpId);
+                }
+                
+                // Find which powerups were collected (removed from array)
+                const collected = [];
+                for (const id of this.powerupIds) {
+                    if (!currentIds.has(id)) {
+                        collected.push(id);
+                    }
+                }
+                
+                // Notify other players of collected powerups
+                if (collected.length > 0) {
                     this.notifyPowerupCollection({
                         playerId: this.playerId,
-                        remaining: powerUp.length,
+                        collectedIds: collected,
                         timestamp: Date.now()
                     });
                 }
                 
-                lastPowerupCount = powerUp.length;
+                this.powerupIds = currentIds;
             }, 100);
         }
         
@@ -547,16 +623,19 @@ const multiplayerSystem = {
                     continue;
                 }
                 
-                // Sync powerup count
-                if (typeof powerUp !== 'undefined' && powerUp.length > event.remaining) {
-                    const toRemove = powerUp.length - event.remaining;
-                    for (let i = 0; i < toRemove && powerUp.length > 0; i++) {
-                        const removed = powerUp.pop();
-                        if (removed && typeof Matter !== 'undefined') {
-                            Matter.World.remove(engine.world, removed);
+                // Remove powerups by ID
+                if (typeof powerUp !== 'undefined' && event.collectedIds) {
+                    for (const collectedId of event.collectedIds) {
+                        for (let i = powerUp.length - 1; i >= 0; i--) {
+                            if (powerUp[i].mpId === collectedId) {
+                                Matter.World.remove(engine.world, powerUp[i]);
+                                powerUp.splice(i, 1);
+                                this.powerupIds.delete(collectedId);
+                                console.log(`Synced powerup collection from ${this.currentRoom?.players?.[event.playerId]?.name}`);
+                                break;
+                            }
                         }
                     }
-                    console.log(`Synced powerup collection from ${this.currentRoom?.players?.[event.playerId]?.name}`);
                 }
                 
                 remove(ref(database, `rooms/${this.currentRoomId}/powerupEvents/${eventId}`));
@@ -566,18 +645,27 @@ const multiplayerSystem = {
         // Sync powerup spawns (host only)
         if (this.isHost && typeof powerUps !== 'undefined' && powerUps.spawn) {
             const originalSpawn = powerUps.spawn;
-            powerUps.spawn = (x, y, type, size) => {
-                originalSpawn.call(powerUps, x, y, type, size);
+            powerUps.spawn = (x, y, type, moving, mode, size) => {
+                originalSpawn.call(powerUps, x, y, type, moving, mode, size);
                 
-                // Notify other players
-                const spawnRef = push(ref(database, `rooms/${this.currentRoomId}/powerupSpawns`));
-                set(spawnRef, {
-                    x: x,
-                    y: y,
-                    type: type,
-                    size: size || 'normal',
-                    timestamp: Date.now()
-                });
+                // Assign unique ID to the newly spawned powerup
+                if (typeof powerUp !== 'undefined' && powerUp.length > 0) {
+                    const newPowerup = powerUp[powerUp.length - 1];
+                    newPowerup.mpId = `host_${Date.now()}_${Math.random()}`;
+                    
+                    // Notify other players
+                    const spawnRef = push(ref(database, `rooms/${this.currentRoomId}/powerupSpawns`));
+                    set(spawnRef, {
+                        x: x,
+                        y: y,
+                        type: type,
+                        moving: moving,
+                        mode: mode,
+                        size: size,
+                        mpId: newPowerup.mpId,
+                        timestamp: Date.now()
+                    });
+                }
             };
         }
         
@@ -594,9 +682,12 @@ const multiplayerSystem = {
                         continue;
                     }
                     
-                    // Spawn powerup locally
+                    // Spawn powerup locally with same ID
                     if (typeof powerUps !== 'undefined' && powerUps.spawn) {
-                        powerUps.spawn(spawn.x, spawn.y, spawn.type, spawn.size);
+                        powerUps.spawn(spawn.x, spawn.y, spawn.type, spawn.moving, spawn.mode, spawn.size);
+                        if (typeof powerUp !== 'undefined' && powerUp.length > 0) {
+                            powerUp[powerUp.length - 1].mpId = spawn.mpId;
+                        }
                         console.log(`Spawned powerup: ${spawn.type} at (${spawn.x}, ${spawn.y})`);
                     }
                     
@@ -642,25 +733,8 @@ const multiplayerSystem = {
             ctx.save();
             ctx.translate(remote.x, remote.y);
             
-            // Draw legs
-            ctx.fillStyle = playerColor;
-            const legAngle = Math.sin((remote.timestamp || 0) / 100) * 0.3;
-            
+            // Draw body (rotated)
             ctx.save();
-            ctx.rotate(legAngle);
-            ctx.beginPath();
-            ctx.arc(12, 15, 7, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.restore();
-            
-            ctx.save();
-            ctx.rotate(-legAngle);
-            ctx.beginPath();
-            ctx.arc(-12, 15, 7, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.restore();
-            
-            // Draw body
             ctx.rotate(remote.angle || 0);
             ctx.beginPath();
             ctx.arc(0, 0, remote.radius || 30, 0, 2 * Math.PI);
@@ -682,8 +756,27 @@ const multiplayerSystem = {
             ctx.strokeStyle = "#333";
             ctx.lineWidth = 2;
             ctx.stroke();
+            ctx.restore();
             
-            // Draw name (before restore, so it's relative to player position)
+            // Draw legs (NOT rotated with body)
+            ctx.fillStyle = playerColor;
+            const legAngle = Math.sin((remote.timestamp || 0) / 100) * 0.3;
+            
+            ctx.save();
+            ctx.rotate(legAngle);
+            ctx.beginPath();
+            ctx.arc(12, 15, 7, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.restore();
+            
+            ctx.save();
+            ctx.rotate(-legAngle);
+            ctx.beginPath();
+            ctx.arc(-12, 15, 7, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.restore();
+            
+            // Draw name (not rotated)
             ctx.fillStyle = remote.nameColor || '#ffffff';
             ctx.strokeStyle = '#000';
             ctx.lineWidth = 3;
