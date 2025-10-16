@@ -665,10 +665,8 @@ const multiplayerSystem = {
             ctx.beginPath();
             ctx.arc(0, 0, remote.radius || 30, 0, 2 * Math.PI);
             
-            const grd = ctx.createLinearGradient(-30, 0, 30, 0);
-            grd.addColorStop(0, playerColorDark);
-            grd.addColorStop(1, playerColor);
-            ctx.fillStyle = grd;
+            // Use solid color for now to debug
+            ctx.fillStyle = playerColor;
             ctx.fill();
             
             // Draw outline
@@ -685,23 +683,21 @@ const multiplayerSystem = {
             ctx.lineWidth = 2;
             ctx.stroke();
             
-            ctx.restore();
-            
-            // Draw name
-            ctx.fillStyle = remote.nameColor;
+            // Draw name (before restore, so it's relative to player position)
+            ctx.fillStyle = remote.nameColor || '#ffffff';
             ctx.strokeStyle = '#000';
             ctx.lineWidth = 3;
             ctx.font = 'bold 16px Arial';
             ctx.textAlign = 'center';
-            ctx.strokeText(remote.name, remote.x, remote.y - 55);
-            ctx.fillText(remote.name, remote.x, remote.y - 55);
+            ctx.strokeText(remote.name || 'Player', 0, -55);
+            ctx.fillText(remote.name || 'Player', 0, -55);
             
             // Draw health bar
             if (remote.health && remote.maxHealth) {
                 const barWidth = 60;
                 const barHeight = 5;
-                const barX = remote.x - 30;
-                const barY = remote.y - 45;
+                const barX = -30;
+                const barY = -45;
                 
                 ctx.fillStyle = '#333';
                 ctx.fillRect(barX, barY, barWidth, barHeight);
@@ -709,6 +705,8 @@ const multiplayerSystem = {
                 ctx.fillStyle = '#0f0';
                 ctx.fillRect(barX, barY, barWidth * (remote.health / remote.maxHealth), barHeight);
             }
+            
+            ctx.restore();
         }
     },
     
