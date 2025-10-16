@@ -2,13 +2,19 @@
 const polyTree = {
     techTree: [],
     ownedTech: [],
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    isDragging: false,
+    lastMouseX: 0,
+    lastMouseY: 0,
     
     // Generate tech tree from ALL available game tech
     generateTechTree() {
         if (!tech || !tech.tech) return;
         
         this.techTree = [];
-        const techPerRow = 10;
+        const branchWidth = 3; // Nodes per branch
         
         // Get all non-lore, non-junk tech
         const availableTech = tech.tech.filter(t => !t.isLore && !t.isJunk && !t.isNonRefundable);
@@ -24,24 +30,38 @@ const polyTree = {
             return maxB - maxA; // Higher maxCount = weaker (stackable)
         });
         
-        // Build tree structure
+        // Build TREE structure with branching
         availableTech.forEach((t, index) => {
-            const row = Math.floor(index / techPerRow);
-            const col = index % techPerRow;
-            const baseCost = 15 + (col * 3);
-            const cost = Math.floor(baseCost * Math.pow(1.4, row));
+            const row = Math.floor(index / branchWidth);
+            const col = index % branchWidth;
+            const baseCost = 20 + (row * 10);
+            const cost = Math.floor(baseCost * Math.pow(1.3, row));
             const techId = t.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
             
-            // Dependencies from previous row
+            // Tree-like dependencies: each node connects to 1-2 parents
             const dependencies = [];
             if (row > 0) {
-                const prevRowStart = (row - 1) * techPerRow;
-                const prevRowEnd = Math.min(prevRowStart + techPerRow, index);
-                if (prevRowEnd > prevRowStart) {
-                    const depIndex = prevRowStart + Math.floor(Math.random() * (prevRowEnd - prevRowStart));
-                    const depTech = availableTech[depIndex];
+                const prevRowStart = (row - 1) * branchWidth;
+                const prevRowEnd = Math.min(prevRowStart + branchWidth, index);
+                
+                // Connect to parent in same column
+                const sameColParent = prevRowStart + col;
+                if (sameColParent < index && sameColParent >= prevRowStart) {
+                    const depTech = availableTech[sameColParent];
                     if (depTech) {
                         dependencies.push(depTech.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+                    }
+                }
+                
+                // Sometimes add a second parent for branching effect
+                if (Math.random() > 0.5 && prevRowEnd > prevRowStart) {
+                    const altCol = (col + 1) % branchWidth;
+                    const altParent = prevRowStart + altCol;
+                    if (altParent < index && altParent >= prevRowStart) {
+                        const depTech = availableTech[altParent];
+                        if (depTech && !dependencies.includes(depTech.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'))) {
+                            dependencies.push(depTech.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+                        }
                     }
                 }
             }
@@ -49,6 +69,7 @@ const polyTree = {
             this.techTree.push({
                 id: techId,
                 name: t.name,
+                description: t.description || 'No description available',
                 cost: cost,
                 row: row,
                 col: col,
@@ -59,15 +80,54 @@ const polyTree = {
     
     init() {
         this.generateTechTree();
-        simulation.polys = 0;
+        this.loadProgress(); // Load saved progress
+        if (simulation.polys === undefined) simulation.polys = 0;
         simulation.firstPowerUpSpawned = false;
-        this.ownedTech = [];
         this.updatePolyDisplay();
+    },
+    
+    // Save/Load functionality
+    saveProgress() {
+        const saveData = {
+            polys: simulation.polys || 0,
+            ownedTech: this.ownedTech,
+            version: 1
+        };
+        localStorage.setItem('polytree_save', JSON.stringify(saveData));
+    },
+    
+    loadProgress() {
+        const saved = localStorage.getItem('polytree_save');
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                simulation.polys = data.polys || 0;
+                this.ownedTech = data.ownedTech || [];
+            } catch (e) {
+                console.error('Failed to load polytree save:', e);
+                simulation.polys = 0;
+                this.ownedTech = [];
+            }
+        } else {
+            simulation.polys = 0;
+            this.ownedTech = [];
+        }
+    },
+    
+    resetProgress() {
+        if (confirm('Reset all poly progress? This cannot be undone!')) {
+            simulation.polys = 0;
+            this.ownedTech = [];
+            localStorage.removeItem('polytree_save');
+            this.updatePolyDisplay();
+            this.renderTree();
+        }
     },
     
     addPolys(amount) {
         simulation.polys += amount;
         this.updatePolyDisplay();
+        this.saveProgress();
     },
     
     updatePolyDisplay() {
@@ -97,6 +157,7 @@ const polyTree = {
         this.ownedTech.push(techId);
         
         this.updatePolyDisplay();
+        this.saveProgress();
         this.renderTree();
         return true;
     },
@@ -115,37 +176,43 @@ const polyTree = {
             this.generateTechTree();
         }
         
-        const nodeW = 140;
-        const nodeH = 50;
-        const gapX = 20;
-        const gapY = 80;
+        const nodeW = 180;
+        const nodeH = 60;
+        const gapX = 100;
+        const gapY = 120;
         const maxRow = Math.max(...this.techTree.map(t => t.row));
-        const svgWidth = 10 * (nodeW + gapX) + 100;
-        const svgHeight = (maxRow + 1) * (nodeH + gapY) + 100;
+        const maxCol = Math.max(...this.techTree.map(t => t.col));
+        const baseWidth = (maxCol + 1) * (nodeW + gapX) + 200;
+        const baseHeight = (maxRow + 1) * (nodeH + gapY) + 200;
+        const svgWidth = baseWidth * this.zoom;
+        const svgHeight = baseHeight * this.zoom;
         
-        let html = `<svg width="${svgWidth}" height="${svgHeight}" style="background: #f9f9f9; border: 2px solid #333;">`;
+        let html = `<svg id="polytree-svg" width="${svgWidth}" height="${svgHeight}" style="background: #f9f9f9; border: 2px solid #333; cursor: grab;">
+            <g id="tree-group" transform="translate(${this.panX}, ${this.panY}) scale(${this.zoom})">`;
         
-        // Draw dependency lines
+        // Draw dependency lines with curves
         this.techTree.forEach(tech => {
-            const x = 50 + tech.col * (nodeW + gapX);
-            const y = 50 + tech.row * (nodeH + gapY);
+            const x = 100 + tech.col * (nodeW + gapX);
+            const y = 100 + tech.row * (nodeH + gapY);
             
             tech.dependencies.forEach(depId => {
                 const depTech = this.techTree.find(t => t.id === depId);
                 if (depTech) {
-                    const depX = 50 + depTech.col * (nodeW + gapX);
-                    const depY = 50 + depTech.row * (nodeH + gapY);
+                    const depX = 100 + depTech.col * (nodeW + gapX);
+                    const depY = 100 + depTech.row * (nodeH + gapY);
                     const isPathOwned = this.ownedTech.includes(tech.id) && this.ownedTech.includes(depId);
                     const lineColor = isPathOwned ? '#0a0' : '#ccc';
-                    html += `<line x1="${depX + nodeW/2}" y1="${depY + nodeH}" x2="${x + nodeW/2}" y2="${y}" stroke="${lineColor}" stroke-width="2"/>`;
+                    const midY = (depY + nodeH + y) / 2;
+                    // Curved path for tree-like appearance
+                    html += `<path d="M${depX + nodeW/2},${depY + nodeH} Q${depX + nodeW/2},${midY} ${x + nodeW/2},${y}" stroke="${lineColor}" stroke-width="3" fill="none"/>`;
                 }
             });
         });
         
-        // Draw nodes
+        // Draw nodes with hover tooltips
         this.techTree.forEach(tech => {
-            const x = 50 + tech.col * (nodeW + gapX);
-            const y = 50 + tech.row * (nodeH + gapY);
+            const x = 100 + tech.col * (nodeW + gapX);
+            const y = 100 + tech.row * (nodeH + gapY);
             const isOwned = this.ownedTech.includes(tech.id);
             const canBuy = this.canBuy(tech.id);
             
@@ -164,40 +231,149 @@ const polyTree = {
                 textColor = '#666';
             }
             
-            html += `<g onclick="polyTree.buyTech('${tech.id}')" style="cursor: pointer;">`;
-            html += `<rect x="${x}" y="${y}" width="${nodeW}" height="${nodeH}" rx="8" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2.5"/>`;
+            // Clean description for tooltip
+            const cleanDesc = tech.description.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
             
-            const displayName = tech.name.length > 18 ? tech.name.substring(0, 16) + '...' : tech.name;
-            html += `<text x="${x + nodeW/2}" y="${y + 22}" text-anchor="middle" fill="${textColor}" font-size="11" font-weight="bold" font-family="Arial">${displayName}</text>`;
+            html += `<g class="tech-node" data-tech-id="${tech.id}" data-description="${cleanDesc.replace(/"/g, '&quot;')}" onclick="polyTree.buyTech('${tech.id}')" style="cursor: pointer;">`;
+            html += `<rect x="${x}" y="${y}" width="${nodeW}" height="${nodeH}" rx="10" fill="${fillColor}" stroke="${strokeColor}" stroke-width="3"/>`;
+            
+            const displayName = tech.name.length > 20 ? tech.name.substring(0, 18) + '...' : tech.name;
+            html += `<text x="${x + nodeW/2}" y="${y + 28}" text-anchor="middle" fill="${textColor}" font-size="13" font-weight="bold" font-family="Arial">${displayName}</text>`;
             
             if (isOwned) {
-                html += `<text x="${x + nodeW/2}" y="${y + 38}" text-anchor="middle" fill="#0a0" font-size="10" font-weight="bold" font-family="Arial">✓ OWNED</text>`;
+                html += `<text x="${x + nodeW/2}" y="${y + 48}" text-anchor="middle" fill="#0a0" font-size="12" font-weight="bold" font-family="Arial">✓ OWNED</text>`;
             } else {
                 // Poly diamond logo
-                const px = x + nodeW/2 - 25;
-                const py = y + 37;
-                html += `<polygon points="${px},${py-5} ${px+6},${py} ${px},${py+5} ${px-6},${py}" fill="#a8f" stroke="#66f" stroke-width="1.5"/>`;
-                html += `<text x="${x + nodeW/2 - 14}" y="${y + 39}" text-anchor="start" fill="${textColor}" font-size="11" font-family="Arial">${tech.cost}</text>`;
+                const px = x + nodeW/2 - 30;
+                const py = y + 47;
+                html += `<polygon points="${px},${py-6} ${px+7},${py} ${px},${py+6} ${px-7},${py}" fill="#a8f" stroke="#66f" stroke-width="2"/>`;
+                html += `<text x="${x + nodeW/2 - 18}" y="${y + 50}" text-anchor="start" fill="${textColor}" font-size="13" font-family="Arial">${tech.cost}</text>`;
             }
             
             html += `</g>`;
         });
         
-        html += '</svg>';
+        html += '</g></svg>';
         
-        // Legend
+        // Tooltip container
+        html += '<div id="tech-tooltip" style="display: none; position: fixed; background: rgba(0,0,0,0.9); color: #fff; padding: 12px 16px; border-radius: 8px; max-width: 350px; pointer-events: none; z-index: 1000; border: 2px solid #66f; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>';
+        
+        // Controls
         html += '<div style="margin: 20px; padding: 15px; border: 2px solid #333; background: #fff; border-radius: 8px;">';
+        html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">';
+        html += '<div style="display: flex; gap: 10px;">';
+        html += '<button onclick="polyTree.zoomIn()" style="padding: 8px 16px; font-size: 16px; cursor: pointer; background: #333; color: #fff; border: none; border-radius: 5px; font-weight: bold;">Zoom +</button>';
+        html += '<button onclick="polyTree.zoomOut()" style="padding: 8px 16px; font-size: 16px; cursor: pointer; background: #333; color: #fff; border: none; border-radius: 5px; font-weight: bold;">Zoom -</button>';
+        html += '<button onclick="polyTree.centerTree()" style="padding: 8px 16px; font-size: 16px; cursor: pointer; background: #0a0; color: #fff; border: none; border-radius: 5px; font-weight: bold;">Center</button>';
+        html += '</div>';
+        html += '<button onclick="polyTree.resetProgress()" style="padding: 8px 16px; font-size: 16px; cursor: pointer; background: #f44; color: #fff; border: none; border-radius: 5px; font-weight: bold;">Reset Progress</button>';
+        html += '</div>';
         html += '<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">';
         html += '<svg width="30" height="30"><polygon points="15,8 22,15 15,22 8,15" fill="#a8f" stroke="#66f" stroke-width="2"/></svg>';
         html += '<strong style="font-size: 18px;">Poly Currency</strong></div>';
-        html += `<p><strong>${this.techTree.length} Tech Available</strong> | Organized WEAK → STRONG (top to bottom)</p>`;
+        html += `<p><strong>${this.techTree.length} Tech Available</strong> | Tree structure: WEAK → STRONG (top to bottom)</p>`;
         html += '<p>• <span style="background: #c8ffc8; padding: 3px 8px; border: 2px solid #0a0; border-radius: 4px;">Green</span> = Owned (appears in powerups)</p>';
         html += '<p>• <span style="background: #fff8c8; padding: 3px 8px; border: 2px solid #fa0; border-radius: 4px;">Yellow</span> = Can purchase now</p>';
-        html += '<p>• <span style="background: #fff; padding: 3px 8px; border: 2px solid #999; border-radius: 4px;">Gray</span> = Locked (need previous row)</p>';
-        html += '<p style="margin-top: 12px; font-weight: bold;">Click yellow node to unlock with polys</p>';
+        html += '<p>• <span style="background: #fff; padding: 3px 8px; border: 2px solid #999; border-radius: 4px;">Gray</span> = Locked (need parent tech)</p>';
+        html += '<p style="margin-top: 12px; font-weight: bold;">Click yellow node to unlock • Hover for description • Drag to pan</p>';
         html += '</div>';
         
         container.innerHTML = html;
+        this.setupEventListeners();
+    },
+    
+    setupEventListeners() {
+        const svg = document.getElementById('polytree-svg');
+        const tooltip = document.getElementById('tech-tooltip');
+        if (!svg || !tooltip) return;
+        
+        // Pan functionality
+        svg.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'svg' || e.target.id === 'tree-group') {
+                this.isDragging = true;
+                this.lastMouseX = e.clientX;
+                this.lastMouseY = e.clientY;
+                svg.style.cursor = 'grabbing';
+            }
+        });
+        
+        svg.addEventListener('mousemove', (e) => {
+            if (this.isDragging) {
+                const dx = e.clientX - this.lastMouseX;
+                const dy = e.clientY - this.lastMouseY;
+                this.panX += dx;
+                this.panY += dy;
+                this.lastMouseX = e.clientX;
+                this.lastMouseY = e.clientY;
+                
+                const group = document.getElementById('tree-group');
+                if (group) {
+                    group.setAttribute('transform', `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
+                }
+            }
+        });
+        
+        svg.addEventListener('mouseup', () => {
+            this.isDragging = false;
+            svg.style.cursor = 'grab';
+        });
+        
+        svg.addEventListener('mouseleave', () => {
+            this.isDragging = false;
+            svg.style.cursor = 'grab';
+            tooltip.style.display = 'none';
+        });
+        
+        // Tooltip functionality
+        const nodes = document.querySelectorAll('.tech-node');
+        nodes.forEach(node => {
+            node.addEventListener('mouseenter', (e) => {
+                const desc = node.getAttribute('data-description');
+                const techId = node.getAttribute('data-tech-id');
+                const techData = this.techTree.find(t => t.id === techId);
+                
+                if (techData) {
+                    tooltip.innerHTML = `<strong style="font-size: 16px; color: #a8f;">${techData.name}</strong><br><br>${desc}<br><br><em style="color: #fa0;">Cost: ${techData.cost} polys</em>`;
+                    tooltip.style.display = 'block';
+                }
+            });
+            
+            node.addEventListener('mousemove', (e) => {
+                tooltip.style.left = (e.clientX + 15) + 'px';
+                tooltip.style.top = (e.clientY + 15) + 'px';
+            });
+            
+            node.addEventListener('mouseleave', () => {
+                tooltip.style.display = 'none';
+            });
+        });
+        
+        // Zoom with mouse wheel
+        svg.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (e.deltaY < 0) {
+                this.zoomIn();
+            } else {
+                this.zoomOut();
+            }
+        });
+    },
+    
+    zoomIn() {
+        this.zoom = Math.min(this.zoom * 1.2, 3);
+        this.renderTree();
+    },
+    
+    zoomOut() {
+        this.zoom = Math.max(this.zoom / 1.2, 0.3);
+        this.renderTree();
+    },
+    
+    centerTree() {
+        this.zoom = 1;
+        this.panX = 0;
+        this.panY = 0;
+        this.renderTree();
     },
     
     awardPolyForKill(mob) {
