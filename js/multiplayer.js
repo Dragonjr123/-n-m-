@@ -324,8 +324,14 @@ const multiplayer = {
     }
 };
 
-// Initialize on load
-multiplayer.init();
-
 // Export for global use
 window.multiplayer = multiplayer;
+
+// Initialize after page loads (Firebase needs to be loaded first)
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => multiplayer.init(), 100);
+    });
+} else {
+    setTimeout(() => multiplayer.init(), 100);
+}

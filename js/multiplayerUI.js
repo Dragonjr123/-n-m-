@@ -2,6 +2,13 @@
 const multiplayerUI = {
     // Show multiplayer menu
     showMenu() {
+        // Ensure multiplayer is initialized
+        if (typeof multiplayer !== 'undefined' && !multiplayer.playerId) {
+            if (!multiplayer.init()) {
+                alert('Failed to initialize multiplayer. Please refresh the page.');
+                return;
+            }
+        }
         const html = `
             <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 20; display: flex; align-items: center; justify-content: center;">
                 <div style="background: #fff; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
