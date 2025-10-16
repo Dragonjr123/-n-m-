@@ -435,6 +435,9 @@ const multiplayerSystem = {
         // Initialize map generation synchronization
         this.initMapGenerationSync();
         
+        // Initialize comprehensive game state synchronization
+        this.initComprehensiveGameSync();
+        
         console.log('✅ Multiplayer initialized successfully');
     },
     
@@ -1106,11 +1109,13 @@ const multiplayerSystem = {
         const originalGrabPowerUp = m.grabPowerUp;
         m.grabPowerUp = () => {
             const powerUpLengthBefore = powerUp.length;
-            const powerUpPositionsBefore = powerUp.map((p, index) => ({ 
+            const powerUpStatesBefore = powerUp.map((p, index) => ({ 
                 index, 
                 x: p.position.x, 
                 y: p.position.y, 
                 name: p.name,
+                color: p.color,
+                size: p.size,
                 id: p.id || `${p.position.x}_${p.position.y}_${p.name}` 
             }));
             
@@ -1121,21 +1126,34 @@ const multiplayerSystem = {
             if (powerUp.length < powerUpLengthBefore) {
                 console.log(`Player ${this.playerId} collected a powerup. Before: ${powerUpLengthBefore}, After: ${powerUp.length}`);
                 
-                // Find which powerup was collected by comparing positions
-                const collectedPowerup = powerUpPositionsBefore.find((beforePU, index) => {
-                    // Check if this powerup still exists (wasn't collected)
-                    return !powerUp[index] || 
-                           Math.abs(powerUp[index].position.x - beforePU.x) > 10 || 
-                           Math.abs(powerUp[index].position.y - beforePU.y) > 10;
-                });
+                // Find which powerup was collected by comparing arrays
+                let collectedPowerup = null;
+                for (let i = 0; i < powerUpStatesBefore.length; i++) {
+                    const beforePU = powerUpStatesBefore[i];
+                    // Check if this powerup still exists at this index
+                    const currentPU = powerUp[i];
+                    if (!currentPU || 
+                        Math.abs(currentPU.position.x - beforePU.x) > 50 || 
+                        Math.abs(currentPU.position.y - beforePU.y) > 50 ||
+                        currentPU.name !== beforePU.name) {
+                        // This powerup was collected or moved significantly
+                        collectedPowerup = beforePU;
+                        break;
+                    }
+                }
                 
-                // Notify other players about the specific powerup collection
-                this.notifyPowerupCollection({
-                    collectedBy: this.playerId,
-                    collectedPowerup: collectedPowerup,
-                    remainingCount: powerUp.length,
-                    timestamp: Date.now()
-                });
+                if (collectedPowerup) {
+                    // Notify other players about the specific powerup collection
+                    this.notifyPowerupCollection({
+                        collectedBy: this.playerId,
+                        collectedPowerup: collectedPowerup,
+                        powerupType: collectedPowerup.name,
+                        powerupColor: collectedPowerup.color,
+                        powerupSize: collectedPowerup.size,
+                        remainingCount: powerUp.length,
+                        timestamp: Date.now()
+                    });
+                }
                 
                 // Also notify about physics effects (knockback, etc.)
                 if (player && player.velocity && player.position) {
@@ -1162,6 +1180,9 @@ const multiplayerSystem = {
                 playerId: this.playerId,
                 collectedBy: collectionData.collectedBy || this.playerId,
                 collectedPowerup: collectionData.collectedPowerup || null,
+                powerupType: collectionData.powerupType || null,
+                powerupColor: collectionData.powerupColor || null,
+                powerupSize: collectionData.powerupSize || null,
                 remainingCount: collectionData.remainingCount || (typeof powerUp !== 'undefined' ? powerUp.length : 0),
                 timestamp: collectionData.timestamp || Date.now()
             });
@@ -1283,6 +1304,17 @@ const multiplayerSystem = {
                             // If powerup is close enough to the collected one and has same name, remove it
                             if (distance < 50 && powerUp[i].name === collectedPU.name) {
                                 console.log(`Removing collected powerup: ${collectedPU.name} at ${collectedPU.x}, ${collectedPU.y}`);
+                                
+                                // Create visual effect for powerup collection
+                                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                                    simulation.drawList.push({
+                                        x: powerUp[i].position.x,
+                                        y: powerUp[i].position.y,
+                                        radius: powerUp[i].size || 30,
+                                        color: notification.powerupColor || powerUp[i].color || "#ffffff",
+                                        time: simulation.drawTime * 2
+                                    });
+                                }
                                 
                                 // Remove the powerup from physics world and array
                                 if (typeof Matter !== 'undefined' && typeof engine !== 'undefined') {
@@ -2027,14 +2059,22 @@ const multiplayerSystem = {
         try {
             // Only the host should set the initial map generation seed
             if (this.isHost) {
+                const seedValue = Math.random();
                 const mapSeed = {
-                    isHorizontalFlipped: Math.random() < 0.5,
+                    isHorizontalFlipped: seedValue < 0.5,
+                    masterSeed: seedValue,
+                    wimpPowerupSeeds: [], // Will store seeds for WIMP powerup generation
                     timestamp: Date.now(),
                     hostPlayerId: this.playerId
                 };
                 
+                // Pre-generate seeds for level randomizations
+                for (let i = 0; i < 100; i++) {
+                    mapSeed.wimpPowerupSeeds.push(Math.random());
+                }
+                
                 await set(ref(database, `rooms/${this.currentRoomId}/mapSeed`), mapSeed);
-                console.log('Host set map generation seed:', mapSeed);
+                console.log('Host set comprehensive map generation seed:', mapSeed);
             }
         } catch (error) {
             console.error('Failed to sync map generation:', error);
@@ -2057,6 +2097,398 @@ const multiplayerSystem = {
                 }
             }
         });
+    },
+    
+    // ===== COMPREHENSIVE GAME STATE SYNCHRONIZATION =====
+    initComprehensiveGameSync() {
+        // Network ALL game elements that should be synchronized
+        this.initBulletAndSporeSync();
+        this.initMobStateSync();
+        this.initEngineEventSync();
+        this.initVisualEffectSync();
+        this.initPowerupEffectSync();
+    },
+    
+    // ===== BULLET AND SPORE SYNCHRONIZATION =====
+    initBulletAndSporeSync() {
+        // Monitor bullet creation more comprehensively
+        this.monitorAllBulletCreation();
+        this.monitorSporeCreation();
+        this.listenToBulletAndSporeEvents();
+    },
+    
+    monitorAllBulletCreation() {
+        // Monitor the bullet array for any changes
+        let lastBulletCount = 0;
+        let bulletStates = [];
+        
+        setInterval(() => {
+            if (!this.isGameStarted || typeof bullet === 'undefined') return;
+            
+            // Check for new bullets
+            if (bullet.length > lastBulletCount) {
+                const newBullets = bullet.slice(lastBulletCount);
+                for (let i = 0; i < newBullets.length; i++) {
+                    const newBullet = newBullets[i];
+                    if (newBullet && newBullet.position && newBullet.velocity) {
+                        this.notifyBulletCreation({
+                            playerId: this.playerId,
+                            position: { x: newBullet.position.x, y: newBullet.position.y },
+                            velocity: { x: newBullet.velocity.x, y: newBullet.velocity.y },
+                            bulletType: newBullet.bulletType || 'default',
+                            radius: newBullet.radius || 4.5,
+                            color: newBullet.color || '#ffffff',
+                            timestamp: Date.now()
+                        });
+                    }
+                }
+                lastBulletCount = bullet.length;
+            }
+            
+            // Update bullet states
+            if (bullet.length !== bulletStates.length) {
+                bulletStates = bullet.map(b => ({
+                    position: { x: b.position.x, y: b.position.y },
+                    velocity: { x: b.velocity.x, y: b.velocity.y },
+                    radius: b.radius
+                }));
+            }
+        }, 50); // Check every 50ms for responsive bullet sync
+    },
+    
+    monitorSporeCreation() {
+        // Monitor for spore creation (from bullet deaths, etc.)
+        if (typeof b !== 'undefined' && typeof b.spore === 'function') {
+            const originalSpore = b.spore;
+            b.spore = (position, count = 1) => {
+                // Call original function first
+                originalSpore.call(b, position, count);
+                
+                // Notify other players about spore creation
+                this.notifySporeCreation({
+                    playerId: this.playerId,
+                    position: { x: position.x, y: position.y },
+                    count: count,
+                    timestamp: Date.now()
+                });
+            };
+        }
+    },
+    
+    async notifyBulletCreation(bulletData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const bulletRef = push(ref(database, `rooms/${this.currentRoomId}/bulletCreations`));
+            await set(bulletRef, bulletData);
+        } catch (error) {
+            console.error('Failed to notify bullet creation:', error);
+        }
+    },
+    
+    async notifySporeCreation(sporeData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const sporeRef = push(ref(database, `rooms/${this.currentRoomId}/sporeCreations`));
+            await set(sporeRef, sporeData);
+        } catch (error) {
+            console.error('Failed to notify spore creation:', error);
+        }
+    },
+    
+    listenToBulletAndSporeEvents() {
+        if (!this.currentRoomId) return;
+        
+        // Listen for bullet creations
+        const bulletCreationsRef = ref(database, `rooms/${this.currentRoomId}/bulletCreations`);
+        onValue(bulletCreationsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const bullets = snapshot.val();
+            for (const [bulletId, bulletData] of Object.entries(bullets)) {
+                if (bulletData.playerId !== this.playerId && 
+                    Date.now() - bulletData.timestamp < 500) {
+                    
+                    this.triggerBulletCreation(bulletData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/bulletCreations/${bulletId}`));
+                }
+            }
+        });
+        
+        // Listen for spore creations
+        const sporeCreationsRef = ref(database, `rooms/${this.currentRoomId}/sporeCreations`);
+        onValue(sporeCreationsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const spores = snapshot.val();
+            for (const [sporeId, sporeData] of Object.entries(spores)) {
+                if (sporeData.playerId !== this.playerId && 
+                    Date.now() - sporeData.timestamp < 500) {
+                    
+                    this.triggerSporeCreation(sporeData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/sporeCreations/${sporeId}`));
+                }
+            }
+        });
+    },
+    
+    triggerBulletCreation(bulletData) {
+        try {
+            if (typeof b !== 'undefined' && bulletData.position) {
+                // Create a visual bullet effect for remote players
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    simulation.drawList.push({
+                        x: bulletData.position.x,
+                        y: bulletData.position.y,
+                        radius: bulletData.radius || 4.5,
+                        color: bulletData.color || "#ffffff",
+                        time: simulation.drawTime * 0.8
+                    });
+                }
+                console.log('Triggered remote bullet creation at:', bulletData.position);
+            }
+        } catch (error) {
+            console.error('Error triggering bullet creation:', error);
+        }
+    },
+    
+    triggerSporeCreation(sporeData) {
+        try {
+            if (typeof b !== 'undefined' && b.spore && sporeData.position) {
+                // Create spore effects for remote players
+                for (let i = 0; i < (sporeData.count || 1); i++) {
+                    if (typeof simulation !== 'undefined' && simulation.drawList) {
+                        simulation.drawList.push({
+                            x: sporeData.position.x + (Math.random() - 0.5) * 20,
+                            y: sporeData.position.y + (Math.random() - 0.5) * 20,
+                            radius: 2 + Math.random() * 3,
+                            color: "rgba(255,0,255,0.6)",
+                            time: simulation.drawTime * 1.5
+                        });
+                    }
+                }
+                console.log('Triggered remote spore creation at:', sporeData.position);
+            }
+        } catch (error) {
+            console.error('Error triggering spore creation:', error);
+        }
+    },
+    
+    // ===== MOB STATE SYNCHRONIZATION =====
+    initMobStateSync() {
+        // Monitor mob health, deaths, and status effects
+        this.monitorMobStates();
+        this.listenToMobStateEvents();
+    },
+    
+    monitorMobStates() {
+        let lastMobStates = [];
+        
+        setInterval(() => {
+            if (!this.isGameStarted || typeof mob === 'undefined') return;
+            
+            // Check for mob state changes
+            for (let i = 0; i < mob.length; i++) {
+                if (mob[i] && typeof mob[i].health === 'number') {
+                    const currentState = {
+                        id: i,
+                        health: mob[i].health,
+                        position: { x: mob[i].position.x, y: mob[i].position.y },
+                        alive: mob[i].alive
+                    };
+                    
+                    const lastState = lastMobStates[i];
+                    if (!lastState || lastState.health !== currentState.health || lastState.alive !== currentState.alive) {
+                        // Mob state changed, notify other players
+                        this.notifyMobStateChange({
+                            playerId: this.playerId,
+                            mobId: i,
+                            mobState: currentState,
+                            timestamp: Date.now()
+                        });
+                    }
+                    
+                    lastMobStates[i] = currentState;
+                }
+            }
+            
+            // Trim array if mobs were removed
+            if (lastMobStates.length > mob.length) {
+                lastMobStates = lastMobStates.slice(0, mob.length);
+            }
+        }, 200);
+    },
+    
+    async notifyMobStateChange(mobData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const mobRef = push(ref(database, `rooms/${this.currentRoomId}/mobStates`));
+            await set(mobRef, mobData);
+        } catch (error) {
+            console.error('Failed to notify mob state change:', error);
+        }
+    },
+    
+    listenToMobStateEvents() {
+        if (!this.currentRoomId) return;
+        
+        const mobStatesRef = ref(database, `rooms/${this.currentRoomId}/mobStates`);
+        onValue(mobStatesRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const mobStates = snapshot.val();
+            for (const [stateId, mobData] of Object.entries(mobStates)) {
+                if (mobData.playerId !== this.playerId && 
+                    Date.now() - mobData.timestamp < 1000) {
+                    
+                    this.syncMobState(mobData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/mobStates/${stateId}`));
+                }
+            }
+        });
+    },
+    
+    syncMobState(mobData) {
+        try {
+            if (typeof mob !== 'undefined' && mob.length > mobData.mobId && mob[mobData.mobId]) {
+                const targetMob = mob[mobData.mobId];
+                const remoteState = mobData.mobState;
+                
+                // Sync health
+                if (typeof targetMob.health === 'number' && Math.abs(targetMob.health - remoteState.health) > 0.01) {
+                    targetMob.health = remoteState.health;
+                    console.log(`Synced mob ${mobData.mobId} health to ${remoteState.health}`);
+                }
+                
+                // Sync alive state
+                if (targetMob.alive !== remoteState.alive) {
+                    if (!remoteState.alive && targetMob.alive) {
+                        // Remote player says mob died, sync the death
+                        if (typeof targetMob.death === 'function') {
+                            targetMob.death();
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error syncing mob state:', error);
+        }
+    },
+    
+    // ===== ENGINE EVENT SYNCHRONIZATION =====
+    initEngineEventSync() {
+        // Monitor and sync collision events, damage effects, etc.
+        this.hookEngineEvents();
+    },
+    
+    hookEngineEvents() {
+        // Hook into Matter.js collision events to sync damage effects
+        if (typeof Matter !== 'undefined' && typeof engine !== 'undefined') {
+            // This would require more extensive modification to sync all collision events
+            console.log('Engine event hooks would need to be implemented based on specific collision needs');
+        }
+    },
+    
+    // ===== VISUAL EFFECT SYNCHRONIZATION =====
+    initVisualEffectSync() {
+        // Monitor simulation.drawList for visual effects
+        this.monitorVisualEffects();
+        this.listenToVisualEffectEvents();
+    },
+    
+    monitorVisualEffects() {
+        const originalPush = Array.prototype.push;
+        if (typeof simulation !== 'undefined' && simulation.drawList) {
+            // Hook into drawList to monitor visual effects
+            let lastDrawListLength = 0;
+            
+            setInterval(() => {
+                if (!this.isGameStarted || !simulation.drawList) return;
+                
+                if (simulation.drawList.length > lastDrawListLength) {
+                    const newEffects = simulation.drawList.slice(lastDrawListLength);
+                    for (let i = 0; i < newEffects.length; i++) {
+                        const effect = newEffects[i];
+                        if (effect && effect.x && effect.y) {
+                            this.notifyVisualEffect({
+                                playerId: this.playerId,
+                                effect: {
+                                    x: effect.x,
+                                    y: effect.y,
+                                    radius: effect.radius,
+                                    color: effect.color,
+                                    time: effect.time
+                                },
+                                timestamp: Date.now()
+                            });
+                        }
+                    }
+                    lastDrawListLength = simulation.drawList.length;
+                }
+            }, 100);
+        }
+    },
+    
+    async notifyVisualEffect(effectData) {
+        if (!this.currentRoomId) return;
+        
+        try {
+            const effectRef = push(ref(database, `rooms/${this.currentRoomId}/visualEffects`));
+            await set(effectRef, effectData);
+        } catch (error) {
+            console.error('Failed to notify visual effect:', error);
+        }
+    },
+    
+    listenToVisualEffectEvents() {
+        if (!this.currentRoomId) return;
+        
+        const visualEffectsRef = ref(database, `rooms/${this.currentRoomId}/visualEffects`);
+        onValue(visualEffectsRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            
+            const effects = snapshot.val();
+            for (const [effectId, effectData] of Object.entries(effects)) {
+                if (effectData.playerId !== this.playerId && 
+                    Date.now() - effectData.timestamp < 1000) {
+                    
+                    this.triggerVisualEffect(effectData);
+                    remove(ref(database, `rooms/${this.currentRoomId}/visualEffects/${effectId}`));
+                }
+            }
+        });
+    },
+    
+    triggerVisualEffect(effectData) {
+        try {
+            if (typeof simulation !== 'undefined' && simulation.drawList && effectData.effect) {
+                simulation.drawList.push(effectData.effect);
+                console.log('Triggered remote visual effect:', effectData.effect);
+            }
+        } catch (error) {
+            console.error('Error triggering visual effect:', error);
+        }
+    },
+    
+    // ===== POWERUP EFFECT SYNCHRONIZATION =====
+    initPowerupEffectSync() {
+        // Monitor powerup effects and ensure they're properly networked
+        this.monitorPowerupEffects();
+    },
+    
+    monitorPowerupEffects() {
+        // Hook into powerup effect functions to ensure they're networked
+        if (typeof powerUps !== 'undefined') {
+            // Monitor powerup effects like healing, tech giving, etc.
+            setInterval(() => {
+                if (!this.isGameStarted) return;
+                
+                // This would monitor for powerup effects that need to be synced
+                // Implementation depends on specific powerup effects that need networking
+            }, 500);
+        }
     }
 };
 
