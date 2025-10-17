@@ -102,10 +102,8 @@ const multiplayer = {
         // Start listening for powerup events
         this.listenToPowerupEvents();
         
-        // Start listening for physics (clients only)
-        if (!this.isHost) {
-            this.listenToPhysics();
-        }
+        // Start listening for physics (all players)
+        this.listenToPhysics();
         
         console.log('Lobby created:', this.lobbyId);
         return this.lobbyId;
@@ -146,10 +144,8 @@ const multiplayer = {
         // Start listening for powerup events
         this.listenToPowerupEvents();
         
-        // Start listening for physics (clients only)
-        if (!this.isHost) {
-            this.listenToPhysics();
-        }
+        // Start listening for physics (all players)
+        this.listenToPhysics();
         
         console.log('Joined lobby:', this.lobbyId);
         return lobbyData.gameMode;
@@ -345,10 +341,8 @@ const multiplayer = {
         const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
         playerRef.update(playerData);
         
-        // Sync physics if host
-        if (this.isHost) {
-            this.syncPhysics();
-        }
+        // All players sync physics (peer-to-peer)
+        this.syncPhysics();
     },
     
     // Helper function to darken a color
@@ -1307,9 +1301,9 @@ const multiplayer = {
     
     // ===== PHYSICS NETWORKING =====
     
-    // Sync physics state (host only)
+    // Sync physics state (all players)
     syncPhysics() {
-        if (!this.enabled || !this.lobbyId || !this.isHost) return;
+        if (!this.enabled || !this.lobbyId) return;
         
         const now = Date.now();
         if (now - this.lastPhysicsSyncTime < this.physicsSyncInterval) return;
@@ -1342,8 +1336,22 @@ const multiplayer = {
             }
         }
         
-        // Block syncing disabled - blocks are peer-to-peer via throw/pickup events
-        // Each client simulates blocks independently to prevent conflicts
+        // Sync blocks (physics bodies)
+        if (typeof body !== 'undefined') {
+            for (let i = 0; i < Math.min(body.length, 30); i++) {
+                if (body[i] && body[i].position) {
+                    physicsData.blocks.push({
+                        index: i,
+                        x: body[i].position.x,
+                        y: body[i].position.y,
+                        vx: body[i].velocity.x,
+                        vy: body[i].velocity.y,
+                        angle: body[i].angle,
+                        angularVelocity: body[i].angularVelocity
+                    });
+                }
+            }
+        }
         
         // Sync powerup positions (they move with physics)
         if (typeof powerUp !== 'undefined') {
@@ -1363,24 +1371,28 @@ const multiplayer = {
             }
         }
         
-        // Send to Firebase
-        const physicsRef = database.ref(`lobbies/${this.lobbyId}/physics`);
+        // Send to Firebase under player's own path
+        const physicsRef = database.ref(`lobbies/${this.lobbyId}/physics/${this.playerId}`);
         physicsRef.set(physicsData);
     },
     
-    // Listen for physics updates (clients only)
+    // Listen for physics updates (all players)
     listenToPhysics() {
-        if (!this.enabled || !this.lobbyId || this.isHost) return;
+        if (!this.enabled || !this.lobbyId) return;
         
         const physicsRef = database.ref(`lobbies/${this.lobbyId}/physics`);
         physicsRef.on('value', (snapshot) => {
-            const physicsData = snapshot.val();
-            if (!physicsData) return;
+            const allPhysicsData = snapshot.val();
+            if (!allPhysicsData) return;
             
-            this.applyPhysicsUpdate(physicsData);
+            // Apply physics updates from all other players
+            for (const [playerId, physicsData] of Object.entries(allPhysicsData)) {
+                if (playerId === this.playerId) continue; // Skip own physics
+                this.applyPhysicsUpdate(physicsData);
+            }
         });
         
-        console.log('Listening for physics updates');
+        console.log('Listening for physics updates from all players');
     },
     
     // Apply physics update from host
@@ -1405,7 +1417,24 @@ const multiplayer = {
             }
         }
         
-        // Block physics updates disabled - blocks are peer-to-peer via throw/pickup events
+        // Update blocks (use interpolation to smooth the updates)
+        if (physicsData.blocks && typeof body !== 'undefined') {
+            for (const blockData of physicsData.blocks) {
+                if (body[blockData.index]) {
+                    // Smoothly interpolate to new position
+                    const currentPos = body[blockData.index].position;
+                    const lerpFactor = 0.3;
+                    
+                    Matter.Body.setPosition(body[blockData.index], {
+                        x: currentPos.x + (blockData.x - currentPos.x) * lerpFactor,
+                        y: currentPos.y + (blockData.y - currentPos.y) * lerpFactor
+                    });
+                    Matter.Body.setVelocity(body[blockData.index], { x: blockData.vx, y: blockData.vy });
+                    Matter.Body.setAngle(body[blockData.index], blockData.angle);
+                    Matter.Body.setAngularVelocity(body[blockData.index], blockData.angularVelocity);
+                }
+            }
+        }
         
         // Update powerups (use interpolation)
         if (physicsData.powerups && typeof powerUp !== 'undefined') {
