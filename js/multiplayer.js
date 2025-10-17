@@ -262,11 +262,13 @@ const multiplayer = {
     },
     
     // Check if field should be active based on field type and conditions
+    // This determines the LOCAL player's field state to send to others
     isFieldActive() {
         if (m.fieldMode === 0 || m.energy <= 0) return false;
         
         const fieldName = m.fieldUpgrades[m.fieldMode].name;
         
+        // For local player, check actual input state
         switch (fieldName) {
             case "field emitter":
                 return m.energy > 0.05 && input.field;
@@ -357,7 +359,8 @@ const multiplayer = {
     
     // Draw field emitter based on field type (matches player.js logic)
     drawPlayerField(ctx, player, pos) {
-        if (!player.fieldActive || player.energy <= 0) return;
+        // Use the transmitted fieldActive state from the remote player
+        if (!player.fieldActive) return;
         
         const fieldMode = player.fieldMode || 0;
         const fieldName = m.fieldUpgrades[fieldMode]?.name || "field emitter";
