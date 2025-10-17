@@ -1174,6 +1174,11 @@ const multiplayer = {
         // Listen for powerup removals (pickups)
         powerupsRef.on('child_removed', (snapshot) => {
             const powerupData = snapshot.val();
+            // Don't process removal if we don't have this powerup locally
+            if (!this.networkPowerups.has(powerupData.id)) {
+                console.log('Ignoring powerup removal - not in local map:', powerupData.id);
+                return;
+            }
             this.handleRemotePowerupPickup(powerupData);
         });
         
@@ -1244,13 +1249,18 @@ const multiplayer = {
         
         // Remove the powerup locally
         if (powerUp[localIndex]) {
-            Matter.World.remove(engine.world, powerUp[localIndex]);
+            // Safety check: ensure the powerup object is valid before removing
+            if (powerUp[localIndex].type) {
+                Matter.World.remove(engine.world, powerUp[localIndex]);
+            }
             powerUp.splice(localIndex, 1);
             
             // Update all mappings after splice
             this.updatePowerupMappingsAfterRemoval(localIndex);
             
             console.log('✅ Powerup removed successfully');
+        } else {
+            console.log('⚠️ Powerup at index', localIndex, 'is undefined, skipping Matter.World.remove');
         }
         
         // Clean up network mapping
