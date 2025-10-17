@@ -1541,18 +1541,6 @@ const m = {
                         if (m.energy > 0.05) {
                             m.drawField();
                             m.pushMobsFacing();
-                            
-                            // Sync field usage to multiplayer
-                            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                                console.log('Syncing field usage');
-                                multiplayer.syncFieldInteraction('powerup_grab', { 
-                                    active: true,
-                                    energy: m.energy,
-                                    range: m.fieldRange
-                                });
-                            } else {
-                                console.log('Multiplayer not available for field usage:', typeof multiplayer, multiplayer?.enabled);
-                            }
                         }
                     } else if (m.holdingTarget && m.fieldCDcycle < m.cycle) { //holding, but field button is released
                         m.pickUp();
