@@ -192,6 +192,7 @@ const multiplayer = {
     getPlayerData() {
         // Check if player exists and is in game
         if (typeof player === 'undefined' || !player.position || !player.velocity) {
+            console.log('Player not ready:', typeof player, player?.position, player?.velocity);
             return {
                 name: this.settings.name,
                 color: this.settings.color,
@@ -207,12 +208,20 @@ const multiplayer = {
             };
         }
         
+        const posX = player.position.x || 0;
+        const posY = player.position.y || 0;
+        
+        // Debug: Log if we're getting (0,0) positions
+        if (posX === 0 && posY === 0 && Math.random() < 0.1) {
+            console.log('Warning: Player at (0,0), m.pos:', m.pos?.x, m.pos?.y, 'player.position:', posX, posY);
+        }
+        
         return {
             name: this.settings.name,
             color: this.settings.color,
             nameColor: this.settings.nameColor,
-            x: player.position.x || 0,
-            y: player.position.y || 0,
+            x: posX,
+            y: posY,
             vx: player.velocity.x || 0,
             vy: player.velocity.y || 0,
             angle: m.angle || 0,
@@ -231,8 +240,15 @@ const multiplayer = {
         
         this.lastUpdateTime = now;
         
+        const playerData = this.getPlayerData();
+        
+        // Debug: Log position data occasionally
+        if (Math.random() < 0.01) {
+            console.log('Sending player data:', playerData.x, playerData.y, 'player.position:', player.position?.x, player.position?.y);
+        }
+        
         const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
-        playerRef.update(this.getPlayerData());
+        playerRef.update(playerData);
     },
     
     // Helper function to darken a color
@@ -284,21 +300,42 @@ const multiplayer = {
         const deltaTime = 1 / 60; // Assume 60fps
         const playerCount = Object.keys(this.players).length;
         
-        // Debug: Log player count occasionally
+        // Debug: Always draw a test object to see if render function is called
         if (Math.random() < 0.01) {
+            console.log('Multiplayer render called, player count:', playerCount);
+        }
+        
+        // Draw a test object at a fixed position to verify rendering works
+        ctx.save();
+        ctx.translate(100, 100); // Fixed position
+        ctx.fillStyle = "#00ff00";
+        ctx.fillRect(-10, -10, 20, 20);
+        ctx.restore();
+        
+        // Debug: Log player count and positions more frequently
+        if (Math.random() < 0.05) {
             console.log('Rendering', playerCount, 'other players');
+            for (const [id, player] of Object.entries(this.players)) {
+                console.log('Player', player.name, 'raw position:', player.x, player.y);
+            }
         }
         
         for (const [id, player] of Object.entries(this.players)) {
             const pos = this.interpolatePlayer(player, deltaTime);
             
-            // Debug: Log player data occasionally
-            if (Math.random() < 0.01) {
+            // Debug: Log player data more frequently
+            if (Math.random() < 0.05) {
                 console.log('Player', player.name, 'at', pos.x, pos.y, 'raw:', player.x, player.y);
             }
             
-            // Skip if player has no valid position data
-            if (!pos || (pos.x === 0 && pos.y === 0)) continue;
+            // Skip if player has no valid position data - but log this
+            if (!pos || (pos.x === 0 && pos.y === 0)) {
+                if (Math.random() < 0.1) {
+                    console.log('Skipping player', player.name, 'due to invalid position:', pos, 'raw:', player.x, player.y);
+                }
+                // Don't skip - render anyway for debugging
+                // continue;
+            }
             
             ctx.save();
             
@@ -326,6 +363,23 @@ const multiplayer = {
             ctx.arc(15, 0, 4, 0, 2 * Math.PI);
             ctx.strokeStyle = "#333";
             ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Debug: Add bright outline to make players more visible
+            ctx.beginPath();
+            ctx.arc(0, 0, 32, 0, 2 * Math.PI);
+            ctx.strokeStyle = "#ff0000";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // Debug: Draw a giant red X to make sure we can see ANYTHING
+            ctx.beginPath();
+            ctx.moveTo(-50, -50);
+            ctx.lineTo(50, 50);
+            ctx.moveTo(50, -50);
+            ctx.lineTo(-50, 50);
+            ctx.strokeStyle = "#ff0000";
+            ctx.lineWidth = 10;
             ctx.stroke();
             
             // Draw field if active
