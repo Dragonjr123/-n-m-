@@ -888,6 +888,7 @@ const multiplayer = {
     
     // Sync powerup pickup
     syncPowerupPickup(powerupIndex) {
+        console.log('syncPowerupPickup called:', powerupIndex, 'enabled:', this.enabled, 'lobbyId:', this.lobbyId);
         if (!this.enabled || !this.lobbyId) return;
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
@@ -897,10 +898,12 @@ const multiplayer = {
             powerupIndex: powerupIndex,
             timestamp: Date.now()
         });
+        console.log('Powerup pickup synced to Firebase');
     },
     
     // Sync field interactions (powerup grabbing, block pushing)
     syncFieldInteraction(type, data) {
+        console.log('syncFieldInteraction called:', type, data, 'enabled:', this.enabled, 'lobbyId:', this.lobbyId);
         if (!this.enabled || !this.lobbyId) return;
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
@@ -910,10 +913,12 @@ const multiplayer = {
             data: data,
             timestamp: Date.now()
         });
+        console.log('Field interaction synced to Firebase');
     },
     
     // Sync block pickup/throw
     syncBlockInteraction(type, blockData) {
+        console.log('syncBlockInteraction called:', type, blockData, 'enabled:', this.enabled, 'lobbyId:', this.lobbyId);
         if (!this.enabled || !this.lobbyId) return;
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
@@ -923,6 +928,7 @@ const multiplayer = {
             blockData: blockData,
             timestamp: Date.now()
         });
+        console.log('Block interaction synced to Firebase');
     },
     
     // Listen for field interaction events from other players
@@ -940,6 +946,7 @@ const multiplayer = {
     
     // Handle incoming field events from other players
     handleFieldEvent(event) {
+        console.log('handleFieldEvent called with:', event);
         switch (event.type) {
             case 'field_powerup_grab':
                 this.handleRemotePowerupGrab(event.data);
@@ -958,6 +965,7 @@ const multiplayer = {
     
     // Handle remote powerup grabbing
     handleRemotePowerupGrab(data) {
+        console.log('handleRemotePowerupGrab called with:', data);
         // Visual effect for remote powerup grab
         if (data.powerupIndex !== undefined && powerUp[data.powerupIndex]) {
             // Add visual effect to show powerup was grabbed by remote player
@@ -969,6 +977,10 @@ const multiplayer = {
                 color: "rgba(0,255,0,0.5)",
                 time: 10
             });
+        } else if (data.active) {
+            // Field usage indicator
+            console.log('Field is active, showing field usage effect');
+            // Could add a general field usage effect here
         }
     },
     

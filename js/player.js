@@ -1288,7 +1288,10 @@ const m = {
                     
                     // Sync powerup pickup to multiplayer
                     if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        console.log('Syncing powerup pickup:', i);
                         multiplayer.syncPowerupPickup(i);
+                    } else {
+                        console.log('Multiplayer not available or enabled:', typeof multiplayer, multiplayer?.enabled);
                     }
                     
                     Matter.World.remove(engine.world, powerUp[i]);
@@ -1312,8 +1315,11 @@ const m = {
             if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
                 const blockIndex = body.indexOf(who);
                 if (blockIndex !== -1) {
+                    console.log('Syncing block push:', blockIndex);
                     multiplayer.syncFieldInteraction('block_push', { blockIndex: blockIndex });
                 }
+            } else {
+                console.log('Multiplayer not available for block push:', typeof multiplayer, multiplayer?.enabled);
             }
             if (tech.blockingIce) {
                 if (m.fieldShieldingScale) {
@@ -1538,11 +1544,14 @@ const m = {
                             
                             // Sync field usage to multiplayer
                             if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                console.log('Syncing field usage');
                                 multiplayer.syncFieldInteraction('powerup_grab', { 
                                     active: true,
                                     energy: m.energy,
                                     range: m.fieldRange
                                 });
+                            } else {
+                                console.log('Multiplayer not available for field usage:', typeof multiplayer, multiplayer?.enabled);
                             }
                         }
                     } else if (m.holdingTarget && m.fieldCDcycle < m.cycle) { //holding, but field button is released
