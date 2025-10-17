@@ -264,7 +264,8 @@ const multiplayer = {
     // Check if field should be active based on field type and conditions
     // This determines the LOCAL player's field state to send to others
     isFieldActive() {
-        if (m.fieldMode === 0 || m.energy <= 0) return false;
+        // Check if no field is equipped (undefined/null) or no energy
+        if (m.fieldMode === undefined || m.fieldMode === null || m.energy <= 0) return false;
         
         const fieldName = m.fieldUpgrades[m.fieldMode].name;
         
