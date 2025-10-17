@@ -3489,6 +3489,10 @@ const b = {
 
                 b.muzzleFlash(35);
 
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                    multiplayer.syncGunFire('shotgun', m.angle, m.pos);
+                }
+
                 if (tech.isSlugShot) {
                     const me = bullet.length;
                     const dir = m.angle + 0.02 * (Math.random() - 0.5)
