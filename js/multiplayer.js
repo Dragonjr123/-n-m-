@@ -47,6 +47,10 @@ const multiplayer = {
     localPowerupIds: new Map(), // Maps local powerUp array index to network ID
     networkPowerups: new Map(), // Maps network ID to powerup data
     
+    // Physics networking
+    lastPhysicsSyncTime: 0,
+    physicsSyncInterval: 100, // Sync physics every 100ms (10 times/sec)
+    
     // Player settings
     settings: {
         name: "Player",
@@ -98,6 +102,11 @@ const multiplayer = {
         // Start listening for powerup events
         this.listenToPowerupEvents();
         
+        // Start listening for physics (clients only)
+        if (!this.isHost) {
+            this.listenToPhysics();
+        }
+        
         console.log('Lobby created:', this.lobbyId);
         return this.lobbyId;
     },
@@ -136,6 +145,11 @@ const multiplayer = {
         
         // Start listening for powerup events
         this.listenToPowerupEvents();
+        
+        // Start listening for physics (clients only)
+        if (!this.isHost) {
+            this.listenToPhysics();
+        }
         
         console.log('Joined lobby:', this.lobbyId);
         return lobbyData.gameMode;
@@ -330,6 +344,11 @@ const multiplayer = {
         
         const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
         playerRef.update(playerData);
+        
+        // Sync physics if host
+        if (this.isHost) {
+            this.syncPhysics();
+        }
     },
     
     // Helper function to darken a color
@@ -1255,6 +1274,137 @@ const multiplayer = {
         
         // Powerups are already rendered by the main game loop
         // This function is here for future enhancements like showing who spawned what
+    },
+    
+    // ===== PHYSICS NETWORKING =====
+    
+    // Sync physics state (host only)
+    syncPhysics() {
+        if (!this.enabled || !this.lobbyId || !this.isHost) return;
+        
+        const now = Date.now();
+        if (now - this.lastPhysicsSyncTime < this.physicsSyncInterval) return;
+        
+        this.lastPhysicsSyncTime = now;
+        
+        // Collect physics data for mobs, blocks, and powerups
+        const physicsData = {
+            timestamp: now,
+            mobs: [],
+            blocks: [],
+            powerups: []
+        };
+        
+        // Sync mobs (enemies)
+        if (typeof mob !== 'undefined') {
+            for (let i = 0; i < Math.min(mob.length, 50); i++) { // Limit to 50 mobs
+                if (mob[i] && mob[i].position) {
+                    physicsData.mobs.push({
+                        index: i,
+                        x: mob[i].position.x,
+                        y: mob[i].position.y,
+                        vx: mob[i].velocity.x,
+                        vy: mob[i].velocity.y,
+                        angle: mob[i].angle,
+                        health: mob[i].health || 1,
+                        alive: mob[i].alive
+                    });
+                }
+            }
+        }
+        
+        // Sync blocks (physics bodies)
+        if (typeof body !== 'undefined') {
+            for (let i = 0; i < Math.min(body.length, 30); i++) { // Limit to 30 blocks
+                if (body[i] && body[i].position) {
+                    physicsData.blocks.push({
+                        index: i,
+                        x: body[i].position.x,
+                        y: body[i].position.y,
+                        vx: body[i].velocity.x,
+                        vy: body[i].velocity.y,
+                        angle: body[i].angle,
+                        angularVelocity: body[i].angularVelocity
+                    });
+                }
+            }
+        }
+        
+        // Sync powerup positions (they move with physics)
+        if (typeof powerUp !== 'undefined') {
+            for (let i = 0; i < powerUp.length; i++) {
+                if (powerUp[i] && powerUp[i].position) {
+                    const networkId = this.localPowerupIds.get(i);
+                    if (networkId) {
+                        physicsData.powerups.push({
+                            id: networkId,
+                            x: powerUp[i].position.x,
+                            y: powerUp[i].position.y,
+                            vx: powerUp[i].velocity.x,
+                            vy: powerUp[i].velocity.y
+                        });
+                    }
+                }
+            }
+        }
+        
+        // Send to Firebase
+        const physicsRef = database.ref(`lobbies/${this.lobbyId}/physics`);
+        physicsRef.set(physicsData);
+    },
+    
+    // Listen for physics updates (clients only)
+    listenToPhysics() {
+        if (!this.enabled || !this.lobbyId || this.isHost) return;
+        
+        const physicsRef = database.ref(`lobbies/${this.lobbyId}/physics`);
+        physicsRef.on('value', (snapshot) => {
+            const physicsData = snapshot.val();
+            if (!physicsData) return;
+            
+            this.applyPhysicsUpdate(physicsData);
+        });
+        
+        console.log('Listening for physics updates');
+    },
+    
+    // Apply physics update from host
+    applyPhysicsUpdate(physicsData) {
+        // Update mobs
+        if (physicsData.mobs && typeof mob !== 'undefined') {
+            for (const mobData of physicsData.mobs) {
+                if (mob[mobData.index]) {
+                    Matter.Body.setPosition(mob[mobData.index], { x: mobData.x, y: mobData.y });
+                    Matter.Body.setVelocity(mob[mobData.index], { x: mobData.vx, y: mobData.vy });
+                    Matter.Body.setAngle(mob[mobData.index], mobData.angle);
+                    if (mobData.health !== undefined) mob[mobData.index].health = mobData.health;
+                    if (mobData.alive !== undefined) mob[mobData.index].alive = mobData.alive;
+                }
+            }
+        }
+        
+        // Update blocks
+        if (physicsData.blocks && typeof body !== 'undefined') {
+            for (const blockData of physicsData.blocks) {
+                if (body[blockData.index]) {
+                    Matter.Body.setPosition(body[blockData.index], { x: blockData.x, y: blockData.y });
+                    Matter.Body.setVelocity(body[blockData.index], { x: blockData.vx, y: blockData.vy });
+                    Matter.Body.setAngle(body[blockData.index], blockData.angle);
+                    Matter.Body.setAngularVelocity(body[blockData.index], blockData.angularVelocity);
+                }
+            }
+        }
+        
+        // Update powerups
+        if (physicsData.powerups && typeof powerUp !== 'undefined') {
+            for (const powerupData of physicsData.powerups) {
+                const localIndex = this.networkPowerups.get(powerupData.id);
+                if (localIndex !== undefined && powerUp[localIndex]) {
+                    Matter.Body.setPosition(powerUp[localIndex], { x: powerupData.x, y: powerupData.y });
+                    Matter.Body.setVelocity(powerUp[localIndex], { x: powerupData.vx, y: powerupData.vy });
+                }
+            }
+        }
     }
 };
 

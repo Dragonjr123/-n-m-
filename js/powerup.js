@@ -868,8 +868,8 @@ const powerUps = {
             });
         }
         World.add(engine.world, powerUp[index]); //add to world
-        // Sync powerup spawn to multiplayer
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+        // Sync powerup spawn to multiplayer (only if host or single player)
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
             multiplayer.syncPowerupSpawn(index);
         }
     },
