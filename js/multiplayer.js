@@ -233,6 +233,28 @@ const multiplayer = {
         playerRef.update(this.getPlayerData());
     },
     
+    // Helper function to darken a color
+    darkenColor(color, factor) {
+        // Parse hex color
+        let r, g, b;
+        if (color.startsWith('#')) {
+            const hex = color.substring(1);
+            r = parseInt(hex.substring(0, 2), 16);
+            g = parseInt(hex.substring(2, 4), 16);
+            b = parseInt(hex.substring(4, 6), 16);
+        } else {
+            return color; // Return original if not hex
+        }
+        
+        // Darken
+        r = Math.floor(r * factor);
+        g = Math.floor(g * factor);
+        b = Math.floor(b * factor);
+        
+        // Convert back to hex
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    },
+    
     // Interpolate player positions for smooth movement
     interpolatePlayer(player, deltaTime) {
         if (!player.targetX) {
@@ -255,76 +277,93 @@ const multiplayer = {
     
     // Render other players
     render() {
-        if (!this.enabled) return;
+        if (!this.enabled || !this.gameStarted) return;
         
         const deltaTime = 1 / 60; // Assume 60fps
         
         for (const [id, player] of Object.entries(this.players)) {
             const pos = this.interpolatePlayer(player, deltaTime);
             
-            // Skip if player has no position data
-            if (!pos.x && !pos.y) continue;
+            // Skip if player has no valid position data
+            if (!pos || (pos.x === 0 && pos.y === 0)) continue;
             
-            // Draw player body (same as local player - use the actual player shape)
             ctx.save();
+            
+            // Draw player body (EXACT same as m.draw())
             ctx.translate(pos.x, pos.y);
             ctx.rotate(player.angle || 0);
             
-            // Draw player vertices (same as m.draw())
-            ctx.fillStyle = player.color || "#4a9eff";
-            ctx.strokeStyle = "#000";
-            ctx.lineWidth = 2;
-            
-            // Draw player body shape (simplified n-gon shape)
-            const radius = 30;
-            const sides = 6;
+            // Body circle with gradient (same as player.js line 2926-2936)
             ctx.beginPath();
-            for (let i = 0; i < sides; i++) {
-                const angle = (Math.PI * 2 * i) / sides;
-                const x = Math.cos(angle) * radius;
-                const y = Math.sin(angle) * radius;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.closePath();
+            ctx.arc(0, 0, 30, 0, 2 * Math.PI);
+            
+            // Create gradient from player color
+            const playerColor = player.color || "#4a9eff";
+            let grd = ctx.createLinearGradient(-30, 0, 30, 0);
+            
+            // Darken the color for gradient start
+            const darkColor = this.darkenColor(playerColor, 0.7);
+            grd.addColorStop(0, darkColor);
+            grd.addColorStop(1, playerColor);
+            
+            ctx.fillStyle = grd;
             ctx.fill();
+            
+            // Eye dot (same as player.js line 2933)
+            ctx.arc(15, 0, 4, 0, 2 * Math.PI);
+            ctx.strokeStyle = "#333";
+            ctx.lineWidth = 2;
             ctx.stroke();
             
             // Draw field if active
             if (player.fieldActive) {
                 ctx.beginPath();
                 ctx.arc(0, 0, 55, 0, 2 * Math.PI);
-                ctx.strokeStyle = "rgba(0, 200, 255, 0.6)";
-                ctx.lineWidth = 4;
+                ctx.strokeStyle = "rgba(0, 200, 255, 0.8)";
+                ctx.lineWidth = 5;
                 ctx.stroke();
             }
             
             ctx.restore();
             
-            // Draw health bar above player
-            const barWidth = 60;
-            const barHeight = 6;
-            const barX = pos.x - barWidth / 2;
-            const barY = pos.y - 50;
+            // Draw health bar and name AFTER restore (in world space)
+            ctx.save();
             
-            // Background
-            ctx.fillStyle = "#333";
+            const barWidth = 70;
+            const barHeight = 8;
+            const barX = pos.x - barWidth / 2;
+            const barY = pos.y - 55;
+            
+            // Health bar background
+            ctx.fillStyle = "rgba(50, 50, 50, 0.8)";
             ctx.fillRect(barX, barY, barWidth, barHeight);
             
-            // Health
-            ctx.fillStyle = player.health > 0.5 ? "#0f0" : player.health > 0.25 ? "#ff0" : "#f00";
-            ctx.fillRect(barX, barY, barWidth * player.health, barHeight);
+            // Health bar fill
+            const healthPercent = Math.max(0, Math.min(1, player.health || 0));
+            ctx.fillStyle = healthPercent > 0.5 ? "#0f0" : healthPercent > 0.25 ? "#ff0" : "#f00";
+            ctx.fillRect(barX, barY, barWidth * healthPercent, barHeight);
             
-            // Border
+            // Health bar border
             ctx.strokeStyle = "#000";
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 2;
             ctx.strokeRect(barX, barY, barWidth, barHeight);
             
-            // Draw player name
-            ctx.fillStyle = player.nameColor;
-            ctx.font = "bold 14px Arial";
+            // Draw player name with background
+            const playerName = player.name || "Player";
+            ctx.font = "bold 16px Arial";
             ctx.textAlign = "center";
-            ctx.fillText(player.name, pos.x, barY - 5);
+            ctx.textBaseline = "bottom";
+            
+            // Name background
+            const nameWidth = ctx.measureText(playerName).width + 10;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+            ctx.fillRect(pos.x - nameWidth/2, barY - 22, nameWidth, 18);
+            
+            // Name text
+            ctx.fillStyle = player.nameColor || "#fff";
+            ctx.fillText(playerName, pos.x, barY - 6);
+            
+            ctx.restore();
         }
     },
     
