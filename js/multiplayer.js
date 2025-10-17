@@ -234,6 +234,12 @@ const multiplayer = {
             stepSize: m.stepSize || 0,
             onGround: m.onGround || false,
             yOff: m.yOff || 49,
+            // Network field data
+            energy: m.energy || 0,
+            maxEnergy: m.maxEnergy || 1,
+            fieldRange: m.fieldRange || 155,
+            fieldArc: m.fieldArc || 0.2,
+            isHolding: m.isHolding || false,
             lastUpdate: Date.now()
         };
     },
@@ -482,19 +488,46 @@ const multiplayer = {
             ctx.lineWidth = 2;
             ctx.stroke();
             
-            // Debug: Add bright outline to make players more visible
-            ctx.beginPath();
-            ctx.arc(0, 0, 32, 0, 2 * Math.PI);
-            ctx.strokeStyle = "#ff0000";
-            ctx.lineWidth = 3;
-            ctx.stroke();
             
-            // Draw field if active
-            if (player.fieldActive) {
+            // Draw field emitter (same as player.js drawField)
+            if (player.fieldActive && player.energy > 0) {
+                // Field colors based on holding state (from player.js)
+                if (player.isHolding) {
+                    ctx.fillStyle = `rgba(110,170,200,${player.energy * (0.05 + 0.05 * Math.random())})`;
+                    ctx.strokeStyle = `rgba(110, 200, 235, ${0.3 + 0.08 * Math.random()})`;
+                } else {
+                    ctx.fillStyle = `rgba(110,170,200,${0.02 + player.energy * (0.15 + 0.15 * Math.random())})`;
+                    ctx.strokeStyle = `rgba(110, 200, 235, ${0.6 + 0.2 * Math.random()})`;
+                }
+                
+                const range = player.fieldRange || 155;
                 ctx.beginPath();
-                ctx.arc(0, 0, 55, 0, 2 * Math.PI);
-                ctx.strokeStyle = "rgba(0, 200, 255, 0.8)";
-                ctx.lineWidth = 5;
+                ctx.arc(0, 0, range, player.angle - Math.PI * (player.fieldArc || 0.2), player.angle + Math.PI * (player.fieldArc || 0.2), false);
+                ctx.lineWidth = 2;
+                ctx.lineCap = "butt";
+                ctx.stroke();
+                
+                let eye = 13;
+                let aMag = 0.75 * Math.PI * (player.fieldArc || 0.2);
+                let a = player.angle + aMag;
+                let cp1x = 0.6 * range * Math.cos(a);
+                let cp1y = 0.6 * range * Math.sin(a);
+                ctx.quadraticCurveTo(cp1x, cp1y, eye * Math.cos(player.angle), eye * Math.sin(player.angle));
+                
+                a = player.angle - aMag;
+                cp1x = 0.6 * range * Math.cos(a);
+                cp1y = 0.6 * range * Math.sin(a);
+                ctx.quadraticCurveTo(cp1x, cp1y, range * Math.cos(player.angle - Math.PI * (player.fieldArc || 0.2)), range * Math.sin(player.angle - Math.PI * (player.fieldArc || 0.2)));
+                ctx.fill();
+                
+                // Draw random lines in field for cool effect
+                let offAngle = player.angle + 1.7 * Math.PI * (player.fieldArc || 0.2) * (Math.random() - 0.5);
+                ctx.beginPath();
+                eye = 15;
+                ctx.moveTo(eye * Math.cos(player.angle), eye * Math.sin(player.angle));
+                ctx.lineTo(range * Math.cos(offAngle), range * Math.sin(offAngle));
+                ctx.strokeStyle = "rgba(120,170,255,0.6)";
+                ctx.lineWidth = 1;
                 ctx.stroke();
             }
             
