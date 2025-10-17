@@ -208,12 +208,13 @@ const multiplayer = {
             };
         }
         
+        // Use the SAME position calculation as the real player (m.pos)
         const posX = player.position.x || 0;
-        const posY = player.position.y || 0;
+        const posY = (playerBody.position.y - m.yOff) || 0;
         
         // Debug: Log if we're getting (0,0) positions
         if (posX === 0 && posY === 0 && Math.random() < 0.1) {
-            console.log('Warning: Player at (0,0), m.pos:', m.pos?.x, m.pos?.y, 'player.position:', posX, posY);
+            console.log('Warning: Player at (0,0), m.pos:', m.pos?.x, m.pos?.y, 'player.position:', player.position?.x, player.position?.y, 'playerBody.position.y:', playerBody?.position?.y, 'm.yOff:', m.yOff);
         }
         
         return {
