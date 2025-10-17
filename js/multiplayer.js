@@ -1143,11 +1143,11 @@ const multiplayer = {
         
         const networkId = this.localPowerupIds.get(powerupIndex);
         if (!networkId) {
-            console.log('Warning: Picked up powerup without network ID, index:', powerupIndex);
+            console.log('Warning: Picked up powerup without network ID, index:', powerupIndex, 'Available IDs:', Array.from(this.localPowerupIds.keys()));
             return;
         }
         
-        console.log('Syncing powerup pickup:', networkId, 'by', this.playerId);
+        console.log('✅ Syncing powerup pickup:', networkId, 'index:', powerupIndex, 'by', this.playerId);
         
         // Remove from Firebase (this will trigger removal for all players)
         const powerupRef = database.ref(`lobbies/${this.lobbyId}/powerups/${networkId}`);
@@ -1231,14 +1231,16 @@ const multiplayer = {
     handleRemotePowerupPickup(powerupData) {
         if (typeof powerUp === 'undefined') return;
         
-        console.log('Remote powerup picked up:', powerupData.id);
+        console.log('🗑️ Remote powerup picked up:', powerupData.id, 'Looking for local index...');
         
         // Find the local powerup with this network ID
         const localIndex = this.networkPowerups.get(powerupData.id);
         if (localIndex === undefined) {
-            console.log('Powerup already removed locally');
+            console.log('⚠️ Powerup not found in networkPowerups map. Available:', Array.from(this.networkPowerups.keys()));
             return;
         }
+        
+        console.log('✅ Found powerup at local index:', localIndex, 'Removing...');
         
         // Remove the powerup locally
         if (powerUp[localIndex]) {
@@ -1247,6 +1249,8 @@ const multiplayer = {
             
             // Update all mappings after splice
             this.updatePowerupMappingsAfterRemoval(localIndex);
+            
+            console.log('✅ Powerup removed successfully');
         }
         
         // Clean up network mapping
@@ -1370,11 +1374,18 @@ const multiplayer = {
     
     // Apply physics update from host
     applyPhysicsUpdate(physicsData) {
-        // Update mobs
+        // Update mobs (use interpolation to smooth the updates)
         if (physicsData.mobs && typeof mob !== 'undefined') {
             for (const mobData of physicsData.mobs) {
                 if (mob[mobData.index]) {
-                    Matter.Body.setPosition(mob[mobData.index], { x: mobData.x, y: mobData.y });
+                    // Smoothly interpolate to new position instead of snapping
+                    const currentPos = mob[mobData.index].position;
+                    const lerpFactor = 0.3; // 30% towards new position
+                    
+                    Matter.Body.setPosition(mob[mobData.index], {
+                        x: currentPos.x + (mobData.x - currentPos.x) * lerpFactor,
+                        y: currentPos.y + (mobData.y - currentPos.y) * lerpFactor
+                    });
                     Matter.Body.setVelocity(mob[mobData.index], { x: mobData.vx, y: mobData.vy });
                     Matter.Body.setAngle(mob[mobData.index], mobData.angle);
                     if (mobData.health !== undefined) mob[mobData.index].health = mobData.health;
@@ -1383,11 +1394,18 @@ const multiplayer = {
             }
         }
         
-        // Update blocks
+        // Update blocks (use interpolation to smooth the updates)
         if (physicsData.blocks && typeof body !== 'undefined') {
             for (const blockData of physicsData.blocks) {
                 if (body[blockData.index]) {
-                    Matter.Body.setPosition(body[blockData.index], { x: blockData.x, y: blockData.y });
+                    // Smoothly interpolate to new position
+                    const currentPos = body[blockData.index].position;
+                    const lerpFactor = 0.3;
+                    
+                    Matter.Body.setPosition(body[blockData.index], {
+                        x: currentPos.x + (blockData.x - currentPos.x) * lerpFactor,
+                        y: currentPos.y + (blockData.y - currentPos.y) * lerpFactor
+                    });
                     Matter.Body.setVelocity(body[blockData.index], { x: blockData.vx, y: blockData.vy });
                     Matter.Body.setAngle(body[blockData.index], blockData.angle);
                     Matter.Body.setAngularVelocity(body[blockData.index], blockData.angularVelocity);
@@ -1395,12 +1413,18 @@ const multiplayer = {
             }
         }
         
-        // Update powerups
+        // Update powerups (use interpolation)
         if (physicsData.powerups && typeof powerUp !== 'undefined') {
             for (const powerupData of physicsData.powerups) {
                 const localIndex = this.networkPowerups.get(powerupData.id);
                 if (localIndex !== undefined && powerUp[localIndex]) {
-                    Matter.Body.setPosition(powerUp[localIndex], { x: powerupData.x, y: powerupData.y });
+                    const currentPos = powerUp[localIndex].position;
+                    const lerpFactor = 0.3;
+                    
+                    Matter.Body.setPosition(powerUp[localIndex], {
+                        x: currentPos.x + (powerupData.x - currentPos.x) * lerpFactor,
+                        y: currentPos.y + (powerupData.y - currentPos.y) * lerpFactor
+                    });
                     Matter.Body.setVelocity(powerUp[localIndex], { x: powerupData.vx, y: powerupData.vy });
                 }
             }

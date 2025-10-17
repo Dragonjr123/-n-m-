@@ -868,12 +868,23 @@ const powerUps = {
             });
         }
         World.add(engine.world, powerUp[index]); //add to world
-        // Sync powerup spawn to multiplayer (only if host or single player)
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
-            multiplayer.syncPowerupSpawn(index);
+        
+        // Sync powerup spawn to multiplayer (only if host or not in multiplayer)
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            if (multiplayer.isHost) {
+                multiplayer.syncPowerupSpawn(index);
+            }
+            // If client, don't spawn - wait for host to sync it
+        } else {
+            // Single player mode - no sync needed
         }
     },
     spawn(x, y, target, moving = true, mode = null, size = powerUps[target].size()) {
+        // In multiplayer, only host spawns powerups
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients don't spawn powerups - they receive them from host
+        }
+        
         if (
             (!tech.isSuperDeterminism || (target === 'tech' || target === 'heal' || target === 'ammo')) &&
             !(tech.isEnergyNoAmmo && target === 'ammo') &&
