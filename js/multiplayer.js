@@ -956,8 +956,8 @@ const multiplayer = {
         console.log('Block interaction synced to Firebase');
     },
     
-    // Sync gun fire
-    syncGunFire(gunName, angle, position) {
+    // Sync gun fire with full bullet data
+    syncGunFire(gunName, angle, position, bulletData = null) {
         if (!this.enabled || !this.lobbyId) return;
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
@@ -967,6 +967,35 @@ const multiplayer = {
             gunName: gunName,
             angle: angle,
             position: { x: position.x, y: position.y },
+            bulletData: bulletData,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync explosion effect
+    syncExplosion(position, radius) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'explosion',
+            playerId: this.playerId,
+            position: { x: position.x, y: position.y },
+            radius: radius,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync visual effect (generic)
+    syncVisualEffect(effectType, data) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'visual_effect',
+            playerId: this.playerId,
+            effectType: effectType,
+            data: data,
             timestamp: Date.now()
         });
     },
@@ -1015,6 +1044,12 @@ const multiplayer = {
             case 'gun_fire':
                 this.handleRemoteGunFire(event);
                 break;
+            case 'explosion':
+                this.handleRemoteExplosion(event);
+                break;
+            case 'visual_effect':
+                this.handleRemoteVisualEffect(event);
+                break;
         }
     },
     
@@ -1022,15 +1057,42 @@ const multiplayer = {
     handleRemoteGunFire(event) {
         console.log('Remote gun fire:', event.gunName, 'at', event.angle);
         
-        // Visual effect for remote gun fire
+        // Show muzzle flash
         if (typeof simulation !== 'undefined' && simulation.drawList && event.position) {
-            const range = 50;
+            // Muzzle flash
+            for (let i = 0; i < 3; i++) {
+                simulation.drawList.push({
+                    x: event.position.x + (30 + i * 10) * Math.cos(event.angle),
+                    y: event.position.y + (30 + i * 10) * Math.sin(event.angle),
+                    radius: 20 - i * 5,
+                    color: `rgba(255,${200 - i * 50},0,${0.7 - i * 0.2})`,
+                    time: 6 - i
+                });
+            }
+        }
+    },
+    
+    // Handle remote explosion
+    handleRemoteExplosion(event) {
+        console.log('Remote explosion at:', event.position, 'radius:', event.radius);
+        
+        if (typeof b !== 'undefined' && b.explosion) {
+            // Call the actual explosion function to show the effect
+            b.explosion(event.position, event.radius);
+        }
+    },
+    
+    // Handle remote visual effect
+    handleRemoteVisualEffect(event) {
+        console.log('Remote visual effect:', event.effectType);
+        
+        if (typeof simulation !== 'undefined' && simulation.drawList && event.data) {
             simulation.drawList.push({
-                x: event.position.x + range * Math.cos(event.angle),
-                y: event.position.y + range * Math.sin(event.angle),
-                radius: 15,
-                color: "rgba(255,200,0,0.6)",
-                time: 8
+                x: event.data.x,
+                y: event.data.y,
+                radius: event.data.radius || 20,
+                color: event.data.color || "rgba(255,255,255,0.5)",
+                time: event.data.time || 10
             });
         }
     },

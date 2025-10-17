@@ -298,6 +298,11 @@ const b = {
         return tech.explosiveRadius * (tech.isExplosionHarm ? 1.8 : 1) * (tech.isSmallExplosion ? 0.66 : 1) * (tech.isExplodeRadio ? 1.25 : 1)
     },
     explosion(where, radius, color = "rgba(255,25,0,0.6)") { // typically explode is used for some bullets with .onEnd
+        // Sync explosion to multiplayer
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            multiplayer.syncExplosion(where, radius);
+        }
+        
         radius *= tech.explosiveRadius
         let dist, sub, knock;
         let dmg = radius * 0.013 * (tech.isExplosionStun ? 0.6 : 1);
