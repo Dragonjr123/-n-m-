@@ -1106,6 +1106,7 @@ const multiplayer = {
         // Generate unique network ID for this powerup
         const networkId = `${this.playerId}_${this.powerupIdCounter++}`;
         this.localPowerupIds.set(powerupIndex, networkId);
+        this.networkPowerups.set(networkId, powerupIndex); // Add reverse mapping for host's own powerups
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/powerups/${networkId}`);
         eventRef.set({
@@ -1119,7 +1120,7 @@ const multiplayer = {
             timestamp: Date.now()
         });
         
-        console.log('Powerup spawned:', networkId, powerup.name);
+        console.log('Powerup spawned:', networkId, powerup.name, 'at index:', powerupIndex);
     },
     
     // Sync powerup pickup to all players
@@ -1312,11 +1313,40 @@ const multiplayer = {
             }
         }
         
-        // Block syncing disabled - blocks are managed via player interaction events
-        // This allows all players to throw/push blocks without host overwriting their changes
+        // Sync blocks (physics bodies)
+        if (typeof body !== 'undefined') {
+            for (let i = 0; i < Math.min(body.length, 30); i++) { // Limit to 30 blocks
+                if (body[i] && body[i].position) {
+                    physicsData.blocks.push({
+                        index: i,
+                        x: body[i].position.x,
+                        y: body[i].position.y,
+                        vx: body[i].velocity.x,
+                        vy: body[i].velocity.y,
+                        angle: body[i].angle,
+                        angularVelocity: body[i].angularVelocity
+                    });
+                }
+            }
+        }
         
-        // Powerup syncing disabled - powerups are managed via dedicated spawn/pickup system
-        // This prevents conflicts where host physics sync overwrites client pickups
+        // Sync powerup positions (they move with physics)
+        if (typeof powerUp !== 'undefined') {
+            for (let i = 0; i < powerUp.length; i++) {
+                if (powerUp[i] && powerUp[i].position) {
+                    const networkId = this.localPowerupIds.get(i);
+                    if (networkId) {
+                        physicsData.powerups.push({
+                            id: networkId,
+                            x: powerUp[i].position.x,
+                            y: powerUp[i].position.y,
+                            vx: powerUp[i].velocity.x,
+                            vy: powerUp[i].velocity.y
+                        });
+                    }
+                }
+            }
+        }
         
         // Send to Firebase
         const physicsRef = database.ref(`lobbies/${this.lobbyId}/physics`);
@@ -1360,9 +1390,41 @@ const multiplayer = {
             }
         }
         
-        // Block physics updates disabled - blocks are managed via player interaction events
+        // Update blocks (use interpolation to smooth the updates)
+        if (physicsData.blocks && typeof body !== 'undefined') {
+            for (const blockData of physicsData.blocks) {
+                if (body[blockData.index]) {
+                    // Smoothly interpolate to new position
+                    const currentPos = body[blockData.index].position;
+                    const lerpFactor = 0.3;
+                    
+                    Matter.Body.setPosition(body[blockData.index], {
+                        x: currentPos.x + (blockData.x - currentPos.x) * lerpFactor,
+                        y: currentPos.y + (blockData.y - currentPos.y) * lerpFactor
+                    });
+                    Matter.Body.setVelocity(body[blockData.index], { x: blockData.vx, y: blockData.vy });
+                    Matter.Body.setAngle(body[blockData.index], blockData.angle);
+                    Matter.Body.setAngularVelocity(body[blockData.index], blockData.angularVelocity);
+                }
+            }
+        }
         
-        // Powerup physics updates disabled - powerups are managed via dedicated spawn/pickup system
+        // Update powerups (use interpolation)
+        if (physicsData.powerups && typeof powerUp !== 'undefined') {
+            for (const powerupData of physicsData.powerups) {
+                const localIndex = this.networkPowerups.get(powerupData.id);
+                if (localIndex !== undefined && powerUp[localIndex]) {
+                    const currentPos = powerUp[localIndex].position;
+                    const lerpFactor = 0.3;
+                    
+                    Matter.Body.setPosition(powerUp[localIndex], {
+                        x: currentPos.x + (powerupData.x - currentPos.x) * lerpFactor,
+                        y: currentPos.y + (powerupData.y - currentPos.y) * lerpFactor
+                    });
+                    Matter.Body.setVelocity(powerUp[localIndex], { x: powerupData.vx, y: powerupData.vy });
+                }
+            }
+        }
     }
 };
 
