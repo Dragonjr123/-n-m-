@@ -342,14 +342,17 @@ const multiplayer = {
             // Draw player body (EXACT same as m.draw())
             ctx.translate(pos.x, pos.y);
             
-            // Draw legs first (before rotation) - using actual player leg system
+            // Rotate for body and legs
+            ctx.rotate(player.angle || 0);
+            
+            // Draw legs after rotation - using actual player leg system
             const playerColor = player.color || "#4a9eff";
             const darkColor = this.darkenColor(playerColor, 0.7);
             
             // Calculate leg animation based on movement (simplified from player.js)
             const walkCycle = (Date.now() * 0.01) % (Math.PI * 2);
             const stepSize = Math.min(7, Math.abs(player.vx || 0) * 2);
-            const yOff = 70; // Default leg height
+            const yOff = 49; // Standing height (from yOffWhen.stand)
             const height = 42;
             
             // Determine leg direction based on angle
@@ -459,9 +462,6 @@ const multiplayer = {
             ctx.stroke();
             
             ctx.restore();
-            
-            // Rotate for body
-            ctx.rotate(player.angle || 0);
             
             // Body circle with gradient (same as player.js line 2926-2936)
             ctx.beginPath();
