@@ -306,6 +306,11 @@ const multiplayer = {
         
         const playerData = this.getPlayerData();
         
+        // Debug: Log field state when active
+        if (playerData.fieldActive && Math.random() < 0.1) {
+            console.log('SENDING FIELD ACTIVE:', playerData.fieldActive, 'energy:', playerData.energy, 'input.field:', input.field, 'fieldMode:', playerData.fieldMode);
+        }
+        
         // Debug: Log position data occasionally
         if (Math.random() < 0.01) {
             console.log('Sending player data:', playerData.x, playerData.y, 'player.position:', player.position?.x, player.position?.y);
@@ -359,8 +364,15 @@ const multiplayer = {
     
     // Draw field emitter based on field type (matches player.js logic)
     drawPlayerField(ctx, player, pos) {
+        // Debug: Log field state for remote players
+        if (Math.random() < 0.05) {
+            console.log('REMOTE PLAYER FIELD:', player.name, 'fieldActive:', player.fieldActive, 'energy:', player.energy, 'fieldMode:', player.fieldMode);
+        }
+        
         // Use the transmitted fieldActive state from the remote player
         if (!player.fieldActive) return;
+        
+        console.log('DRAWING FIELD for', player.name, 'at', pos.x, pos.y);
         
         const fieldMode = player.fieldMode || 0;
         const fieldName = m.fieldUpgrades[fieldMode]?.name || "field emitter";
