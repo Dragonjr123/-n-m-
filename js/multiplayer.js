@@ -228,6 +228,12 @@ const multiplayer = {
             angle: m.angle || 0,
             health: m.health || 1,
             fieldActive: (m.fieldMode > 0 && m.energy > 0) || false,
+            // Network leg animation data
+            walkCycle: m.walk_cycle || 0,
+            flipLegs: m.flipLegs || 1,
+            stepSize: m.stepSize || 0,
+            onGround: m.onGround || false,
+            yOff: m.yOff || 49,
             lastUpdate: Date.now()
         };
     },
@@ -347,19 +353,13 @@ const multiplayer = {
             const playerColor = player.color || "#4a9eff";
             const darkColor = this.darkenColor(playerColor, 0.7);
             
-            // Calculate leg animation based on movement (simplified from player.js)
-            const walkCycle = (Date.now() * 0.01) % (Math.PI * 2);
-            const stepSize = Math.min(7, Math.abs(player.vx || 0) * 2);
-            const yOff = 49; // Standing height (from yOffWhen.stand)
+            // Use networked leg animation data from other players
+            const walkCycle = player.walkCycle || 0;
+            const stepSize = player.stepSize || 0;
+            const yOff = player.yOff || 49;
             const height = 42;
-            
-            // Determine leg direction based on angle
-            let flipLegs = 1;
-            if (player.angle > -Math.PI / 2 && player.angle < Math.PI / 2) {
-                flipLegs = 1;
-            } else {
-                flipLegs = -1;
-            }
+            const flipLegs = player.flipLegs || 1;
+            const onGround = player.onGround || false;
             
             // Draw left leg (darker color)
             ctx.save();
@@ -367,7 +367,7 @@ const multiplayer = {
             ctx.strokeStyle = "#4a4a4a";
             ctx.lineWidth = 7;
             
-            // Calculate leg positions (simplified from calcLeg)
+            // Calculate leg positions using networked data (from calcLeg in player.js)
             const hipX = 12;
             const hipY = 24;
             const leftLegAngle = 0.034 * walkCycle + Math.PI;
@@ -419,7 +419,7 @@ const multiplayer = {
             ctx.strokeStyle = "#333";
             ctx.lineWidth = 7;
             
-            // Calculate right leg positions
+            // Calculate right leg positions using networked data
             const rightLegAngle = 0.034 * walkCycle;
             const rightFootX = 2.2 * stepSize * Math.cos(rightLegAngle);
             const rightFootY = 1.2 * stepSize * Math.sin(rightLegAngle) + yOff + height;
