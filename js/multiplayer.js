@@ -42,6 +42,11 @@ const multiplayer = {
     maxPlayers: 10,
     gameStarted: false,
     
+    // Powerup networking
+    powerupIdCounter: 0,
+    localPowerupIds: new Map(), // Maps local powerUp array index to network ID
+    networkPowerups: new Map(), // Maps network ID to powerup data
+    
     // Player settings
     settings: {
         name: "Player",
@@ -90,6 +95,9 @@ const multiplayer = {
         // Start listening for field interaction events
         this.listenToFieldEvents();
         
+        // Start listening for powerup events
+        this.listenToPowerupEvents();
+        
         console.log('Lobby created:', this.lobbyId);
         return this.lobbyId;
     },
@@ -125,6 +133,9 @@ const multiplayer = {
         
         // Start listening for field interaction events
         this.listenToFieldEvents();
+        
+        // Start listening for powerup events
+        this.listenToPowerupEvents();
         
         console.log('Joined lobby:', this.lobbyId);
         return lobbyData.gameMode;
@@ -1077,6 +1088,173 @@ const multiplayer = {
                 if (callback) callback();
             }
         });
+    },
+    
+    // ===== POWERUP NETWORKING =====
+    
+    // Sync powerup spawn to all players
+    syncPowerupSpawn(powerupIndex) {
+        if (!this.enabled || !this.lobbyId || typeof powerUp === 'undefined') return;
+        
+        const powerup = powerUp[powerupIndex];
+        if (!powerup) return;
+        
+        // Generate unique network ID for this powerup
+        const networkId = `${this.playerId}_${this.powerupIdCounter++}`;
+        this.localPowerupIds.set(powerupIndex, networkId);
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/powerups/${networkId}`);
+        eventRef.set({
+            id: networkId,
+            spawnedBy: this.playerId,
+            name: powerup.name,
+            color: powerup.color,
+            size: powerup.size,
+            position: { x: powerup.position.x, y: powerup.position.y },
+            velocity: { x: powerup.velocity.x, y: powerup.velocity.y },
+            timestamp: Date.now()
+        });
+        
+        console.log('Powerup spawned:', networkId, powerup.name);
+    },
+    
+    // Sync powerup pickup to all players
+    syncPowerupPickup(powerupIndex) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const networkId = this.localPowerupIds.get(powerupIndex);
+        if (!networkId) {
+            console.log('Warning: Picked up powerup without network ID, index:', powerupIndex);
+            return;
+        }
+        
+        console.log('Syncing powerup pickup:', networkId, 'by', this.playerId);
+        
+        // Remove from Firebase (this will trigger removal for all players)
+        const powerupRef = database.ref(`lobbies/${this.lobbyId}/powerups/${networkId}`);
+        powerupRef.remove();
+        
+        // Clean up local mapping
+        this.localPowerupIds.delete(powerupIndex);
+    },
+    
+    // Listen for powerup events from other players
+    listenToPowerupEvents() {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const powerupsRef = database.ref(`lobbies/${this.lobbyId}/powerups`);
+        
+        // Listen for new powerups
+        powerupsRef.on('child_added', (snapshot) => {
+            const powerupData = snapshot.val();
+            if (powerupData.spawnedBy === this.playerId) return; // Ignore own spawns
+            
+            this.handleRemotePowerupSpawn(powerupData);
+        });
+        
+        // Listen for powerup removals (pickups)
+        powerupsRef.on('child_removed', (snapshot) => {
+            const powerupData = snapshot.val();
+            this.handleRemotePowerupPickup(powerupData);
+        });
+        
+        console.log('Listening for powerup events');
+    },
+    
+    // Handle remote powerup spawn
+    handleRemotePowerupSpawn(powerupData) {
+        if (typeof powerUp === 'undefined' || typeof powerUps === 'undefined') return;
+        
+        console.log('Remote powerup spawned:', powerupData.name, 'at', powerupData.position.x, powerupData.position.y);
+        
+        // Spawn the powerup locally
+        const index = powerUp.length;
+        const target = powerUps[powerupData.name];
+        if (!target) {
+            console.error('Unknown powerup type:', powerupData.name);
+            return;
+        }
+        
+        powerUp[index] = Matter.Bodies.polygon(
+            powerupData.position.x,
+            powerupData.position.y,
+            0,
+            powerupData.size,
+            {
+                density: 0.001,
+                frictionAir: 0.03,
+                restitution: 0.85,
+                inertia: Infinity,
+                collisionFilter: {
+                    group: 0,
+                    category: cat.powerUp,
+                    mask: cat.map | cat.powerUp
+                },
+                color: powerupData.color,
+                effect: target.effect,
+                name: powerupData.name,
+                size: powerupData.size
+            }
+        );
+        
+        // Set velocity
+        Matter.Body.setVelocity(powerUp[index], powerupData.velocity);
+        
+        // Add to world
+        Matter.World.add(engine.world, powerUp[index]);
+        
+        // Store network ID mapping
+        this.localPowerupIds.set(index, powerupData.id);
+        this.networkPowerups.set(powerupData.id, index);
+    },
+    
+    // Handle remote powerup pickup
+    handleRemotePowerupPickup(powerupData) {
+        if (typeof powerUp === 'undefined') return;
+        
+        console.log('Remote powerup picked up:', powerupData.id);
+        
+        // Find the local powerup with this network ID
+        const localIndex = this.networkPowerups.get(powerupData.id);
+        if (localIndex === undefined) {
+            console.log('Powerup already removed locally');
+            return;
+        }
+        
+        // Remove the powerup locally
+        if (powerUp[localIndex]) {
+            Matter.World.remove(engine.world, powerUp[localIndex]);
+            powerUp.splice(localIndex, 1);
+            
+            // Update all mappings after splice
+            this.updatePowerupMappingsAfterRemoval(localIndex);
+        }
+        
+        // Clean up network mapping
+        this.networkPowerups.delete(powerupData.id);
+    },
+    
+    // Update powerup index mappings after array splice
+    updatePowerupMappingsAfterRemoval(removedIndex) {
+        // Update localPowerupIds map (index -> networkId)
+        const newLocalMap = new Map();
+        for (const [index, networkId] of this.localPowerupIds.entries()) {
+            if (index < removedIndex) {
+                newLocalMap.set(index, networkId);
+            } else if (index > removedIndex) {
+                newLocalMap.set(index - 1, networkId); // Shift down by 1
+                this.networkPowerups.set(networkId, index - 1); // Update reverse mapping
+            }
+        }
+        this.localPowerupIds = newLocalMap;
+    },
+    
+    // Render networked powerups (called from render loop)
+    renderPowerups() {
+        if (!this.enabled) return;
+        
+        // Powerups are already rendered by the main game loop
+        // This function is here for future enhancements like showing who spawned what
     }
 };
 

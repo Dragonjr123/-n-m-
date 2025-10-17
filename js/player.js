@@ -2536,6 +2536,12 @@ const m = {
                                     m.fieldRange *= 0.8
                                     powerUps.onPickUp(powerUp[i]);
                                     powerUp[i].effect();
+                                    
+                                    // Sync powerup pickup to multiplayer
+                                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                        multiplayer.syncPowerupPickup(i);
+                                    }
+                                    
                                     Matter.World.remove(engine.world, powerUp[i]);
                                     powerUp.splice(i, 1);
                                     break; //because the array order is messed up after splice
