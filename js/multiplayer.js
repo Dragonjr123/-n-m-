@@ -1221,6 +1221,12 @@ const multiplayer = {
     handleRemoteLevelChange(event) {
         console.log('🗺️ Remote level change:', event.levelName, 'by player:', event.playerId);
         
+        // ONLY sync if game is actually running (not in lobby/menu)
+        if (typeof simulation === 'undefined' || simulation.paused || !level || level.onLevel === -1) {
+            console.log('⚠️ Ignoring level change - game not started yet');
+            return;
+        }
+        
         // If someone else goes to next level, follow them
         if (typeof level !== 'undefined' && level.nextLevel) {
             const playerName = this.otherPlayers.get(event.playerId)?.name || 'Player';

@@ -167,9 +167,10 @@ const level = {
     nextLevel() {
         level.levelsCleared++;
         
-        // Sync level change to multiplayer
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+        // Sync level change to multiplayer (only if game is actually running)
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && level.onLevel >= 0) {
             const nextLevelName = level.levels[level.onLevel + 1] || 'unknown';
+            console.log('📤 Syncing level change to:', nextLevelName);
             multiplayer.syncLevelChange(nextLevelName, level.onLevel + 1);
         }
         
