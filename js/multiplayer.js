@@ -521,7 +521,9 @@ const multiplayer = {
             ctx.stroke();
             
             
-            // Draw field emitter (same as player.js drawField)
+            ctx.restore();
+            
+            // Draw field emitter in world coordinates (like player.js drawField)
             if (player.fieldActive && player.energy > 0) {
                 // Field colors based on holding state (from player.js)
                 if (player.isHolding) {
@@ -534,7 +536,7 @@ const multiplayer = {
                 
                 const range = player.fieldRange || 155;
                 ctx.beginPath();
-                ctx.arc(0, 0, range, player.angle - Math.PI * (player.fieldArc || 0.2), player.angle + Math.PI * (player.fieldArc || 0.2), false);
+                ctx.arc(pos.x, pos.y, range, player.angle - Math.PI * (player.fieldArc || 0.2), player.angle + Math.PI * (player.fieldArc || 0.2), false);
                 ctx.lineWidth = 2;
                 ctx.lineCap = "butt";
                 ctx.stroke();
@@ -542,28 +544,26 @@ const multiplayer = {
                 let eye = 13;
                 let aMag = 0.75 * Math.PI * (player.fieldArc || 0.2);
                 let a = player.angle + aMag;
-                let cp1x = 0.6 * range * Math.cos(a);
-                let cp1y = 0.6 * range * Math.sin(a);
-                ctx.quadraticCurveTo(cp1x, cp1y, eye * Math.cos(player.angle), eye * Math.sin(player.angle));
+                let cp1x = pos.x + 0.6 * range * Math.cos(a);
+                let cp1y = pos.y + 0.6 * range * Math.sin(a);
+                ctx.quadraticCurveTo(cp1x, cp1y, pos.x + eye * Math.cos(player.angle), pos.y + eye * Math.sin(player.angle));
                 
                 a = player.angle - aMag;
-                cp1x = 0.6 * range * Math.cos(a);
-                cp1y = 0.6 * range * Math.sin(a);
-                ctx.quadraticCurveTo(cp1x, cp1y, range * Math.cos(player.angle - Math.PI * (player.fieldArc || 0.2)), range * Math.sin(player.angle - Math.PI * (player.fieldArc || 0.2)));
+                cp1x = pos.x + 0.6 * range * Math.cos(a);
+                cp1y = pos.y + 0.6 * range * Math.sin(a);
+                ctx.quadraticCurveTo(cp1x, cp1y, pos.x + range * Math.cos(player.angle - Math.PI * (player.fieldArc || 0.2)), pos.y + range * Math.sin(player.angle - Math.PI * (player.fieldArc || 0.2)));
                 ctx.fill();
                 
                 // Draw random lines in field for cool effect
                 let offAngle = player.angle + 1.7 * Math.PI * (player.fieldArc || 0.2) * (Math.random() - 0.5);
                 ctx.beginPath();
                 eye = 15;
-                ctx.moveTo(eye * Math.cos(player.angle), eye * Math.sin(player.angle));
-                ctx.lineTo(range * Math.cos(offAngle), range * Math.sin(offAngle));
+                ctx.moveTo(pos.x + eye * Math.cos(player.angle), pos.y + eye * Math.sin(player.angle));
+                ctx.lineTo(pos.x + range * Math.cos(offAngle), pos.y + range * Math.sin(offAngle));
                 ctx.strokeStyle = "rgba(120,170,255,0.6)";
                 ctx.lineWidth = 1;
                 ctx.stroke();
             }
-            
-            ctx.restore();
             
             // Draw health bar and name AFTER restore (in world space)
             ctx.save();
