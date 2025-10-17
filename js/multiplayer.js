@@ -87,6 +87,9 @@ const multiplayer = {
         // Listen for other players joining
         this.listenToPlayers();
         
+        // Start listening for field interaction events
+        this.listenToFieldEvents();
+        
         console.log('Lobby created:', this.lobbyId);
         return this.lobbyId;
     },
@@ -119,6 +122,9 @@ const multiplayer = {
         
         // Listen to other players
         this.listenToPlayers();
+        
+        // Start listening for field interaction events
+        this.listenToFieldEvents();
         
         console.log('Joined lobby:', this.lobbyId);
         return lobbyData.gameMode;
@@ -239,7 +245,18 @@ const multiplayer = {
             maxEnergy: m.maxEnergy || 1,
             fieldRange: m.fieldRange || 155,
             fieldArc: m.fieldArc || 0.2,
+            fieldThreshold: m.fieldThreshold,
+            fieldRegen: m.fieldRegen,
+            fieldMeterColor: m.fieldMeterColor,
+            fieldMode: m.fieldMode,
+            fieldCDcycle: m.fieldCDcycle,
+            fireCDcycle: m.fireCDcycle,
             isHolding: m.isHolding || false,
+            holdingTarget: m.holdingTarget ? {
+                position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
+                velocity: { x: m.holdingTarget.velocity.x, y: m.holdingTarget.velocity.y },
+                mass: m.holdingTarget.mass
+            } : null,
             lastUpdate: Date.now()
         };
     },
@@ -336,6 +353,281 @@ const multiplayer = {
             x: player.displayX,
             y: player.displayY
         };
+    },
+    
+    // Draw field emitter based on field type (matches player.js logic)
+    drawPlayerField(ctx, player, pos) {
+        if (!player.fieldActive || player.energy <= 0) return;
+        
+        const fieldMode = player.fieldMode || 0;
+        const fieldName = m.fieldUpgrades[fieldMode]?.name || "field emitter";
+        
+        switch (fieldName) {
+            case "field emitter":
+            case "nano-scale manufacturing":
+                this.drawBasicField(ctx, player, pos);
+                break;
+            case "standing wave harmonics":
+                this.drawStandingWaveField(ctx, player, pos);
+                break;
+            case "perfect diamagnetism":
+                this.drawDiamagnetismField(ctx, player, pos);
+                break;
+            case "negative mass field":
+                this.drawNegativeMassField(ctx, player, pos);
+                break;
+            case "plasma torch":
+                this.drawPlasmaField(ctx, player, pos);
+                break;
+            case "time dilation field":
+                this.drawTimeDilationField(ctx, player, pos);
+                break;
+            case "metamaterial cloaking":
+                this.drawCloakingField(ctx, player, pos);
+                break;
+            case "pilot wave":
+                this.drawPilotWaveField(ctx, player, pos);
+                break;
+            case "wormhole":
+                this.drawWormholeField(ctx, player, pos);
+                break;
+            default:
+                this.drawBasicField(ctx, player, pos);
+        }
+    },
+    
+    // Basic field emitter (from player.js lines 1211-1248)
+    drawBasicField(ctx, player, pos) {
+        // Field colors based on holding state
+        if (player.isHolding) {
+            ctx.fillStyle = `rgba(110,170,200,${player.energy * (0.05 + 0.05 * Math.random())})`;
+            ctx.strokeStyle = `rgba(110, 200, 235, ${0.3 + 0.08 * Math.random()})`;
+        } else {
+            ctx.fillStyle = `rgba(110,170,200,${0.02 + player.energy * (0.15 + 0.15 * Math.random())})`;
+            ctx.strokeStyle = `rgba(110, 200, 235, ${0.6 + 0.2 * Math.random()})`;
+        }
+        
+        const range = player.fieldRange || 155;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, range, player.angle - Math.PI * (player.fieldArc || 0.2), player.angle + Math.PI * (player.fieldArc || 0.2), false);
+        ctx.lineWidth = 2;
+        ctx.lineCap = "butt";
+        ctx.stroke();
+        
+        let eye = 13;
+        let aMag = 0.75 * Math.PI * (player.fieldArc || 0.2);
+        let a = player.angle + aMag;
+        let cp1x = pos.x + 0.6 * range * Math.cos(a);
+        let cp1y = pos.y + 0.6 * range * Math.sin(a);
+        ctx.quadraticCurveTo(cp1x, cp1y, pos.x + eye * Math.cos(player.angle), pos.y + eye * Math.sin(player.angle));
+        
+        a = player.angle - aMag;
+        cp1x = pos.x + 0.6 * range * Math.cos(a);
+        cp1y = pos.y + 0.6 * range * Math.sin(a);
+        ctx.quadraticCurveTo(cp1x, cp1y, pos.x + range * Math.cos(player.angle - Math.PI * (player.fieldArc || 0.2)), pos.y + range * Math.sin(player.angle - Math.PI * (player.fieldArc || 0.2)));
+        ctx.fill();
+        
+        // Draw random lines in field for cool effect
+        let offAngle = player.angle + 1.7 * Math.PI * (player.fieldArc || 0.2) * (Math.random() - 0.5);
+        ctx.beginPath();
+        eye = 15;
+        ctx.moveTo(pos.x + eye * Math.cos(player.angle), pos.y + eye * Math.sin(player.angle));
+        ctx.lineTo(pos.x + range * Math.cos(offAngle), pos.y + range * Math.sin(offAngle));
+        ctx.strokeStyle = "rgba(120,170,255,0.6)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    },
+    
+    // Standing wave harmonics field (from player.js lines 1515-1555)
+    drawStandingWaveField(ctx, player, pos) {
+        if (player.energy > 0.1) {
+            const fieldRange1 = (0.7 + 0.3 * Math.sin(Date.now() / 400)) * (player.fieldRange || 175);
+            const fieldRange2 = (0.63 + 0.37 * Math.sin(Date.now() / 620)) * (player.fieldRange || 175);
+            const fieldRange3 = (0.65 + 0.35 * Math.sin(Date.now() / 780)) * (player.fieldRange || 175);
+            
+            ctx.fillStyle = `rgba(110,170,200,${Math.min(0.73, (0.04 + player.energy * (0.11 + 0.13 * Math.random())))})`;
+            
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, fieldRange1, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, fieldRange2, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, fieldRange3, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+    },
+    
+    // Perfect diamagnetism field (from player.js lines 1561-1628)
+    drawDiamagnetismField(ctx, player, pos) {
+        const wave = Math.sin(Date.now() * 0.022);
+        const fieldRange = (player.fieldRange || 170) + 12 * wave;
+        const fieldArc = (player.fieldArc || 0.33) + 0.045 * wave;
+        
+        if (player.energy > 0.05) {
+            // Field colors based on holding state
+            if (player.isHolding) {
+                ctx.fillStyle = `rgba(110,170,200,${0.06 + 0.03 * Math.random()})`;
+                ctx.strokeStyle = `rgba(110, 200, 235, ${0.35 + 0.05 * Math.random()})`;
+            } else {
+                ctx.fillStyle = `rgba(110,170,200,${0.27 + 0.2 * Math.random() - 0.1 * wave})`;
+                ctx.strokeStyle = `rgba(110, 200, 235, ${0.4 + 0.5 * Math.random()})`;
+            }
+            
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, fieldRange, player.angle - Math.PI * fieldArc, player.angle + Math.PI * fieldArc, false);
+            ctx.lineWidth = 2.5 - 1.5 * wave;
+            ctx.lineCap = "butt";
+            ctx.stroke();
+            
+            const curve = 0.57 + 0.04 * wave;
+            const aMag = (1 - curve * 1.2) * Math.PI * fieldArc;
+            let a = player.angle + aMag;
+            let cp1x = pos.x + curve * fieldRange * Math.cos(a);
+            let cp1y = pos.y + curve * fieldRange * Math.sin(a);
+            ctx.quadraticCurveTo(cp1x, cp1y, pos.x + 30 * Math.cos(player.angle), pos.y + 30 * Math.sin(player.angle));
+            
+            a = player.angle - aMag;
+            cp1x = pos.x + curve * fieldRange * Math.cos(a);
+            cp1y = pos.y + curve * fieldRange * Math.sin(a);
+            ctx.quadraticCurveTo(cp1x, cp1y, pos.x + fieldRange * Math.cos(player.angle - Math.PI * fieldArc), pos.y + fieldRange * Math.sin(player.angle - Math.PI * fieldArc));
+            ctx.fill();
+        }
+    },
+    
+    // Negative mass field (from player.js lines 1685-1798)
+    drawNegativeMassField(ctx, player, pos) {
+        if (player.energy > 0.00035) {
+            const drawRadius = (player.fieldDrawRadius || 0) * 0.97 + 650 * 0.03;
+            
+            // Draw zero-G range
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, drawRadius, 0, 2 * Math.PI);
+            ctx.fillStyle = "#f5f5ff";
+            ctx.globalCompositeOperation = "difference";
+            ctx.fill();
+            ctx.globalCompositeOperation = "source-over";
+        }
+    },
+    
+    // Plasma torch field (from player.js lines 1802-1850)
+    drawPlasmaField(ctx, player, pos) {
+        // Plasma effects would be drawn by the bullet system
+        // This is mainly for the field indicator
+        if (player.energy > 0.05) {
+            ctx.fillStyle = `rgba(255,0,255,${0.3 + 0.2 * Math.random()})`;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 50, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+    },
+    
+    // Time dilation field (from player.js lines 1855-1950)
+    drawTimeDilationField(ctx, player, pos) {
+        if (player.energy > 0.0013) {
+            // Draw saturation effect
+            ctx.globalCompositeOperation = "saturation";
+            ctx.fillStyle = "#ccc";
+            ctx.fillRect(-100000, -100000, 200000, 200000);
+            ctx.globalCompositeOperation = "source-over";
+        }
+    },
+    
+    // Metamaterial cloaking field (from player.js lines 1953-2104)
+    drawCloakingField(ctx, player, pos) {
+        const energy = Math.max(0.01, Math.min(player.energy || 0, 1));
+        const drawRadius = 1000;
+        const fieldRange = drawRadius * Math.min(1, 0.3 + 0.5 * Math.min(1, energy * energy));
+        
+        ctx.fillStyle = `rgba(255,255,255,${200 / fieldRange / fieldRange})`;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, fieldRange, 0, 2 * Math.PI);
+        ctx.globalCompositeOperation = "destination-in";
+        ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+        ctx.clip();
+    },
+    
+    // Pilot wave field (from player.js lines 2240-2420)
+    drawPilotWaveField(ctx, player, pos) {
+        if (player.fieldOn && player.fieldRadius > 0) {
+            const rotate = Date.now() * 0.008;
+            const fieldPhase = (player.fieldPhase || 0) + 0.2;
+            const off1 = 1 + 0.06 * Math.sin(fieldPhase);
+            const off2 = 1 - 0.06 * Math.sin(fieldPhase);
+            
+            ctx.beginPath();
+            ctx.ellipse(pos.x, pos.y, 1.2 * player.fieldRadius * off1, 1.2 * player.fieldRadius * off2, rotate, 0, 2 * Math.PI);
+            ctx.globalCompositeOperation = "exclusion";
+            ctx.fillStyle = "#fff";
+            ctx.fill();
+            ctx.globalCompositeOperation = "source-over";
+            
+            ctx.beginPath();
+            ctx.ellipse(pos.x, pos.y, 1.2 * player.fieldRadius * off1, 1.2 * player.fieldRadius * off2, rotate, 0, 2 * Math.PI * player.energy / (player.maxEnergy || 1));
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 4;
+            ctx.stroke();
+        }
+    },
+    
+    // Wormhole field (from player.js lines 2422-2665)
+    drawWormholeField(ctx, player, pos) {
+        if (player.hole && player.hole.isOn) {
+            const fieldRange = (player.fieldRange || 0) * 0.97 + 0.03 * (50 + 10 * Math.sin(Date.now() * 0.025));
+            const semiMajorAxis = fieldRange + 30;
+            
+            // Draw wormhole connection
+            ctx.beginPath();
+            ctx.moveTo(player.hole.pos1.x + semiMajorAxis, player.hole.pos1.y);
+            ctx.bezierCurveTo(player.hole.pos1.x, player.hole.pos1.y, player.hole.pos2.x, player.hole.pos2.y, player.hole.pos2.x + semiMajorAxis, player.hole.pos2.y);
+            ctx.lineTo(player.hole.pos2.x - semiMajorAxis, player.hole.pos2.y);
+            ctx.bezierCurveTo(player.hole.pos2.x, player.hole.pos2.y, player.hole.pos1.x, player.hole.pos1.y, player.hole.pos1.x - semiMajorAxis, player.hole.pos1.y);
+            ctx.fillStyle = `rgba(255,255,255,${200 / fieldRange / fieldRange})`;
+            ctx.fill();
+            
+            // Draw wormhole portals
+            ctx.beginPath();
+            ctx.ellipse(player.hole.pos1.x, player.hole.pos1.y, fieldRange, semiMajorAxis, player.hole.angle || 0, 0, 2 * Math.PI);
+            ctx.ellipse(player.hole.pos2.x, player.hole.pos2.y, fieldRange, semiMajorAxis, player.hole.angle || 0, 0, 2 * Math.PI);
+            ctx.fillStyle = `rgba(255,255,255,${32 / fieldRange})`;
+            ctx.fill();
+        }
+    },
+    
+    // Draw holding target visualization (from player.js lines 1075-1103)
+    drawHoldingTarget(ctx, player, pos) {
+        if (!player.holdingTarget) return;
+        
+        const eye = 15;
+        const targetPos = player.holdingTarget.position;
+        
+        ctx.fillStyle = "rgba(110,170,200," + (0.2 + 0.4 * Math.random()) + ")";
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "#000";
+        
+        // Draw connection lines from player to holding target
+        ctx.beginPath();
+        ctx.moveTo(pos.x + eye * Math.cos(player.angle), pos.y + eye * Math.sin(player.angle));
+        ctx.lineTo(targetPos.x, targetPos.y);
+        ctx.stroke();
+        
+        // Draw holding target as a simple circle
+        ctx.beginPath();
+        ctx.arc(targetPos.x, targetPos.y, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+        
+        // Draw mass indicator
+        if (player.holdingTarget.mass) {
+            ctx.font = "10px Arial";
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#fff";
+            ctx.fillText(Math.round(player.holdingTarget.mass * 10) / 10, targetPos.x, targetPos.y + 3);
+        }
     },
     
     // Render other players
@@ -523,46 +815,12 @@ const multiplayer = {
             
             ctx.restore();
             
-            // Draw field emitter in world coordinates (like player.js drawField)
-            if (player.fieldActive && player.energy > 0) {
-                // Field colors based on holding state (from player.js)
-                if (player.isHolding) {
-                    ctx.fillStyle = `rgba(110,170,200,${player.energy * (0.05 + 0.05 * Math.random())})`;
-                    ctx.strokeStyle = `rgba(110, 200, 235, ${0.3 + 0.08 * Math.random()})`;
-                } else {
-                    ctx.fillStyle = `rgba(110,170,200,${0.02 + player.energy * (0.15 + 0.15 * Math.random())})`;
-                    ctx.strokeStyle = `rgba(110, 200, 235, ${0.6 + 0.2 * Math.random()})`;
-                }
-                
-                const range = player.fieldRange || 155;
-                ctx.beginPath();
-                ctx.arc(pos.x, pos.y, range, player.angle - Math.PI * (player.fieldArc || 0.2), player.angle + Math.PI * (player.fieldArc || 0.2), false);
-                ctx.lineWidth = 2;
-                ctx.lineCap = "butt";
-                ctx.stroke();
-                
-                let eye = 13;
-                let aMag = 0.75 * Math.PI * (player.fieldArc || 0.2);
-                let a = player.angle + aMag;
-                let cp1x = pos.x + 0.6 * range * Math.cos(a);
-                let cp1y = pos.y + 0.6 * range * Math.sin(a);
-                ctx.quadraticCurveTo(cp1x, cp1y, pos.x + eye * Math.cos(player.angle), pos.y + eye * Math.sin(player.angle));
-                
-                a = player.angle - aMag;
-                cp1x = pos.x + 0.6 * range * Math.cos(a);
-                cp1y = pos.y + 0.6 * range * Math.sin(a);
-                ctx.quadraticCurveTo(cp1x, cp1y, pos.x + range * Math.cos(player.angle - Math.PI * (player.fieldArc || 0.2)), pos.y + range * Math.sin(player.angle - Math.PI * (player.fieldArc || 0.2)));
-                ctx.fill();
-                
-                // Draw random lines in field for cool effect
-                let offAngle = player.angle + 1.7 * Math.PI * (player.fieldArc || 0.2) * (Math.random() - 0.5);
-                ctx.beginPath();
-                eye = 15;
-                ctx.moveTo(pos.x + eye * Math.cos(player.angle), pos.y + eye * Math.sin(player.angle));
-                ctx.lineTo(pos.x + range * Math.cos(offAngle), pos.y + range * Math.sin(offAngle));
-                ctx.strokeStyle = "rgba(120,170,255,0.6)";
-                ctx.lineWidth = 1;
-                ctx.stroke();
+            // Draw field emitter based on field type (like player.js field emitter logic)
+            this.drawPlayerField(ctx, player, pos);
+            
+            // Draw holding target if player is holding something (like player.js drawHold)
+            if (player.isHolding && player.holdingTarget) {
+                this.drawHoldingTarget(ctx, player, pos);
             }
             
             // Draw health bar and name AFTER restore (in world space)
@@ -586,6 +844,28 @@ const multiplayer = {
             ctx.strokeStyle = "#000";
             ctx.lineWidth = 2;
             ctx.strokeRect(barX, barY, barWidth, barHeight);
+            
+            // Draw field meter (like player.js drawFieldMeter)
+            if (player.energy !== undefined && player.maxEnergy !== undefined && player.energy < player.maxEnergy) {
+                const fieldBarWidth = 60;
+                const fieldBarHeight = 6;
+                const fieldBarX = pos.x - fieldBarWidth / 2;
+                const fieldBarY = pos.y - 70;
+                
+                // Field meter background
+                ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+                ctx.fillRect(fieldBarX, fieldBarY, fieldBarWidth, fieldBarHeight);
+                
+                // Field meter fill with player's field meter color
+                const fieldColor = player.fieldMeterColor || "#0cf";
+                ctx.fillStyle = fieldColor;
+                ctx.fillRect(fieldBarX, fieldBarY, fieldBarWidth * (player.energy / player.maxEnergy), fieldBarHeight);
+                
+                // Field meter border
+                ctx.strokeStyle = "#000";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(fieldBarX, fieldBarY, fieldBarWidth, fieldBarHeight);
+            }
             
             // Draw player name with background
             const playerName = player.name || "Player";
@@ -617,6 +897,127 @@ const multiplayer = {
             powerupIndex: powerupIndex,
             timestamp: Date.now()
         });
+    },
+    
+    // Sync field interactions (powerup grabbing, block pushing)
+    syncFieldInteraction(type, data) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: `field_${type}`,
+            playerId: this.playerId,
+            data: data,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync block pickup/throw
+    syncBlockInteraction(type, blockData) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: `block_${type}`,
+            playerId: this.playerId,
+            blockData: blockData,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Listen for field interaction events from other players
+    listenToFieldEvents() {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventsRef = database.ref(`lobbies/${this.lobbyId}/events`);
+        eventsRef.on('child_added', (snapshot) => {
+            const event = snapshot.val();
+            if (event.playerId === this.playerId) return; // Ignore own events
+            
+            this.handleFieldEvent(event);
+        });
+    },
+    
+    // Handle incoming field events from other players
+    handleFieldEvent(event) {
+        switch (event.type) {
+            case 'field_powerup_grab':
+                this.handleRemotePowerupGrab(event.data);
+                break;
+            case 'field_block_push':
+                this.handleRemoteBlockPush(event.data);
+                break;
+            case 'block_pickup':
+                this.handleRemoteBlockPickup(event.blockData);
+                break;
+            case 'block_throw':
+                this.handleRemoteBlockThrow(event.blockData);
+                break;
+        }
+    },
+    
+    // Handle remote powerup grabbing
+    handleRemotePowerupGrab(data) {
+        // Visual effect for remote powerup grab
+        if (data.powerupIndex !== undefined && powerUp[data.powerupIndex]) {
+            // Add visual effect to show powerup was grabbed by remote player
+            const powerup = powerUp[data.powerupIndex];
+            simulation.drawList.push({
+                x: powerup.position.x,
+                y: powerup.position.y,
+                radius: 30,
+                color: "rgba(0,255,0,0.5)",
+                time: 10
+            });
+        }
+    },
+    
+    // Handle remote block pushing
+    handleRemoteBlockPush(data) {
+        // Visual effect for remote block push
+        if (data.blockIndex !== undefined && body[data.blockIndex]) {
+            const block = body[data.blockIndex];
+            simulation.drawList.push({
+                x: block.position.x,
+                y: block.position.y,
+                radius: 20,
+                color: "rgba(0,200,255,0.3)",
+                time: 15
+            });
+        }
+    },
+    
+    // Handle remote block pickup
+    handleRemoteBlockPickup(blockData) {
+        // Visual effect for remote block pickup
+        if (blockData.position) {
+            simulation.drawList.push({
+                x: blockData.position.x,
+                y: blockData.position.y,
+                radius: 25,
+                color: "rgba(255,255,0,0.4)",
+                time: 20
+            });
+        }
+    },
+    
+    // Handle remote block throw
+    handleRemoteBlockThrow(blockData) {
+        // Visual effect for remote block throw
+        if (blockData.position && blockData.velocity) {
+            // Create a trail effect
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => {
+                    simulation.drawList.push({
+                        x: blockData.position.x + blockData.velocity.x * i * 0.1,
+                        y: blockData.position.y + blockData.velocity.y * i * 0.1,
+                        radius: 15 - i * 2,
+                        color: `rgba(255,100,0,${0.6 - i * 0.1})`,
+                        time: 10 - i
+                    });
+                }, i * 50);
+            }
+        }
     },
     
     // Kick player (host only)
