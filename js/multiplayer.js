@@ -341,6 +341,38 @@ const multiplayer = {
             
             // Draw player body (EXACT same as m.draw())
             ctx.translate(pos.x, pos.y);
+            
+            // Draw legs first (before rotation)
+            const playerColor = player.color || "#4a9eff";
+            const darkColor = this.darkenColor(playerColor, 0.7);
+            
+            // Simple leg animation based on movement
+            const walkCycle = (Date.now() * 0.01) % (Math.PI * 2);
+            const stepSize = Math.min(5, Math.abs(player.vx || 0) * 2);
+            
+            // Left leg
+            ctx.save();
+            ctx.strokeStyle = "#4a4a4a";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            const leftLegAngle = Math.sin(walkCycle) * stepSize;
+            ctx.moveTo(12, 24);
+            ctx.lineTo(2.2 * stepSize * Math.cos(leftLegAngle), 24 + 1.2 * stepSize * Math.sin(leftLegAngle) + 40);
+            ctx.stroke();
+            ctx.restore();
+            
+            // Right leg
+            ctx.save();
+            ctx.strokeStyle = "#333";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            const rightLegAngle = Math.sin(walkCycle + Math.PI) * stepSize;
+            ctx.moveTo(-12, 24);
+            ctx.lineTo(-2.2 * stepSize * Math.cos(rightLegAngle), 24 + 1.2 * stepSize * Math.sin(rightLegAngle) + 40);
+            ctx.stroke();
+            ctx.restore();
+            
+            // Rotate for body
             ctx.rotate(player.angle || 0);
             
             // Body circle with gradient (same as player.js line 2926-2936)
@@ -348,11 +380,7 @@ const multiplayer = {
             ctx.arc(0, 0, 30, 0, 2 * Math.PI);
             
             // Create gradient from player color
-            const playerColor = player.color || "#4a9eff";
             let grd = ctx.createLinearGradient(-30, 0, 30, 0);
-            
-            // Darken the color for gradient start
-            const darkColor = this.darkenColor(playerColor, 0.7);
             grd.addColorStop(0, darkColor);
             grd.addColorStop(1, playerColor);
             
@@ -370,16 +398,6 @@ const multiplayer = {
             ctx.arc(0, 0, 32, 0, 2 * Math.PI);
             ctx.strokeStyle = "#ff0000";
             ctx.lineWidth = 3;
-            ctx.stroke();
-            
-            // Debug: Draw a giant red X to make sure we can see ANYTHING
-            ctx.beginPath();
-            ctx.moveTo(-50, -50);
-            ctx.lineTo(50, 50);
-            ctx.moveTo(50, -50);
-            ctx.lineTo(-50, 50);
-            ctx.strokeStyle = "#ff0000";
-            ctx.lineWidth = 10;
             ctx.stroke();
             
             // Draw field if active
