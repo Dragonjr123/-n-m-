@@ -1046,11 +1046,40 @@ const multiplayer = {
     
     // Handle remote block throw
     handleRemoteBlockThrow(blockData) {
+        if (!blockData.position || !blockData.velocity) return;
+        
+        console.log('Remote block throw:', blockData);
+        
+        // Find the closest block to the thrown position (within reasonable distance)
+        if (typeof body !== 'undefined') {
+            let closestBlock = null;
+            let closestDist = 100; // Max 100 pixels away
+            
+            for (let i = 0; i < body.length; i++) {
+                if (body[i] && body[i].position) {
+                    const dx = body[i].position.x - blockData.position.x;
+                    const dy = body[i].position.y - blockData.position.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closestBlock = body[i];
+                    }
+                }
+            }
+            
+            // Apply the throw velocity to the closest block
+            if (closestBlock) {
+                Matter.Body.setVelocity(closestBlock, blockData.velocity);
+                Matter.Body.setPosition(closestBlock, blockData.position);
+                console.log('Applied remote throw to block');
+            }
+        }
+        
         // Visual effect for remote block throw
-        if (blockData.position && blockData.velocity) {
-            // Create a trail effect
-            for (let i = 0; i < 5; i++) {
-                setTimeout(() => {
+        for (let i = 0; i < 5; i++) {
+            setTimeout(() => {
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
                     simulation.drawList.push({
                         x: blockData.position.x + blockData.velocity.x * i * 0.1,
                         y: blockData.position.y + blockData.velocity.y * i * 0.1,
@@ -1058,8 +1087,8 @@ const multiplayer = {
                         color: `rgba(255,100,0,${0.6 - i * 0.1})`,
                         time: 10 - i
                     });
-                }, i * 50);
-            }
+                }
+            }, i * 50);
         }
     },
     
@@ -1313,22 +1342,8 @@ const multiplayer = {
             }
         }
         
-        // Sync blocks (physics bodies)
-        if (typeof body !== 'undefined') {
-            for (let i = 0; i < Math.min(body.length, 30); i++) { // Limit to 30 blocks
-                if (body[i] && body[i].position) {
-                    physicsData.blocks.push({
-                        index: i,
-                        x: body[i].position.x,
-                        y: body[i].position.y,
-                        vx: body[i].velocity.x,
-                        vy: body[i].velocity.y,
-                        angle: body[i].angle,
-                        angularVelocity: body[i].angularVelocity
-                    });
-                }
-            }
-        }
+        // Block syncing disabled - blocks are peer-to-peer via throw/pickup events
+        // Each client simulates blocks independently to prevent conflicts
         
         // Sync powerup positions (they move with physics)
         if (typeof powerUp !== 'undefined') {
@@ -1390,24 +1405,7 @@ const multiplayer = {
             }
         }
         
-        // Update blocks (use interpolation to smooth the updates)
-        if (physicsData.blocks && typeof body !== 'undefined') {
-            for (const blockData of physicsData.blocks) {
-                if (body[blockData.index]) {
-                    // Smoothly interpolate to new position
-                    const currentPos = body[blockData.index].position;
-                    const lerpFactor = 0.3;
-                    
-                    Matter.Body.setPosition(body[blockData.index], {
-                        x: currentPos.x + (blockData.x - currentPos.x) * lerpFactor,
-                        y: currentPos.y + (blockData.y - currentPos.y) * lerpFactor
-                    });
-                    Matter.Body.setVelocity(body[blockData.index], { x: blockData.vx, y: blockData.vy });
-                    Matter.Body.setAngle(body[blockData.index], blockData.angle);
-                    Matter.Body.setAngularVelocity(body[blockData.index], blockData.angularVelocity);
-                }
-            }
-        }
+        // Block physics updates disabled - blocks are peer-to-peer via throw/pickup events
         
         // Update powerups (use interpolation)
         if (physicsData.powerups && typeof powerUp !== 'undefined') {
