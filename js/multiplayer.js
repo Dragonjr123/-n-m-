@@ -1061,7 +1061,7 @@ const multiplayer = {
     handleRemoteGunFire(event) {
         console.log('🔫 Remote gun fire:', event.gunName, 'at angle:', event.angle, 'position:', event.position);
         
-        // Show muzzle flash
+        // Show muzzle flash and projectile trail
         if (typeof simulation !== 'undefined' && simulation.drawList && event.position) {
             // Muzzle flash - make it VERY visible
             for (let i = 0; i < 5; i++) {
@@ -1073,6 +1073,25 @@ const multiplayer = {
                     time: 12 - i * 2
                 });
             }
+            
+            // For grenade-type weapons, show projectile trail
+            if (event.gunName === 'grenades' || event.gunName === 'missiles' || event.gunName === 'shotgun') {
+                const range = event.gunName === 'shotgun' ? 200 : 500;
+                for (let i = 0; i < 10; i++) {
+                    setTimeout(() => {
+                        if (typeof simulation !== 'undefined' && simulation.drawList) {
+                            simulation.drawList.push({
+                                x: event.position.x + (range * i / 10) * Math.cos(event.angle),
+                                y: event.position.y + (range * i / 10) * Math.sin(event.angle),
+                                radius: 8,
+                                color: `rgba(50,50,50,${0.6 - i * 0.05})`,
+                                time: 8
+                            });
+                        }
+                    }, i * 30);
+                }
+            }
+            
             console.log('✅ Added muzzle flash to drawList');
         } else {
             console.log('❌ Could not add muzzle flash - simulation.drawList not available');
@@ -1084,8 +1103,8 @@ const multiplayer = {
         console.log('💥 Remote explosion at:', event.position, 'radius:', event.radius);
         
         if (typeof b !== 'undefined' && b.explosion) {
-            // Call the actual explosion function to show the effect
-            b.explosion(event.position, event.radius);
+            // Call the actual explosion function with skipSync=true to prevent infinite loop
+            b.explosion(event.position, event.radius, "rgba(255,25,0,0.6)", true);
             console.log('✅ Triggered explosion effect');
         } else {
             console.log('❌ Could not trigger explosion - b.explosion not available');

@@ -297,9 +297,9 @@ const b = {
     explosionRange() {
         return tech.explosiveRadius * (tech.isExplosionHarm ? 1.8 : 1) * (tech.isSmallExplosion ? 0.66 : 1) * (tech.isExplodeRadio ? 1.25 : 1)
     },
-    explosion(where, radius, color = "rgba(255,25,0,0.6)") { // typically explode is used for some bullets with .onEnd
-        // Sync explosion to multiplayer
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+    explosion(where, radius, color = "rgba(255,25,0,0.6)", skipSync = false) { // typically explode is used for some bullets with .onEnd
+        // Sync explosion to multiplayer (but not if this explosion came from multiplayer)
+        if (!skipSync && typeof multiplayer !== 'undefined' && multiplayer.enabled) {
             multiplayer.syncExplosion(where, radius);
         }
         
@@ -3936,6 +3936,12 @@ const b = {
             do() {},
             fire() {
                 m.fireCDcycle = m.cycle + Math.floor((m.crouch ? 40 : 30) * b.fireCD); // cool down
+                
+                // Sync grenade fire to multiplayer
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                    multiplayer.syncGunFire('grenades', m.angle, m.pos);
+                }
+                
                 b.grenade()
             },
         }, {
