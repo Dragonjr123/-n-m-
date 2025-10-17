@@ -1179,10 +1179,23 @@ const m = {
 
                 m.throwCharge = 0;
                 m.throwCycle = m.cycle + 180 //used to detect if a block was thrown in the last 3 seconds
-                Matter.Body.setVelocity(m.holdingTarget, {
+                
+                const throwVelocity = {
                     x: player.velocity.x * 0.5 + Math.cos(m.angle) * speed,
                     y: player.velocity.y * 0.5 + Math.sin(m.angle) * speed
-                });
+                };
+                
+                // Sync block throw to multiplayer
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                    multiplayer.syncBlockInteraction('throw', {
+                        position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
+                        velocity: throwVelocity,
+                        mass: m.holdingTarget.mass,
+                        charge: charge
+                    });
+                }
+                
+                Matter.Body.setVelocity(m.holdingTarget, throwVelocity);
                 //player recoil //stronger in x-dir to prevent jump hacking
 
                 Matter.Body.setVelocity(player, {
@@ -1272,6 +1285,12 @@ const m = {
                         y: player.velocity.y + powerUp[i].velocity.y / player.mass * 5
                     });
                     powerUp[i].effect();
+                    
+                    // Sync powerup pickup to multiplayer
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        multiplayer.syncPowerupPickup(i);
+                    }
+                    
                     Matter.World.remove(engine.world, powerUp[i]);
                     powerUp.splice(i, 1);
                     return; //because the array order is messed up after splice
@@ -1288,6 +1307,14 @@ const m = {
             m.energy -= fieldBlockCost
             if (m.energy < 0) m.energy = 0;
             m.fieldCDcycle = m.cycle + m.fieldBlockCD;
+            
+            // Sync block push to multiplayer
+            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                const blockIndex = body.indexOf(who);
+                if (blockIndex !== -1) {
+                    multiplayer.syncFieldInteraction('block_push', { blockIndex: blockIndex });
+                }
+            }
             if (tech.blockingIce) {
                 if (m.fieldShieldingScale) {
                     for (let i = 0; i < fieldBlockCost * 35 * tech.blockingIce; i++) b.iceIX(3, m.angle + Math.random() - 0.5, m.pos)
@@ -1427,6 +1454,15 @@ const m = {
         totalMomentum = Vector.add(Vector.mult(player.velocity, player.mass), Vector.mult(m.holdingTarget.velocity, m.holdingTarget.mass))
         Matter.Body.setVelocity(player, Vector.mult(totalMomentum, 1 / (m.defaultMass + m.holdingTarget.mass)));
 
+        // Sync block pickup to multiplayer
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            multiplayer.syncBlockInteraction('pickup', {
+                position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
+                velocity: { x: m.holdingTarget.velocity.x, y: m.holdingTarget.velocity.y },
+                mass: m.holdingTarget.mass
+            });
+        }
+
         m.definePlayerMass(m.defaultMass + m.holdingTarget.mass * m.holdingMassScale)
         //make block collide with nothing
         m.holdingTarget.collisionFilter.category = 0;
@@ -1484,7 +1520,7 @@ const m = {
         m.setHoldDefaults();
         m.fieldUpgrades[index].effect();
     },
-    fieldUpgrades: [{
+    fieldUpgrades: [        {
             name: "field emitter",
             description: "use <strong class='color-f'>energy</strong> to <strong>deflect</strong> mobs,<br><strong>grab</strong> power ups, and <strong>throw</strong> <strong class='color-block'>blocks</strong><br>regen <strong>6</strong> <strong class='color-f'>energy</strong> per second",
             effect: () => {
@@ -1499,6 +1535,15 @@ const m = {
                         if (m.energy > 0.05) {
                             m.drawField();
                             m.pushMobsFacing();
+                            
+                            // Sync field usage to multiplayer
+                            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                multiplayer.syncFieldInteraction('powerup_grab', { 
+                                    active: true,
+                                    energy: m.energy,
+                                    range: m.fieldRange
+                                });
+                            }
                         }
                     } else if (m.holdingTarget && m.fieldCDcycle < m.cycle) { //holding, but field button is released
                         m.pickUp();
