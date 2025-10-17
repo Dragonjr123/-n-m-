@@ -932,21 +932,6 @@ const multiplayer = {
         }
     },
     
-    // Sync powerup pickup
-    syncPowerupPickup(powerupIndex) {
-        console.log('syncPowerupPickup called:', powerupIndex, 'enabled:', this.enabled, 'lobbyId:', this.lobbyId);
-        if (!this.enabled || !this.lobbyId) return;
-        
-        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
-        eventRef.set({
-            type: 'powerup_pickup',
-            playerId: this.playerId,
-            powerupIndex: powerupIndex,
-            timestamp: Date.now()
-        });
-        console.log('Powerup pickup synced to Firebase');
-    },
-    
     // Sync field interactions (powerup grabbing, block pushing)
     syncFieldInteraction(type, data) {
         console.log('syncFieldInteraction called:', type, data, 'enabled:', this.enabled, 'lobbyId:', this.lobbyId);

@@ -1279,26 +1279,30 @@ const m = {
                     y: powerUp[i].velocity.y * 0.11
                 });
                 if (dist2 < 5000 && !simulation.isChoosing) { //use power up if it is close enough
-                    powerUps.onPickUp(powerUp[i]);
+                    // Store reference before any async operations
+                    const pickedUpPowerup = powerUp[i];
+                    const powerupIndex = i;
+                    
+                    powerUps.onPickUp(pickedUpPowerup);
                     Matter.Body.setVelocity(player, { //player knock back, after grabbing power up
-                        x: player.velocity.x + powerUp[i].velocity.x / player.mass * 5,
-                        y: player.velocity.y + powerUp[i].velocity.y / player.mass * 5
+                        x: player.velocity.x + pickedUpPowerup.velocity.x / player.mass * 5,
+                        y: player.velocity.y + pickedUpPowerup.velocity.y / player.mass * 5
                     });
-                    powerUp[i].effect();
+                    pickedUpPowerup.effect();
                     
-                    // Sync powerup pickup to multiplayer
+                    // Remove from physics world immediately (before sync to prevent race condition)
+                    if (pickedUpPowerup && pickedUpPowerup.type) {
+                        Matter.World.remove(engine.world, pickedUpPowerup);
+                    }
+                    
+                    // Sync powerup pickup to multiplayer AFTER local removal
                     if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                        console.log('Syncing powerup pickup:', i);
-                        multiplayer.syncPowerupPickup(i);
-                    } else {
-                        console.log('Multiplayer not available or enabled:', typeof multiplayer, multiplayer?.enabled);
+                        console.log('Syncing powerup pickup:', powerupIndex);
+                        multiplayer.syncPowerupPickup(powerupIndex);
                     }
                     
-                    // Safety check: powerup might have been removed by multiplayer event
-                    if (powerUp[i] && powerUp[i].type) {
-                        Matter.World.remove(engine.world, powerUp[i]);
-                        powerUp.splice(i, 1);
-                    }
+                    // Remove from array last
+                    powerUp.splice(powerupIndex, 1);
                     return; //because the array order is messed up after splice
                 }
             }
