@@ -956,6 +956,33 @@ const multiplayer = {
         console.log('Block interaction synced to Firebase');
     },
     
+    // Sync gun fire
+    syncGunFire(gunName, angle, position) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'gun_fire',
+            playerId: this.playerId,
+            gunName: gunName,
+            angle: angle,
+            position: { x: position.x, y: position.y },
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync tech selection
+    syncTechSelection(techName) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
+        playerRef.update({
+            lastTech: techName,
+            techTimestamp: Date.now()
+        });
+        console.log('Tech selection synced:', techName);
+    },
+    
     // Listen for field interaction events from other players
     listenToFieldEvents() {
         if (!this.enabled || !this.lobbyId) return;
@@ -985,6 +1012,26 @@ const multiplayer = {
             case 'block_throw':
                 this.handleRemoteBlockThrow(event.blockData);
                 break;
+            case 'gun_fire':
+                this.handleRemoteGunFire(event);
+                break;
+        }
+    },
+    
+    // Handle remote gun fire
+    handleRemoteGunFire(event) {
+        console.log('Remote gun fire:', event.gunName, 'at', event.angle);
+        
+        // Visual effect for remote gun fire
+        if (typeof simulation !== 'undefined' && simulation.drawList && event.position) {
+            const range = 50;
+            simulation.drawList.push({
+                x: event.position.x + range * Math.cos(event.angle),
+                y: event.position.y + range * Math.sin(event.angle),
+                radius: 15,
+                color: "rgba(255,200,0,0.6)",
+                time: 8
+            });
         }
     },
     

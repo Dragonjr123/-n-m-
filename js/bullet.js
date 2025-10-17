@@ -2110,10 +2110,21 @@ const b = {
                                         ctx.lineWidth = 4
                                         ctx.stroke();
                                         //pick up nearby power ups
+                                        // Get network ID before removal for multiplayer sync
+                                        let networkId = null;
+                                        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                            networkId = multiplayer.localPowerupIds.get(i);
+                                        }
+                                        
                                         powerUps.onPickUp(powerUp[i]);
                                         powerUp[i].effect();
                                         Matter.World.remove(engine.world, powerUp[i]);
                                         powerUp.splice(i, 1);
+                                        
+                                        // Sync powerup pickup to multiplayer
+                                        if (networkId && typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                            multiplayer.syncPowerupPickupByNetworkId(networkId);
+                                        }
                                         if (tech.isDroneGrab) {
                                             this.isImproved = true;
                                             const SCALE = 2.25
@@ -2141,10 +2152,21 @@ const b = {
                                             ctx.lineWidth = 4
                                             ctx.stroke();
                                             //pick up nearby power ups
+                                            // Get network ID before removal for multiplayer sync
+                                            let networkId2 = null;
+                                            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                                networkId2 = multiplayer.localPowerupIds.get(i);
+                                            }
+                                            
                                             powerUps.onPickUp(powerUp[i]);
                                             powerUp[i].effect();
                                             Matter.World.remove(engine.world, powerUp[i]);
                                             powerUp.splice(i, 1);
+                                            
+                                            // Sync powerup pickup to multiplayer
+                                            if (networkId2 && typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                                multiplayer.syncPowerupPickupByNetworkId(networkId2);
+                                            }
                                             if (tech.isDroneGrab) {
                                                 this.isImproved = true;
                                                 const SCALE = 2.25

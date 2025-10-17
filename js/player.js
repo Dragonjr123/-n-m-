@@ -2366,10 +2366,22 @@ const m = {
                                         y: powerUp[i].velocity.y * 0.11
                                     });
                                     if (dist2 < 5000 && !simulation.isChoosing) { //use power up if it is close enough
+                                        // Get network ID before removal for multiplayer sync
+                                        let networkId = null;
+                                        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                            networkId = multiplayer.localPowerupIds.get(i);
+                                        }
+                                        
                                         powerUps.onPickUp(powerUp[i]);
                                         powerUp[i].effect();
                                         Matter.World.remove(engine.world, powerUp[i]);
                                         powerUp.splice(i, 1);
+                                        
+                                        // Sync powerup pickup to multiplayer
+                                        if (networkId && typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                            multiplayer.syncPowerupPickupByNetworkId(networkId);
+                                        }
+                                        
                                         // m.fieldRadius += 50
                                         break; //because the array order is messed up after splice
                                     }

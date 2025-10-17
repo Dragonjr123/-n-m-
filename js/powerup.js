@@ -83,8 +83,21 @@ const powerUps = {
         for (let i = 0, len = powerUp.length; i < len; ++i) {
             if (powerUp[i].isDuplicated && Math.random() < 0.004) { //  (1-0.004)^150 = chance to be removed after 3 seconds
                 b.explosion(powerUp[i].position, (10 + 3 * Math.random()) * powerUp[i].size);
+                
+                // Get network ID before removal for multiplayer sync
+                let networkId = null;
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                    networkId = multiplayer.localPowerupIds.get(i);
+                }
+                
                 Matter.World.remove(engine.world, powerUp[i]);
                 powerUp.splice(i, 1);
+                
+                // Sync powerup removal to multiplayer
+                if (networkId && typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                    multiplayer.syncPowerupPickupByNetworkId(networkId);
+                }
+                
                 break
             }
         }
