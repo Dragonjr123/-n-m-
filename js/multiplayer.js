@@ -342,10 +342,7 @@ const multiplayer = {
             // Draw player body (EXACT same as m.draw())
             ctx.translate(pos.x, pos.y);
             
-            // Rotate for body and legs
-            ctx.rotate(player.angle || 0);
-            
-            // Draw legs after rotation - using actual player leg system
+            // Draw legs first (BEFORE rotation) - legs don't rotate with body!
             const playerColor = player.color || "#4a9eff";
             const darkColor = this.darkenColor(playerColor, 0.7);
             
@@ -462,6 +459,9 @@ const multiplayer = {
             ctx.stroke();
             
             ctx.restore();
+            
+            // NOW rotate for body only (legs stay in world orientation)
+            ctx.rotate(player.angle || 0);
             
             // Body circle with gradient (same as player.js line 2926-2936)
             ctx.beginPath();
