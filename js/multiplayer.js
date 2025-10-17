@@ -270,8 +270,8 @@ const multiplayer = {
             fieldRegen: m.fieldRegen,
             fieldMeterColor: m.fieldMeterColor,
             fieldMode: m.fieldMode,
-            fieldCDcycle: m.fieldCDcycle,
-            fireCDcycle: m.fireCDcycle,
+            fieldCDcycle: isFinite(m.fieldCDcycle) ? m.fieldCDcycle : 0,
+            fireCDcycle: isFinite(m.fireCDcycle) ? m.fireCDcycle : 0,
             isHolding: m.isHolding || false,
             holdingTarget: m.holdingTarget ? {
                 position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
@@ -960,6 +960,8 @@ const multiplayer = {
     syncGunFire(gunName, angle, position, bulletData = null) {
         if (!this.enabled || !this.lobbyId) return;
         
+        console.log('📤 Syncing gun fire:', gunName, 'at', position);
+        
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
         eventRef.set({
             type: 'gun_fire',
@@ -975,6 +977,8 @@ const multiplayer = {
     // Sync explosion effect
     syncExplosion(position, radius) {
         if (!this.enabled || !this.lobbyId) return;
+        
+        console.log('📤 Syncing explosion at:', position, 'radius:', radius);
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
         eventRef.set({
@@ -1055,30 +1059,36 @@ const multiplayer = {
     
     // Handle remote gun fire
     handleRemoteGunFire(event) {
-        console.log('Remote gun fire:', event.gunName, 'at', event.angle);
+        console.log('🔫 Remote gun fire:', event.gunName, 'at angle:', event.angle, 'position:', event.position);
         
         // Show muzzle flash
         if (typeof simulation !== 'undefined' && simulation.drawList && event.position) {
-            // Muzzle flash
-            for (let i = 0; i < 3; i++) {
+            // Muzzle flash - make it VERY visible
+            for (let i = 0; i < 5; i++) {
                 simulation.drawList.push({
-                    x: event.position.x + (30 + i * 10) * Math.cos(event.angle),
-                    y: event.position.y + (30 + i * 10) * Math.sin(event.angle),
-                    radius: 20 - i * 5,
-                    color: `rgba(255,${200 - i * 50},0,${0.7 - i * 0.2})`,
-                    time: 6 - i
+                    x: event.position.x + (30 + i * 15) * Math.cos(event.angle),
+                    y: event.position.y + (30 + i * 15) * Math.sin(event.angle),
+                    radius: 30 - i * 5,
+                    color: `rgba(255,${220 - i * 30},0,${0.9 - i * 0.15})`,
+                    time: 12 - i * 2
                 });
             }
+            console.log('✅ Added muzzle flash to drawList');
+        } else {
+            console.log('❌ Could not add muzzle flash - simulation.drawList not available');
         }
     },
     
     // Handle remote explosion
     handleRemoteExplosion(event) {
-        console.log('Remote explosion at:', event.position, 'radius:', event.radius);
+        console.log('💥 Remote explosion at:', event.position, 'radius:', event.radius);
         
         if (typeof b !== 'undefined' && b.explosion) {
             // Call the actual explosion function to show the effect
             b.explosion(event.position, event.radius);
+            console.log('✅ Triggered explosion effect');
+        } else {
+            console.log('❌ Could not trigger explosion - b.explosion not available');
         }
     },
     
