@@ -227,7 +227,7 @@ const multiplayer = {
             vy: player.velocity.y || 0,
             angle: m.angle || 0,
             health: m.health || 1,
-            fieldActive: (m.fieldMode > 0 && m.energy > 0) || false,
+            fieldActive: this.isFieldActive(),
             // Network leg animation data
             walkCycle: m.walk_cycle || 0,
             flipLegs: m.flipLegs || 1,
@@ -242,6 +242,38 @@ const multiplayer = {
             isHolding: m.isHolding || false,
             lastUpdate: Date.now()
         };
+    },
+    
+    // Check if field should be active based on field type and conditions
+    isFieldActive() {
+        if (m.fieldMode === 0 || m.energy <= 0) return false;
+        
+        const fieldName = m.fieldUpgrades[m.fieldMode].name;
+        
+        switch (fieldName) {
+            case "field emitter":
+                return m.energy > 0.05 && input.field;
+            case "standing wave harmonics":
+                return m.energy > 0.1 && m.fieldCDcycle < m.cycle;
+            case "perfect diamagnetism":
+                return m.energy > 0.05 && input.field;
+            case "nano-scale manufacturing":
+                return m.energy > 0.05 && input.field;
+            case "negative mass field":
+                return m.energy > 0.00035 && input.field;
+            case "plasma torch":
+                return input.field;
+            case "time dilation field":
+                return m.energy > 0.0013 && input.field;
+            case "metamaterial cloaking":
+                return true; // Always visible when cloaked
+            case "pilot wave":
+                return input.field && m.energy > 0.01;
+            case "wormhole":
+                return input.field;
+            default:
+                return m.energy > 0.05 && input.field;
+        }
     },
     
     // Update player position (called every frame)
