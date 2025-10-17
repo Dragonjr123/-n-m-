@@ -1294,8 +1294,11 @@ const m = {
                         console.log('Multiplayer not available or enabled:', typeof multiplayer, multiplayer?.enabled);
                     }
                     
-                    Matter.World.remove(engine.world, powerUp[i]);
-                    powerUp.splice(i, 1);
+                    // Safety check: powerup might have been removed by multiplayer event
+                    if (powerUp[i] && powerUp[i].type) {
+                        Matter.World.remove(engine.world, powerUp[i]);
+                        powerUp.splice(i, 1);
+                    }
                     return; //because the array order is messed up after splice
                 }
             }
