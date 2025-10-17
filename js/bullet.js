@@ -79,6 +79,11 @@ const b = {
         }
     },
     fireWithAmmo() { //triggers after firing when you have ammo
+        // Sync gun fire to multiplayer BEFORE firing
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && b.guns[b.activeGun]) {
+            multiplayer.syncGunFire(b.guns[b.activeGun].name, m.angle, m.pos, { crouch: m.crouch });
+        }
+        
         b.guns[b.activeGun].fire();
         if (tech.isCrouchAmmo && m.crouch) {
             if (tech.isCrouchAmmo % 2) {
@@ -3494,10 +3499,6 @@ const b = {
 
                 b.muzzleFlash(35);
 
-                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                    multiplayer.syncGunFire('shotgun', m.angle, m.pos);
-                }
-
                 if (tech.isSlugShot) {
                     const me = bullet.length;
                     const dir = m.angle + 0.02 * (Math.random() - 0.5)
@@ -3936,12 +3937,6 @@ const b = {
             do() {},
             fire() {
                 m.fireCDcycle = m.cycle + Math.floor((m.crouch ? 40 : 30) * b.fireCD); // cool down
-                
-                // Sync grenade fire to multiplayer
-                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                    multiplayer.syncGunFire('grenades', m.angle, m.pos);
-                }
-                
                 b.grenade()
             },
         }, {

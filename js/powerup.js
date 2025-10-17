@@ -154,6 +154,11 @@ const powerUps = {
             simulation.makeTextLog(`<span class='color-var'>tech</span>.giveTech("<span class='color-text'>${tech.tech[index].name}</span>")`);
             tech.giveTech(index)
             
+            // Sync tech selection to multiplayer
+            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                multiplayer.syncTechSelection(tech.tech[index].name, index);
+            }
+            
             // Mark first powerup as spawned in progressive mode
             if (simulation.gameMode === 'progressive' && !simulation.firstPowerUpSpawned) {
                 simulation.firstPowerUpSpawned = true;

@@ -956,11 +956,11 @@ const multiplayer = {
         console.log('Block interaction synced to Firebase');
     },
     
-    // Sync gun fire with full bullet data
-    syncGunFire(gunName, angle, position, bulletData = null) {
+    // Sync gun fire - call this from each gun's fire() function
+    syncGunFire(gunName, angle, position, extraData = {}) {
         if (!this.enabled || !this.lobbyId) return;
         
-        console.log('📤 Syncing gun fire:', gunName, 'at', position);
+        console.log('📤 Syncing gun fire:', gunName);
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
         eventRef.set({
@@ -969,6 +969,22 @@ const multiplayer = {
             gunName: gunName,
             angle: angle,
             position: { x: position.x, y: position.y },
+            crouch: extraData.crouch || false,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync individual bullet spawn (for precise bullet networking)
+    syncBulletSpawn(bulletData) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        // Only sync if bullet count is reasonable (prevent spam)
+        if (bullet.length > 200) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'bullet_spawn',
+            playerId: this.playerId,
             bulletData: bulletData,
             timestamp: Date.now()
         });
@@ -1005,15 +1021,19 @@ const multiplayer = {
     },
     
     // Sync tech selection
-    syncTechSelection(techName) {
+    syncTechSelection(techName, techIndex) {
         if (!this.enabled || !this.lobbyId) return;
         
-        const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
-        playerRef.update({
-            lastTech: techName,
-            techTimestamp: Date.now()
+        console.log('📤 Syncing tech selection:', techName);
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'tech_selection',
+            playerId: this.playerId,
+            techName: techName,
+            techIndex: techIndex,
+            timestamp: Date.now()
         });
-        console.log('Tech selection synced:', techName);
     },
     
     // Listen for field interaction events from other players
@@ -1048,54 +1068,68 @@ const multiplayer = {
             case 'gun_fire':
                 this.handleRemoteGunFire(event);
                 break;
+            case 'bullet_spawn':
+                this.handleRemoteBulletSpawn(event);
+                break;
             case 'explosion':
                 this.handleRemoteExplosion(event);
                 break;
             case 'visual_effect':
                 this.handleRemoteVisualEffect(event);
                 break;
+            case 'tech_selection':
+                this.handleRemoteTechSelection(event);
+                break;
         }
     },
     
-    // Handle remote gun fire
+    // Handle remote gun fire - triggers the actual gun fire function
     handleRemoteGunFire(event) {
-        console.log('🔫 Remote gun fire:', event.gunName, 'at angle:', event.angle, 'position:', event.position);
+        console.log('🔫 Remote gun fire:', event.gunName);
         
-        // Show muzzle flash and projectile trail
-        if (typeof simulation !== 'undefined' && simulation.drawList && event.position) {
-            // Muzzle flash - make it VERY visible
-            for (let i = 0; i < 5; i++) {
-                simulation.drawList.push({
-                    x: event.position.x + (30 + i * 15) * Math.cos(event.angle),
-                    y: event.position.y + (30 + i * 15) * Math.sin(event.angle),
-                    radius: 30 - i * 5,
-                    color: `rgba(255,${220 - i * 30},0,${0.9 - i * 0.15})`,
-                    time: 12 - i * 2
-                });
-            }
+        // Find the gun and call its fire function
+        if (typeof b !== 'undefined' && b.guns && event.position) {
+            // Temporarily override player position/angle for remote fire
+            const originalPos = { x: m.pos.x, y: m.pos.y };
+            const originalAngle = m.angle;
+            const originalCrouch = m.crouch;
             
-            // For grenade-type weapons, show projectile trail
-            if (event.gunName === 'grenades' || event.gunName === 'missiles' || event.gunName === 'shotgun') {
-                const range = event.gunName === 'shotgun' ? 200 : 500;
-                for (let i = 0; i < 10; i++) {
-                    setTimeout(() => {
-                        if (typeof simulation !== 'undefined' && simulation.drawList) {
-                            simulation.drawList.push({
-                                x: event.position.x + (range * i / 10) * Math.cos(event.angle),
-                                y: event.position.y + (range * i / 10) * Math.sin(event.angle),
-                                radius: 8,
-                                color: `rgba(50,50,50,${0.6 - i * 0.05})`,
-                                time: 8
-                            });
-                        }
-                    }, i * 30);
+            // Set to remote player's position/angle
+            m.pos = event.position;
+            m.angle = event.angle;
+            m.crouch = event.crouch;
+            
+            // Find and fire the gun
+            for (let i = 0; i < b.guns.length; i++) {
+                if (b.guns[i].name === event.gunName) {
+                    // Temporarily disable multiplayer sync to prevent echo
+                    const wasEnabled = this.enabled;
+                    this.enabled = false;
+                    
+                    // Fire the gun (this will spawn bullets)
+                    if (b.guns[i].fire) {
+                        b.guns[i].fire();
+                    }
+                    
+                    // Re-enable multiplayer
+                    this.enabled = wasEnabled;
+                    console.log('✅ Fired remote gun:', event.gunName);
+                    break;
                 }
             }
             
-            console.log('✅ Added muzzle flash to drawList');
-        } else {
-            console.log('❌ Could not add muzzle flash - simulation.drawList not available');
+            // Restore original position/angle
+            m.pos = originalPos;
+            m.angle = originalAngle;
+            m.crouch = originalCrouch;
         }
+    },
+    
+    // Handle remote bullet spawn (for individual bullets)
+    handleRemoteBulletSpawn(event) {
+        console.log('🎯 Remote bullet spawn');
+        // This can be used for very precise bullet syncing if needed
+        // For now, gun fire handles it
     },
     
     // Handle remote explosion
@@ -1123,6 +1157,18 @@ const multiplayer = {
                 color: event.data.color || "rgba(255,255,255,0.5)",
                 time: event.data.time || 10
             });
+        }
+    },
+    
+    // Handle remote tech selection
+    handleRemoteTechSelection(event) {
+        console.log('🔬 Remote tech selection:', event.techName, 'by player:', event.playerId);
+        
+        // Apply the tech to the remote player (if we want to show it)
+        // For now, just show a notification
+        if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
+            const playerName = this.otherPlayers.get(event.playerId)?.name || 'Player';
+            simulation.makeTextLog(`<span style='color:#0cf'>${playerName}</span> selected <span class='color-m'>${event.techName}</span>`);
         }
     },
     
