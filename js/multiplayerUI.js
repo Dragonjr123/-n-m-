@@ -26,7 +26,7 @@ const multiplayerUI = {
                         </div>
                         <div style="flex: 1;">
                             <label style="display: block; margin-bottom: 5px; font-weight: bold;">Name Color:</label>
-                            <input type="color" id="mp-name-color" value="${multiplayer.settings.nameColor}" style="width: 100%; height: 40px;">
+                            <input type="color" id="mp-name-color" value="#ffffff" style="width: 100%; height: 40px;">
                         </div>
                     </div>
                     

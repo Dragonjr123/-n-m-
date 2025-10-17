@@ -183,6 +183,8 @@ const multiplayer = {
                     this.players[id] = data;
                 }
             }
+            
+            console.log('Updated player list:', Object.keys(this.players).length, 'other players');
         });
     },
     
@@ -277,12 +279,23 @@ const multiplayer = {
     
     // Render other players
     render() {
-        if (!this.enabled || !this.gameStarted) return;
+        if (!this.enabled) return;
         
         const deltaTime = 1 / 60; // Assume 60fps
+        const playerCount = Object.keys(this.players).length;
+        
+        // Debug: Log player count occasionally
+        if (Math.random() < 0.01) {
+            console.log('Rendering', playerCount, 'other players');
+        }
         
         for (const [id, player] of Object.entries(this.players)) {
             const pos = this.interpolatePlayer(player, deltaTime);
+            
+            // Debug: Log player data occasionally
+            if (Math.random() < 0.01) {
+                console.log('Player', player.name, 'at', pos.x, pos.y, 'raw:', player.x, player.y);
+            }
             
             // Skip if player has no valid position data
             if (!pos || (pos.x === 0 && pos.y === 0)) continue;
