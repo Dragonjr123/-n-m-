@@ -1127,45 +1127,46 @@ const multiplayer = {
         }
     },
     
-    // Handle remote gun fire - triggers the actual gun fire function
+    // Handle remote gun fire - spawn bullets visually, DON'T fire the gun
     handleRemoteGunFire(event) {
-        console.log('🔫 Remote gun fire:', event.gunName);
+        console.log('🔫 Remote gun fire:', event.gunName, 'from remote player');
         
-        // Find the gun and call its fire function
-        if (typeof b !== 'undefined' && b.guns && event.position) {
-            // Temporarily override player position/angle for remote fire
+        // DON'T call gun.fire() - that would make the remote player fire too!
+        // Instead, just spawn visual bullets at the remote player's position
+        
+        if (typeof b !== 'undefined' && event.position) {
+            // Temporarily set position/angle for bullet spawning
             const originalPos = { x: m.pos.x, y: m.pos.y };
             const originalAngle = m.angle;
             const originalCrouch = m.crouch;
             
-            // Set to remote player's position/angle
             m.pos = event.position;
             m.angle = event.angle;
             m.crouch = event.crouch;
             
-            // Find and fire the gun
-            for (let i = 0; i < b.guns.length; i++) {
-                if (b.guns[i].name === event.gunName) {
-                    // Temporarily disable multiplayer sync to prevent echo
-                    const wasEnabled = this.enabled;
-                    this.enabled = false;
-                    
-                    // Fire the gun (this will spawn bullets)
-                    if (b.guns[i].fire) {
-                        b.guns[i].fire();
-                    }
-                    
-                    // Re-enable multiplayer
-                    this.enabled = wasEnabled;
-                    console.log('✅ Fired remote gun:', event.gunName);
-                    break;
+            // Temporarily disable multiplayer to prevent echo
+            const wasEnabled = this.enabled;
+            this.enabled = false;
+            
+            // Spawn bullets based on gun type (without consuming ammo or triggering fire)
+            try {
+                const gun = b.guns.find(g => g.name === event.gunName);
+                if (gun && gun.fire) {
+                    gun.fire(); // Spawn bullets only
                 }
+            } catch (e) {
+                console.error('Error spawning remote bullets:', e);
             }
+            
+            // Re-enable multiplayer
+            this.enabled = wasEnabled;
             
             // Restore original position/angle
             m.pos = originalPos;
             m.angle = originalAngle;
             m.crouch = originalCrouch;
+            
+            console.log('✅ Spawned remote bullets for:', event.gunName);
         }
     },
     

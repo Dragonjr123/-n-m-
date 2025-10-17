@@ -79,8 +79,9 @@ const b = {
         }
     },
     fireWithAmmo() { //triggers after firing when you have ammo
-        // Sync gun fire to multiplayer BEFORE firing
+        // Sync gun fire to multiplayer BEFORE firing (only if YOU are firing, not remote)
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && b.guns[b.activeGun]) {
+            console.log('🎯 LOCAL player firing:', b.guns[b.activeGun].name);
             multiplayer.syncGunFire(b.guns[b.activeGun].name, m.angle, m.pos, { crouch: m.crouch });
         }
         
