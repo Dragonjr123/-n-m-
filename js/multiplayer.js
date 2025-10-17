@@ -342,34 +342,122 @@ const multiplayer = {
             // Draw player body (EXACT same as m.draw())
             ctx.translate(pos.x, pos.y);
             
-            // Draw legs first (before rotation)
+            // Draw legs first (before rotation) - using actual player leg system
             const playerColor = player.color || "#4a9eff";
             const darkColor = this.darkenColor(playerColor, 0.7);
             
-            // Simple leg animation based on movement
+            // Calculate leg animation based on movement (simplified from player.js)
             const walkCycle = (Date.now() * 0.01) % (Math.PI * 2);
-            const stepSize = Math.min(5, Math.abs(player.vx || 0) * 2);
+            const stepSize = Math.min(7, Math.abs(player.vx || 0) * 2);
+            const yOff = 70; // Default leg height
+            const height = 42;
             
-            // Left leg
+            // Determine leg direction based on angle
+            let flipLegs = 1;
+            if (player.angle > -Math.PI / 2 && player.angle < Math.PI / 2) {
+                flipLegs = 1;
+            } else {
+                flipLegs = -1;
+            }
+            
+            // Draw left leg (darker color)
             ctx.save();
+            ctx.scale(flipLegs, 1); // Apply direction scaling
             ctx.strokeStyle = "#4a4a4a";
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 7;
+            
+            // Calculate leg positions (simplified from calcLeg)
+            const hipX = 12;
+            const hipY = 24;
+            const leftLegAngle = 0.034 * walkCycle + Math.PI;
+            const footX = 2.2 * stepSize * Math.cos(leftLegAngle);
+            const footY = 1.2 * stepSize * Math.sin(leftLegAngle) + yOff + height;
+            
+            // Calculate knee position (simplified intersection calculation)
+            const d = Math.sqrt((hipX - footX) * (hipX - footX) + (hipY - footY) * (hipY - footY));
+            const legLength1 = 55;
+            const legLength2 = 45;
+            const l = (legLength1 * legLength1 - legLength2 * legLength2 + d * d) / (2 * d);
+            const h = Math.sqrt(legLength1 * legLength1 - l * l);
+            const kneeX = (l / d) * (footX - hipX) - (h / d) * (footY - hipY) + hipX;
+            const kneeY = (l / d) * (footY - hipY) + (h / d) * (footX - hipX) + hipY;
+            
+            // Draw leg segments
             ctx.beginPath();
-            const leftLegAngle = Math.sin(walkCycle) * stepSize;
-            ctx.moveTo(12, 24);
-            ctx.lineTo(2.2 * stepSize * Math.cos(leftLegAngle), 24 + 1.2 * stepSize * Math.sin(leftLegAngle) + 40);
+            ctx.moveTo(hipX, hipY);
+            ctx.lineTo(kneeX, kneeY);
+            ctx.lineTo(footX, footY);
             ctx.stroke();
+            
+            // Draw toe lines
+            ctx.beginPath();
+            ctx.moveTo(footX, footY);
+            ctx.lineTo(footX - 15, footY + 5);
+            ctx.moveTo(footX, footY);
+            ctx.lineTo(footX + 15, footY + 5);
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            
+            // Draw joints
+            ctx.beginPath();
+            ctx.arc(hipX, hipY, 11, 0, 2 * Math.PI);
+            ctx.moveTo(kneeX + 7, kneeY);
+            ctx.arc(kneeX, kneeY, 7, 0, 2 * Math.PI);
+            ctx.moveTo(footX + 6, footY);
+            ctx.arc(footX, footY, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = playerColor;
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
             ctx.restore();
             
-            // Right leg
+            // Draw right leg (lighter color)
             ctx.save();
+            ctx.scale(flipLegs, 1); // Apply direction scaling
             ctx.strokeStyle = "#333";
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 7;
+            
+            // Calculate right leg positions
+            const rightLegAngle = 0.034 * walkCycle;
+            const rightFootX = 2.2 * stepSize * Math.cos(rightLegAngle);
+            const rightFootY = 1.2 * stepSize * Math.sin(rightLegAngle) + yOff + height;
+            
+            // Calculate right knee position
+            const rightD = Math.sqrt((hipX - rightFootX) * (hipX - rightFootX) + (hipY - rightFootY) * (hipY - rightFootY));
+            const rightL = (legLength1 * legLength1 - legLength2 * legLength2 + rightD * rightD) / (2 * rightD);
+            const rightH = Math.sqrt(legLength1 * legLength1 - rightL * rightL);
+            const rightKneeX = (rightL / rightD) * (rightFootX - hipX) - (rightH / rightD) * (rightFootY - hipY) + hipX;
+            const rightKneeY = (rightL / rightD) * (rightFootY - hipY) + (rightH / rightD) * (rightFootX - hipX) + hipY;
+            
+            // Draw right leg segments
             ctx.beginPath();
-            const rightLegAngle = Math.sin(walkCycle + Math.PI) * stepSize;
-            ctx.moveTo(-12, 24);
-            ctx.lineTo(-2.2 * stepSize * Math.cos(rightLegAngle), 24 + 1.2 * stepSize * Math.sin(rightLegAngle) + 40);
+            ctx.moveTo(hipX, hipY);
+            ctx.lineTo(rightKneeX, rightKneeY);
+            ctx.lineTo(rightFootX, rightFootY);
             ctx.stroke();
+            
+            // Draw right toe lines
+            ctx.beginPath();
+            ctx.moveTo(rightFootX, rightFootY);
+            ctx.lineTo(rightFootX - 15, rightFootY + 5);
+            ctx.moveTo(rightFootX, rightFootY);
+            ctx.lineTo(rightFootX + 15, rightFootY + 5);
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            
+            // Draw right joints
+            ctx.beginPath();
+            ctx.arc(hipX, hipY, 11, 0, 2 * Math.PI);
+            ctx.moveTo(rightKneeX + 7, rightKneeY);
+            ctx.arc(rightKneeX, rightKneeY, 7, 0, 2 * Math.PI);
+            ctx.moveTo(rightFootX + 6, rightFootY);
+            ctx.arc(rightFootX, rightFootY, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = playerColor;
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
             ctx.restore();
             
             // Rotate for body
