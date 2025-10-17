@@ -1036,6 +1036,44 @@ const multiplayer = {
         });
     },
     
+    // Sync level change (when someone goes to next level)
+    syncLevelChange(levelName, levelIndex) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        console.log('📤 Syncing level change:', levelName);
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'level_change',
+            playerId: this.playerId,
+            levelName: levelName,
+            levelIndex: levelIndex,
+            levelsCleared: level.levelsCleared,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync mob damage (for team combat)
+    syncMobDamage(mobIndex, damage, health, alive) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        // Throttle mob damage sync (only sync every few frames)
+        const now = Date.now();
+        if (now - (this.lastMobSyncTime || 0) < 50) return; // Max 20 updates/sec
+        this.lastMobSyncTime = now;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'mob_damage',
+            playerId: this.playerId,
+            mobIndex: mobIndex,
+            damage: damage,
+            health: health,
+            alive: alive,
+            timestamp: Date.now()
+        });
+    },
+    
     // Listen for field interaction events from other players
     listenToFieldEvents() {
         if (!this.enabled || !this.lobbyId) return;
@@ -1079,6 +1117,12 @@ const multiplayer = {
                 break;
             case 'tech_selection':
                 this.handleRemoteTechSelection(event);
+                break;
+            case 'level_change':
+                this.handleRemoteLevelChange(event);
+                break;
+            case 'mob_damage':
+                this.handleRemoteMobDamage(event);
                 break;
         }
     },
@@ -1169,6 +1213,63 @@ const multiplayer = {
         if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
             const playerName = this.otherPlayers.get(event.playerId)?.name || 'Player';
             simulation.makeTextLog(`<span style='color:#0cf'>${playerName}</span> selected <span class='color-m'>${event.techName}</span>`);
+        }
+    },
+    
+    // Handle remote level change
+    handleRemoteLevelChange(event) {
+        console.log('🗺️ Remote level change:', event.levelName, 'by player:', event.playerId);
+        
+        // If someone else goes to next level, follow them
+        if (typeof level !== 'undefined' && level.nextLevel) {
+            const playerName = this.otherPlayers.get(event.playerId)?.name || 'Player';
+            simulation.makeTextLog(`<span style='color:#0cf'>${playerName}</span> entered <span style='color:#ff0'>next level</span>`);
+            
+            // Sync level state
+            level.levelsCleared = event.levelsCleared;
+            level.onLevel = event.levelIndex;
+            
+            // Load the same level
+            console.log('🔄 Loading level:', event.levelName);
+            setTimeout(() => {
+                if (typeof level[event.levelName] === 'function') {
+                    level[event.levelName]();
+                    level.levelAnnounce();
+                    simulation.noCameraScroll();
+                    simulation.setZoom();
+                    level.addToWorld();
+                    simulation.draw.setPaths();
+                }
+            }, 100);
+        }
+    },
+    
+    // Handle remote mob damage (team combat)
+    handleRemoteMobDamage(event) {
+        // Apply damage to the mob on this client
+        if (typeof mob !== 'undefined' && mob[event.mobIndex]) {
+            const targetMob = mob[event.mobIndex];
+            if (targetMob && targetMob.alive) {
+                // Sync health state
+                targetMob.health = event.health;
+                targetMob.alive = event.alive;
+                
+                // Show damage indicator
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    simulation.drawList.push({
+                        x: targetMob.position.x,
+                        y: targetMob.position.y,
+                        radius: Math.log(2 * event.damage + 1.1) * 40,
+                        color: "rgba(255,0,100,0.3)", // Different color for remote damage
+                        time: simulation.drawTime
+                    });
+                }
+                
+                // Kill mob if dead
+                if (!event.alive && targetMob.alive) {
+                    targetMob.death();
+                }
+            }
         }
     },
     

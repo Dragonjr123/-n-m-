@@ -166,6 +166,13 @@ const level = {
     },
     nextLevel() {
         level.levelsCleared++;
+        
+        // Sync level change to multiplayer
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            const nextLevelName = level.levels[level.onLevel + 1] || 'unknown';
+            multiplayer.syncLevelChange(nextLevelName, level.onLevel + 1);
+        }
+        
         // level.difficultyIncrease(simulation.difficultyMode) //increase difficulty based on modes
 
         //difficulty is increased 5 times when finalBoss dies

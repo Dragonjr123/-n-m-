@@ -1028,6 +1028,15 @@ const mobs = {
                     this.health -= dmg
                     //this.fill = this.color + this.health + ')';
                     this.onDamage(dmg); //custom damage effects
+                    
+                    // Sync mob damage to multiplayer for team combat
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        const mobIndex = mob.indexOf(this);
+                        if (mobIndex !== -1) {
+                            multiplayer.syncMobDamage(mobIndex, dmg, this.health, this.alive);
+                        }
+                    }
+                    
                     if (this.health < 0.05 && this.alive) this.death();
                 }
             },
