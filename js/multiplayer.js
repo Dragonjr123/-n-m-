@@ -1146,7 +1146,7 @@ const multiplayer = {
         console.log('Powerup spawned:', networkId, powerup.name, 'at index:', powerupIndex);
     },
     
-    // Sync powerup pickup to all players
+    // Sync powerup pickup to all players (by index - legacy)
     syncPowerupPickup(powerupIndex) {
         if (!this.enabled || !this.lobbyId) return;
         
@@ -1156,14 +1156,26 @@ const multiplayer = {
             return;
         }
         
-        console.log('✅ Syncing powerup pickup:', networkId, 'index:', powerupIndex, 'by', this.playerId);
+        this.syncPowerupPickupByNetworkId(networkId);
+    },
+    
+    // Sync powerup pickup by network ID (preferred method)
+    syncPowerupPickupByNetworkId(networkId) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        console.log('✅ Syncing powerup pickup by networkId:', networkId, 'by', this.playerId);
         
         // Remove from Firebase (this will trigger removal for all players)
         const powerupRef = database.ref(`lobbies/${this.lobbyId}/powerups/${networkId}`);
         powerupRef.remove();
         
-        // Clean up local mapping
-        this.localPowerupIds.delete(powerupIndex);
+        // Clean up local mapping - find and remove the index mapping
+        for (const [index, id] of this.localPowerupIds.entries()) {
+            if (id === networkId) {
+                this.localPowerupIds.delete(index);
+                break;
+            }
+        }
     },
     
     // Listen for powerup events from other players

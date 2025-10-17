@@ -1279,9 +1279,15 @@ const m = {
                     y: powerUp[i].velocity.y * 0.11
                 });
                 if (dist2 < 5000 && !simulation.isChoosing) { //use power up if it is close enough
-                    // Store reference before any async operations
+                    // Store reference and network ID before any operations
                     const pickedUpPowerup = powerUp[i];
                     const powerupIndex = i;
+                    
+                    // Get network ID BEFORE any array modifications
+                    let networkId = null;
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        networkId = multiplayer.localPowerupIds.get(powerupIndex);
+                    }
                     
                     powerUps.onPickUp(pickedUpPowerup);
                     Matter.Body.setVelocity(player, { //player knock back, after grabbing power up
@@ -1290,19 +1296,20 @@ const m = {
                     });
                     pickedUpPowerup.effect();
                     
-                    // Remove from physics world immediately (before sync to prevent race condition)
+                    // Remove from physics world immediately
                     if (pickedUpPowerup && pickedUpPowerup.type) {
                         Matter.World.remove(engine.world, pickedUpPowerup);
                     }
                     
-                    // Sync powerup pickup to multiplayer AFTER local removal
-                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                        console.log('Syncing powerup pickup:', powerupIndex);
-                        multiplayer.syncPowerupPickup(powerupIndex);
+                    // Remove from array
+                    powerUp.splice(powerupIndex, 1);
+                    
+                    // Sync powerup pickup AFTER local removal using network ID
+                    if (networkId && typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        console.log('Syncing powerup pickup by networkId:', networkId);
+                        multiplayer.syncPowerupPickupByNetworkId(networkId);
                     }
                     
-                    // Remove from array last
-                    powerUp.splice(powerupIndex, 1);
                     return; //because the array order is messed up after splice
                 }
             }
@@ -2529,16 +2536,24 @@ const m = {
                                 });
                                 if (dist2 < 1000 && !simulation.isChoosing) { //use power up if it is close enough
                                     m.fieldRange *= 0.8
+                                    
+                                    // Get network ID BEFORE any array modifications
+                                    let networkId = null;
+                                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                        networkId = multiplayer.localPowerupIds.get(i);
+                                    }
+                                    
                                     powerUps.onPickUp(powerUp[i]);
                                     powerUp[i].effect();
                                     
-                                    // Sync powerup pickup to multiplayer
-                                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                                        multiplayer.syncPowerupPickup(i);
-                                    }
-                                    
                                     Matter.World.remove(engine.world, powerUp[i]);
                                     powerUp.splice(i, 1);
+                                    
+                                    // Sync powerup pickup AFTER local removal using network ID
+                                    if (networkId && typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                        multiplayer.syncPowerupPickupByNetworkId(networkId);
+                                    }
+                                    
                                     break; //because the array order is messed up after splice
                                 }
                             }
