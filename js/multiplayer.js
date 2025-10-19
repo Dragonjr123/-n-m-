@@ -1094,10 +1094,17 @@ const multiplayer = {
     listenToFieldEvents() {
         if (!this.enabled || !this.lobbyId) return;
         
+        const joinTime = Date.now();
         const eventsRef = database.ref(`lobbies/${this.lobbyId}/events`);
         eventsRef.on('child_added', (snapshot) => {
             const event = snapshot.val();
             if (event.playerId === this.playerId) return; // Ignore own events
+            
+            // Ignore old events from before we joined (prevents old portal events from triggering)
+            if (event.timestamp && event.timestamp < joinTime - 1000) {
+                console.log('⏭️ Ignoring old event:', event.type, 'from', (joinTime - event.timestamp) / 1000, 'seconds ago');
+                return;
+            }
             
             this.handleFieldEvent(event);
         });
