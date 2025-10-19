@@ -41,6 +41,8 @@ const multiplayer = {
     updateInterval: 50, // Send updates every 50ms (20 updates/sec)
     maxPlayers: 10,
     gameStarted: false,
+    // Deterministic level build
+    pendingRngSeed: null,
     
     // Powerup networking
     powerupIdCounter: 0,
@@ -1041,6 +1043,9 @@ const multiplayer = {
         if (!this.enabled || !this.lobbyId) return;
         
         console.log('📤 Syncing level change:', levelName);
+        // generate and store a seed to be used by all clients during level build
+        const rngSeed = Date.now() ^ Math.floor(Math.random() * 1e9);
+        this.pendingRngSeed = rngSeed;
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
         eventRef.set({
@@ -1049,6 +1054,7 @@ const multiplayer = {
             levelName: levelName,
             levelIndex: levelIndex,
             levelsCleared: level.levelsCleared,
+            rngSeed: rngSeed,
             timestamp: Date.now()
         });
     },
@@ -1235,6 +1241,8 @@ const multiplayer = {
             if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
                 simulation.makeTextLog(`<span style='color:#0cf'>${playerName}</span> entered <span style='color:#ff0'>next level</span>`);
             }
+            // Save RNG seed to be applied during level construction
+            this.pendingRngSeed = event.rngSeed || null;
             // Set indices so nextLevel() advances to the same level
             level.levelsCleared = Math.max(0, (event.levelsCleared || 1) - 1);
             level.onLevel = Math.max(-1, (event.levelIndex || 0) - 1);

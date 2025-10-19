@@ -11,6 +11,21 @@ const level = {
     levels: [],
 
     start() {
+        // Apply deterministic RNG for level construction when in multiplayer
+        let __restoreRandom = null;
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && typeof multiplayer.pendingRngSeed === 'number') {
+            const __oldRandom = Math.random;
+            let __seed = (multiplayer.pendingRngSeed >>> 0);
+            Math.random = function() {
+                // LCG: Numerical Recipes
+                __seed = (Math.imul(__seed, 1664525) + 1013904223) >>> 0;
+                return (__seed >>> 0) / 4294967296;
+            };
+            __restoreRandom = () => {
+                Math.random = __oldRandom;
+                multiplayer.pendingRngSeed = null;
+            };
+        }
         if (level.levelsCleared === 0) { //this code only runs on the first level
             // simulation.zoomScale = 1000;
             // simulation.setZoom();
@@ -107,6 +122,8 @@ const level = {
             m.eyeFillColor = m.fieldMeterColor
             simulation.makeTextLog(`tech.isFlipFlopOn <span class='color-symbol'>=</span> true`);
         }
+        // Restore RNG after level construction
+        if (__restoreRandom) __restoreRandom();
     },
     custom() {},
     customTopLayer() {},
