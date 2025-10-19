@@ -55,6 +55,8 @@ const multiplayer = {
     // Physics networking
     lastPhysicsSyncTime: 0,
     physicsSyncInterval: 100, // Sync physics every 100ms (10 times/sec)
+    // Interpolation caches
+    mobInterp: new Map(), // index -> {x,y,angle,t}
     
     // Player settings
     settings: {
@@ -1163,6 +1165,76 @@ const multiplayer = {
             case 'mob_damage':
                 this.handleRemoteMobDamage(event);
                 break;
+            case 'mob_action':
+                this.handleRemoteMobAction(event);
+                break;
+        }
+    },
+
+    // ===== MOB ACTION SYNC =====
+    syncMobAction(action, mobIndex, data) {
+        if (!this.enabled || !this.lobbyId || !this.isHost) return;
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'mob_action',
+            playerId: this.playerId,
+            action: action,
+            mobIndex: mobIndex,
+            data: data || {},
+            timestamp: Date.now()
+        });
+    },
+    handleRemoteMobAction(event) {
+        if (typeof mob === 'undefined') return;
+        const i = event.mobIndex;
+        if (!isFinite(i) || !mob[i]) return;
+        const mref = mob[i];
+        switch (event.action) {
+            case 'striker_dash': {
+                const p = event.data && event.data.to;
+                if (p) {
+                    Matter.Body.setPosition(mref, p);
+                    Matter.Body.setVelocity(mref, {
+                        x: (event.data.vx || 0) * 0.5,
+                        y: (event.data.vy || 0) * 0.5
+                    });
+                }
+                break;
+            }
+            case 'pulsar_start': {
+                if (mref) {
+                    mref.isFiring = true;
+                    mref.fireTarget = event.data && event.data.target ? event.data.target : mref.fireTarget;
+                    mref.fireCycle = 0;
+                }
+                break;
+            }
+            case 'pulsar_commit': {
+                const t = event.data && event.data.target;
+                const r = event.data && event.data.radius;
+                if (t && r && typeof simulation !== 'undefined') {
+                    simulation.drawList.push({ x: t.x, y: t.y, radius: r, color: event.data.color || 'rgba(255,0,100,0.6)', time: simulation.drawTime });
+                }
+                if (mref) mref.isFiring = false;
+                break;
+            }
+            case 'pulsarBoss_start': {
+                if (mref) {
+                    mref.isFiring = true;
+                    mref.fireTarget = event.data && event.data.target ? event.data.target : mref.fireTarget;
+                    mref.fireCycle = 0;
+                }
+                break;
+            }
+            case 'pulsarBoss_commit': {
+                const t = event.data && event.data.target;
+                const r = event.data && event.data.radius;
+                if (t && r && typeof simulation !== 'undefined') {
+                    simulation.drawList.push({ x: t.x, y: t.y, radius: r, color: event.data.color || 'rgba(120,0,255,0.6)', time: simulation.drawTime });
+                }
+                if (mref) mref.isFiring = false;
+                break;
+            }
         }
     },
     
@@ -1772,16 +1844,26 @@ const multiplayer = {
         if (physicsData.mobs && typeof mob !== 'undefined') {
             for (const mobData of physicsData.mobs) {
                 if (mob[mobData.index]) {
-                    // Smoothly interpolate to new position instead of snapping
-                    const currentPos = mob[mobData.index].position;
-                    const lerpFactor = 0.3; // 30% towards new position
-                    
-                    Matter.Body.setPosition(mob[mobData.index], {
-                        x: currentPos.x + (mobData.x - currentPos.x) * lerpFactor,
-                        y: currentPos.y + (mobData.y - currentPos.y) * lerpFactor
-                    });
-                    Matter.Body.setVelocity(mob[mobData.index], { x: mobData.vx, y: mobData.vy });
-                    Matter.Body.setAngle(mob[mobData.index], mobData.angle);
+                    const bodyRef = mob[mobData.index];
+                    const now = physicsData.timestamp || Date.now();
+                    const target = { x: mobData.x, y: mobData.y, angle: mobData.angle, t: now };
+                    const cur = bodyRef.position;
+                    const dx = target.x - cur.x, dy = target.y - cur.y;
+                    const dist2 = dx*dx + dy*dy;
+                    // Snap if way off; otherwise smooth
+                    if (dist2 > 300*300) {
+                        Matter.Body.setPosition(bodyRef, { x: target.x, y: target.y });
+                        Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
+                        Matter.Body.setAngle(bodyRef, target.angle);
+                    } else {
+                        const alpha = 0.18; // smoothing factor
+                        Matter.Body.setPosition(bodyRef, { x: cur.x + dx * alpha, y: cur.y + dy * alpha });
+                        Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
+                        // Angle wrap smoothing
+                        let ca = bodyRef.angle, ta = target.angle;
+                        let da = ((ta - ca + Math.PI) % (2*Math.PI)) - Math.PI;
+                        Matter.Body.setAngle(bodyRef, ca + da * alpha);
+                    }
                     if (mobData.health !== undefined) mob[mobData.index].health = mobData.health;
                     if (mobData.alive !== undefined) mob[mobData.index].alive = mobData.alive;
                 }

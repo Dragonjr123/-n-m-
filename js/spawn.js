@@ -1815,6 +1815,17 @@ const spawn = {
                                 m.immuneCycle = m.cycle + tech.collisionImmuneCycles; //player is immune to damage
                                 m.damage(0.045 * simulation.dmgScale);
                             }
+                            // Host sync: pulsarBoss commit
+                            if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
+                                const idx = (typeof mob !== 'undefined') ? mob.indexOf(this) : -1;
+                                if (idx > -1) {
+                                    multiplayer.syncMobAction('pulsarBoss_commit', idx, {
+                                        target: { x: this.fireTarget.x, y: this.fireTarget.y },
+                                        radius: this.pulseRadius,
+                                        color: 'rgba(120,0,255,0.6)'
+                                    });
+                                }
+                            }
                             simulation.drawList.push({ //add dmg to draw queue
                                 x: this.fireTarget.x,
                                 y: this.fireTarget.y,
@@ -1867,6 +1878,15 @@ const spawn = {
                                 this.fireLockCount = 0
                                 this.isFiring = true
                                 this.fireCycle = 0
+                                // Host sync: pulsarBoss start
+                                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
+                                    const idx = (typeof mob !== 'undefined') ? mob.indexOf(this) : -1;
+                                    if (idx > -1) {
+                                        multiplayer.syncMobAction('pulsarBoss_start', idx, {
+                                            target: { x: this.fireTarget.x, y: this.fireTarget.y }
+                                        });
+                                    }
+                                }
                             }
                         }
                     }
@@ -1949,6 +1969,17 @@ const spawn = {
                                 m.immuneCycle = m.cycle + tech.collisionImmuneCycles; //player is immune to damage
                                 m.damage(0.03 * simulation.dmgScale);
                             }
+                            // Host sync: pulsar commit
+                            if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
+                                const idx = (typeof mob !== 'undefined') ? mob.indexOf(this) : -1;
+                                if (idx > -1) {
+                                    multiplayer.syncMobAction('pulsar_commit', idx, {
+                                        target: { x: this.fireTarget.x, y: this.fireTarget.y },
+                                        radius: this.pulseRadius,
+                                        color: 'rgba(255,0,100,0.6)'
+                                    });
+                                }
+                            }
                             simulation.drawList.push({ //add dmg to draw queue
                                 x: this.fireTarget.x,
                                 y: this.fireTarget.y,
@@ -2006,6 +2037,15 @@ const spawn = {
                             this.fireLockCount = 0
                             this.isFiring = true
                             this.fireCycle = 0
+                            // Host sync: pulsar start
+                            if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
+                                const idx = (typeof mob !== 'undefined') ? mob.indexOf(this) : -1;
+                                if (idx > -1) {
+                                    multiplayer.syncMobAction('pulsar_start', idx, {
+                                        target: { x: this.fireTarget.x, y: this.fireTarget.y }
+                                    });
+                                }
+                            }
                         }
                     }
                     //gently return to starting location
@@ -2222,7 +2262,7 @@ const spawn = {
                         if (distMag < this.radius * 7) {
                             //find nearest vertex
                             let nearestDistance = Infinity
-                            for (let i = 0, len = this.vertices.length; i < len; i++) {
+                            for (let i = 0; i < this.vertices.length; i++) {
                                 //find distance to player for each vertex
                                 const dist = Vector.sub(this.seePlayer.position, this.vertices[i]);
                                 const distMag = Vector.magnitude(dist);
@@ -2305,6 +2345,17 @@ const spawn = {
                         Matter.Body.translate(this, Vector.mult(Vector.normalise(dist), distMag - 20 - radius));
                     } else {
                         Matter.Body.translate(this, Vector.mult(Vector.normalise(dist), 300));
+                    }
+                    // Host sync: striker dash action
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
+                        const idx = (typeof mob !== 'undefined') ? mob.indexOf(this) : -1;
+                        if (idx > -1) {
+                            multiplayer.syncMobAction('striker_dash', idx, {
+                                to: { x: this.position.x, y: this.position.y },
+                                vx: this.velocity.x || 0,
+                                vy: this.velocity.y || 0
+                            });
+                        }
                     }
                     ctx.lineTo(this.position.x, this.position.y);
                     ctx.lineWidth = radius * 2.1;
