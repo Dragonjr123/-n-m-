@@ -112,6 +112,11 @@ const multiplayer = {
         // Start listening for physics (all players)
         this.listenToPhysics();
         
+        // Listen for game start toggle (host included for UI/state consistency)
+        this.listenForGameStart(() => {
+            if (typeof simulation !== 'undefined') simulation.paused = false;
+        });
+        
         console.log('Lobby created:', this.lobbyId);
         return this.lobbyId;
     },
@@ -142,6 +147,11 @@ const multiplayer = {
         // Setup disconnect handler
         playerRef.onDisconnect().remove();
         
+        // If host hasn't started the game yet, pause until start signal
+        if (!lobbyData.gameStarted && typeof simulation !== 'undefined') {
+            simulation.paused = true;
+        }
+
         // Listen to other players
         this.listenToPlayers();
         
