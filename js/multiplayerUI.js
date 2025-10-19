@@ -44,6 +44,12 @@ const multiplayerUI = {
         container.id = 'multiplayer-menu';
         container.innerHTML = html;
         document.body.appendChild(container);
+        // Prevent splash click-through starting the game
+        const splash = document.getElementById('splash');
+        if (splash) splash.style.pointerEvents = 'none';
+        
+        // Mark that we are in a multiplayer lobby context
+        if (typeof simulation !== 'undefined') simulation.isMultiplayerLobby = true;
         
         // Update settings on change
         document.getElementById('mp-player-name').addEventListener('input', (e) => {
@@ -177,6 +183,9 @@ const multiplayerUI = {
     // Join public lobby
     async joinLobby(lobbyId) {
         try {
+            // Prevent underlying splash from catching this click
+            const splash = document.getElementById('splash');
+            if (splash) splash.style.pointerEvents = 'none';
             const gameMode = await multiplayer.joinLobby(lobbyId, null);
             this.closeJoinLobby();
             this.close();
@@ -199,6 +208,9 @@ const multiplayerUI = {
         }
         
         try {
+            // Prevent underlying splash from catching this click
+            const splash = document.getElementById('splash');
+            if (splash) splash.style.pointerEvents = 'none';
             const gameMode = await multiplayer.joinLobby(lobbyCode, password);
             this.closeJoinLobby();
             this.close();
@@ -214,16 +226,22 @@ const multiplayerUI = {
     close() {
         const menu = document.getElementById('multiplayer-menu');
         if (menu) menu.remove();
+        const splash = document.getElementById('splash');
+        if (splash) splash.style.pointerEvents = 'auto';
     },
     
     closeCreateLobby() {
         const menu = document.getElementById('create-lobby-menu');
         if (menu) menu.remove();
+        const splash = document.getElementById('splash');
+        if (splash) splash.style.pointerEvents = 'auto';
     },
     
     closeJoinLobby() {
         const menu = document.getElementById('join-lobby-menu');
         if (menu) menu.remove();
+        const splash = document.getElementById('splash');
+        if (splash) splash.style.pointerEvents = 'auto';
     },
     
     // Show lobby waiting room
@@ -311,16 +329,24 @@ const multiplayerUI = {
     
     // Start game from lobby
     async startLobbyGame(gameMode) {
+        // Host: toggle start flag, then proceed
         if (multiplayer.isHost) {
             await multiplayer.startGame();
+        } else {
+            // Client: do not start unless host has actually started
+            if (!multiplayer.gameStarted) {
+                console.log('[MultiplayerUI] Ignoring client start; waiting for host start signal');
+                return;
+            }
         }
-        
-        // Close lobby room
+
+        // Close lobby room UI but keep connection
         this.leaveLobbyRoom(false);
-        
-        // Start actual game
+
+        // Start actual game on both host and clients
         simulation.gameMode = gameMode;
         simulation.startGame();
+        if (typeof simulation !== 'undefined') simulation.isMultiplayerLobby = false;
         
         setTimeout(() => {
             simulation.makeTextLog(`<span class='color-text'>Game started!</span>`);
@@ -336,6 +362,9 @@ const multiplayerUI = {
         
         const room = document.getElementById('lobby-room');
         if (room) room.remove();
+        const splash = document.getElementById('splash');
+        if (splash) splash.style.pointerEvents = 'auto';
+        if (disconnect && typeof simulation !== 'undefined') simulation.isMultiplayerLobby = false;
         
         if (disconnect) {
             await multiplayer.leaveLobby();

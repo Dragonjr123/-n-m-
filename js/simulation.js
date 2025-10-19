@@ -495,6 +495,12 @@ const simulation = {
     fpsInterval: 0, //set in startGame
     then: null,
     startGame(isBuildRun = false) {
+        // Guard: don't start game if in a multiplayer lobby and host hasn't started yet
+        if ((typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.gameStarted) ||
+            (typeof simulation !== 'undefined' && simulation.isMultiplayerLobby && typeof multiplayer !== 'undefined' && !multiplayer.gameStarted)) {
+            console.log('[Multiplayer] Blocked startGame until host starts the lobby');
+            return;
+        }
         simulation.clearMap()
         if (!isBuildRun) { //if a build run logic flow returns to "experiment-button").addEventListener
             document.body.style.cursor = "none";

@@ -96,6 +96,9 @@ const multiplayer = {
         
         await database.ref('lobbies/' + this.lobbyId).set(lobbyData);
         
+        // Initialize local start state for host
+        this.gameStarted = false;
+
         // Setup disconnect handler
         const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
         playerRef.onDisconnect().remove();
@@ -112,7 +115,7 @@ const multiplayer = {
         // Start listening for physics (all players)
         this.listenToPhysics();
         
-        // Listen for game start toggle (host included for UI/state consistency)
+
         this.listenForGameStart(() => {
             if (typeof simulation !== 'undefined') simulation.paused = false;
         });
@@ -147,10 +150,10 @@ const multiplayer = {
         // Setup disconnect handler
         playerRef.onDisconnect().remove();
         
+        // Initialize local start state based on lobby
+        this.gameStarted = !!lobbyData.gameStarted;
         // If host hasn't started the game yet, pause until start signal
-        if (!lobbyData.gameStarted && typeof simulation !== 'undefined') {
-            simulation.paused = true;
-        }
+        if (!this.gameStarted && typeof simulation !== 'undefined') simulation.paused = true;
 
         // Listen to other players
         this.listenToPlayers();
@@ -207,6 +210,7 @@ const multiplayer = {
         this.enabled = false;
         this.lobbyId = null;
         this.isHost = false;
+        this.gameStarted = false;
         this.players = {};
         
         console.log('Left lobby');
