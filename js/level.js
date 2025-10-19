@@ -164,11 +164,11 @@ const level = {
         // <br><span class='color-var'>m</span>.field.description = "<span class='color-text'>${m.fieldUpgrades[m.fieldMode].description}</span>"
         // `, 1200);
     },
-    nextLevel() {
+    nextLevel(skipSync = false) {
         level.levelsCleared++;
         
         // Sync level change to multiplayer (only if game is actually running)
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && level.onLevel >= 0) {
+        if (!skipSync && typeof multiplayer !== 'undefined' && multiplayer.enabled && level.onLevel >= 0) {
             const nextLevelName = level.levels[level.onLevel + 1] || 'unknown';
             console.log('📤 Syncing level change to:', nextLevelName);
             multiplayer.syncLevelChange(nextLevelName, level.onLevel + 1);
@@ -195,6 +195,14 @@ const level = {
         tech.isDeathAvoidedThisLevel = false;
         simulation.updateTechHUD();
         simulation.clearNow = true; //triggers in simulation.clearMap to remove all physics bodies and setup for new map
+    },
+    // Load a specific level by index and levelsCleared using the standard transition path, without rebroadcasting
+    loadLevelByIndex(index, levelsCleared) {
+        // Prepare so that nextLevel() transitions to the desired level
+        level.onLevel = index - 1;
+        level.levelsCleared = Math.max(0, (levelsCleared || 0) - 1);
+        // Call nextLevel without syncing back to network to avoid echo
+        this.nextLevel(true);
     },
     flipHorizontal() {
         const flipX = (who) => {
@@ -720,10 +728,6 @@ const level = {
                 }
                 let v = Vector.mult(this.portalPair.unit, mag)
                 Matter.Body.setVelocity(player, v);
-                // sync teleport to all players in multiplayer
-                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && targetPos) {
-                    multiplayer.syncTeleport({ x: targetPos.x, y: targetPos.y }, { x: v.x, y: v.y });
-                }
                 // move bots to player
                 for (let i = 0; i < bullet.length; i++) {
                     if (bullet[i].botType) {

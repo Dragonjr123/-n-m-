@@ -1124,9 +1124,6 @@ const multiplayer = {
             case 'mob_damage':
                 this.handleRemoteMobDamage(event);
                 break;
-            case 'teleport':
-                this.handleRemoteTeleport(event);
-                break;
         }
     },
     
@@ -1193,41 +1190,7 @@ const multiplayer = {
         }
     },
 
-    // Sync teleport event so all players are moved together
-    syncTeleport(position, velocity) {
-        if (!this.enabled || !this.lobbyId) return;
-        if (!position) return;
-
-        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
-        eventRef.set({
-            type: 'teleport',
-            playerId: this.playerId,
-            position: { x: position.x, y: position.y },
-            velocity: velocity ? { x: velocity.x, y: velocity.y } : null,
-            timestamp: Date.now()
-        });
-    },
-
-    // Handle remote teleport - move local player to the given position
-    handleRemoteTeleport(event) {
-        try {
-            console.log('🌀 Remote teleport to:', event.position);
-            if (typeof Matter === 'undefined' || typeof player === 'undefined' || !event.position) return;
-
-            // Prevent echo while applying remote teleport
-            const wasEnabled = this.enabled;
-            this.enabled = false;
-
-            Matter.Body.setPosition(player, event.position);
-            if (event.velocity) {
-                Matter.Body.setVelocity(player, event.velocity);
-            }
-
-            this.enabled = wasEnabled;
-        } catch (e) {
-            console.error('Error applying remote teleport:', e);
-        }
-    },
+    
     
     // Handle remote visual effect
     handleRemoteVisualEffect(event) {
@@ -1266,27 +1229,13 @@ const multiplayer = {
             return;
         }
         
-        // If someone else goes to next level, follow them
-        if (typeof level !== 'undefined' && level.nextLevel) {
-            const playerName = this.otherPlayers.get(event.playerId)?.name || 'Player';
-            simulation.makeTextLog(`<span style='color:#0cf'>${playerName}</span> entered <span style='color:#ff0'>next level</span>`);
-            
-            // Sync level state
-            level.levelsCleared = event.levelsCleared;
-            level.onLevel = event.levelIndex;
-            
-            // Load the same level
-            console.log('🔄 Loading level:', event.levelName);
-            setTimeout(() => {
-                if (typeof level[event.levelName] === 'function') {
-                    level[event.levelName]();
-                    level.levelAnnounce();
-                    simulation.noCameraScroll();
-                    simulation.setZoom();
-                    level.addToWorld();
-                    simulation.draw.setPaths();
-                }
-            }, 100);
+        // If someone else goes to next level, follow them using the standard transition path
+        if (typeof level !== 'undefined' && typeof level.loadLevelByIndex === 'function') {
+            const playerName = this.otherPlayers?.get?.(event.playerId)?.name || 'Player';
+            if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
+                simulation.makeTextLog(`<span style='color:#0cf'>${playerName}</span> entered <span style='color:#ff0'>next level</span>`);
+            }
+            level.loadLevelByIndex(event.levelIndex, event.levelsCleared);
         }
     },
     
