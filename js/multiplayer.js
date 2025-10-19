@@ -1275,13 +1275,13 @@ const multiplayer = {
         console.log('🌀 Remote portal teleport from player:', event.playerId, 'to:', event.position);
         
         // ONLY sync if game is actually running (not in lobby/menu)
-        if (typeof simulation === 'undefined' || simulation.paused || !level || level.onLevel === -1) {
-            console.log('⚠️ Ignoring portal teleport - game not started yet');
+        if (typeof simulation === 'undefined' || simulation.paused || !level || level.onLevel < 0 || !player) {
+            console.log('⚠️ Ignoring portal teleport - game not started yet. onLevel:', level?.onLevel, 'paused:', simulation?.paused, 'player:', !!player);
             return;
         }
         
         // Teleport the local player to the same destination
-        if (typeof player !== 'undefined' && typeof Matter !== 'undefined') {
+        if (typeof Matter !== 'undefined') {
             Matter.Body.setPosition(player, event.position);
             Matter.Body.setVelocity(player, event.velocity);
             

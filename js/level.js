@@ -723,7 +723,10 @@ const level = {
                     const targetPos = this.portalPair.angle % (Math.PI / 2) 
                         ? this.portalPair.portal.position 
                         : this.portalPair.position;
+                    console.log('🌀 LOCAL: Syncing portal teleport to:', targetPos, 'velocity:', v);
                     multiplayer.syncPortalTeleport(targetPos, v);
+                } else {
+                    console.log('⚠️ LOCAL: Not syncing portal - multiplayer:', typeof multiplayer, 'enabled:', multiplayer?.enabled);
                 }
                 
                 // move bots to player
