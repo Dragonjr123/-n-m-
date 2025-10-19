@@ -57,6 +57,14 @@ const multiplayer = {
     physicsSyncInterval: 100, // Sync physics every 100ms (10 times/sec)
     // Interpolation caches
     mobInterp: new Map(), // index -> {x,y,angle,t}
+    // Host authority
+    hostId: null,
+    // Pagination for mob sync so large counts eventually update
+    mobSyncCursor: 0,
+    maxMobsPerSync: 80,
+    // Stable mob identifiers
+    mobNetIdCounter: 0,
+    mobIndexByNetId: new Map(), // netId -> index
     
     // Player settings
     settings: {
@@ -95,6 +103,7 @@ const multiplayer = {
         lobbyData.players[this.playerId] = this.getPlayerData();
         
         await database.ref('lobbies/' + this.lobbyId).set(lobbyData);
+        this.hostId = this.playerId; // host is self
         
         // Initialize local start state for host
         this.gameStarted = false;
@@ -134,6 +143,7 @@ const multiplayer = {
         }
         
         const lobbyData = snapshot.val();
+        this.hostId = lobbyData.host || null;
         
         if (lobbyData.isPrivate && lobbyData.password !== password) {
             throw new Error('Invalid password');
@@ -1189,20 +1199,29 @@ const multiplayer = {
     syncMobAction(action, mobIndex, data) {
         if (!this.enabled || !this.lobbyId || !this.isHost) return;
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        // Try to include a persistent netId if present on this mob
+        let netId = null;
+        if (typeof mob !== 'undefined' && mob[mobIndex] && mob[mobIndex].netId) netId = mob[mobIndex].netId;
         eventRef.set({
             type: 'mob_action',
             playerId: this.playerId,
             action: action,
             mobIndex: mobIndex,
+            netId: netId,
             data: data || {},
             timestamp: Date.now()
         });
     },
     handleRemoteMobAction(event) {
         if (typeof mob === 'undefined') return;
-        const i = event.mobIndex;
-        if (!isFinite(i) || !mob[i]) return;
-        const mref = mob[i];
+        let i = event.mobIndex;
+        let mref = null;
+        if (event.netId && this.mobIndexByNetId.has(event.netId)) {
+            const idx = this.mobIndexByNetId.get(event.netId);
+            if (mob[idx]) mref = mob[idx];
+        }
+        if (!mref && isFinite(i) && mob[i]) mref = mob[i];
+        if (!mref) return;
         switch (event.action) {
             case 'striker_dash': {
                 const p = event.data && event.data.to;
@@ -1758,9 +1777,10 @@ const multiplayer = {
     
     // ===== PHYSICS NETWORKING =====
     
-    // Sync physics state (all players)
+    // Sync physics state to Firebase
     syncPhysics() {
-        if (!this.enabled || !this.lobbyId) return;
+        // Only host should publish physics for authoritative state
+        if (!this.enabled || !this.lobbyId || !this.isHost) return;
         
         const now = Date.now();
         if (now - this.lastPhysicsSyncTime < this.physicsSyncInterval) return;
@@ -1776,21 +1796,31 @@ const multiplayer = {
         };
         
         // Sync mobs (enemies)
-        if (typeof mob !== 'undefined') {
-            for (let i = 0; i < Math.min(mob.length, 50); i++) { // Limit to 50 mobs
-                if (mob[i] && mob[i].position) {
+        if (typeof mob !== 'undefined' && mob.length) {
+            const limit = Math.min(this.maxMobsPerSync, mob.length);
+            let sent = 0;
+            let i = this.mobSyncCursor % mob.length;
+            while (sent < limit) {
+                const m = mob[i];
+                if (m && m.position) {
+                    // Assign persistent netId lazily on host
+                    if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
                     physicsData.mobs.push({
                         index: i,
-                        x: mob[i].position.x,
-                        y: mob[i].position.y,
-                        vx: mob[i].velocity.x,
-                        vy: mob[i].velocity.y,
-                        angle: mob[i].angle,
-                        health: mob[i].health || 1,
-                        alive: mob[i].alive
+                        netId: m.netId,
+                        x: m.position.x,
+                        y: m.position.y,
+                        vx: m.velocity.x,
+                        vy: m.velocity.y,
+                        angle: m.angle,
+                        health: m.health || 1,
+                        alive: m.alive
                     });
                 }
+                i = (i + 1) % mob.length;
+                sent++;
             }
+            this.mobSyncCursor = i;
         }
         
         // Sync blocks (physics bodies)
@@ -1844,6 +1874,8 @@ const multiplayer = {
             
             // Apply physics updates from all other players
             for (const [playerId, physicsData] of Object.entries(allPhysicsData)) {
+                // Only consume host's physics for authoritative state
+                if (!this.hostId || playerId !== this.hostId) continue;
                 if (playerId === this.playerId) continue; // Skip own physics
                 this.applyPhysicsUpdate(physicsData);
             }
@@ -1857,8 +1889,22 @@ const multiplayer = {
         // Update mobs (use interpolation to smooth the updates)
         if (physicsData.mobs && typeof mob !== 'undefined') {
             for (const mobData of physicsData.mobs) {
-                if (mob[mobData.index]) {
-                    const bodyRef = mob[mobData.index];
+                // Resolve by netId first for stability
+                let targetIndex = null;
+                if (mobData.netId) {
+                    if (this.mobIndexByNetId.has(mobData.netId)) {
+                        targetIndex = this.mobIndexByNetId.get(mobData.netId);
+                    } else if (isFinite(mobData.index) && mob[mobData.index]) {
+                        // First time seeing this netId: bind to current index
+                        this.mobIndexByNetId.set(mobData.netId, mobData.index);
+                        mob[mobData.index].netId = mobData.netId;
+                        targetIndex = mobData.index;
+                    }
+                } else if (isFinite(mobData.index)) {
+                    targetIndex = mobData.index;
+                }
+                if (targetIndex !== null && mob[targetIndex]) {
+                    const bodyRef = mob[targetIndex];
                     const now = physicsData.timestamp || Date.now();
                     const target = { x: mobData.x, y: mobData.y, angle: mobData.angle, t: now };
                     const cur = bodyRef.position;
@@ -1878,8 +1924,8 @@ const multiplayer = {
                         let da = ((ta - ca + Math.PI) % (2*Math.PI)) - Math.PI;
                         Matter.Body.setAngle(bodyRef, ca + da * alpha);
                     }
-                    if (mobData.health !== undefined) mob[mobData.index].health = mobData.health;
-                    if (mobData.alive !== undefined) mob[mobData.index].alive = mobData.alive;
+                    if (mobData.health !== undefined) mob[targetIndex].health = mobData.health;
+                    if (mobData.alive !== undefined) mob[targetIndex].alive = mobData.alive;
                 }
             }
         }
