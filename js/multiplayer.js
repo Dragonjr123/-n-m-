@@ -1055,6 +1055,20 @@ const multiplayer = {
             levelIndex: levelIndex,
             levelsCleared: level.levelsCleared,
             rngSeed: rngSeed,
+            difficulty: (typeof simulation !== 'undefined' ? simulation.difficulty : undefined),
+            difficultyMode: (typeof simulation !== 'undefined' ? simulation.difficultyMode : undefined),
+            isHorizontalFlipped: (typeof simulation !== 'undefined' ? !!simulation.isHorizontalFlipped : undefined),
+            techBuildFlags: (typeof tech !== 'undefined' ? {
+                isSwitchReality: !!tech.isSwitchReality,
+                isHealLowHealth: !!tech.isHealLowHealth,
+                isMACHO: !!tech.isMACHO,
+                wimpCount: tech.wimpCount || 0,
+                wimpExperiment: tech.wimpExperiment || 0,
+                isFlipFlopLevelReset: !!tech.isFlipFlopLevelReset,
+                isFlipFlopOn: !!tech.isFlipFlopOn,
+                isDuplicateBoss: !!tech.isDuplicateBoss,
+                duplicateChance: (typeof tech.duplicationChance === 'function') ? tech.duplicationChance() : (tech.duplicateChance || 0)
+            } : undefined),
             timestamp: Date.now()
         });
     },
@@ -1243,9 +1257,34 @@ const multiplayer = {
             }
             // Save RNG seed to be applied during level construction
             this.pendingRngSeed = event.rngSeed || null;
-            // Set indices so nextLevel() advances to the same level
+            // Align simulation parameters that influence build
+            if (typeof simulation !== 'undefined') {
+                if (typeof event.difficultyMode !== 'undefined') simulation.difficultyMode = event.difficultyMode;
+                if (typeof event.difficulty !== 'undefined') simulation.difficulty = event.difficulty;
+                if (typeof event.isHorizontalFlipped !== 'undefined') simulation.isHorizontalFlipped = !!event.isHorizontalFlipped;
+            }
+            // Align critical tech flags that influence build/spawns
+            if (typeof tech !== 'undefined' && event.techBuildFlags) {
+                tech.isSwitchReality = !!event.techBuildFlags.isSwitchReality;
+                tech.isHealLowHealth = !!event.techBuildFlags.isHealLowHealth;
+                tech.isMACHO = !!event.techBuildFlags.isMACHO;
+                tech.wimpCount = event.techBuildFlags.wimpCount || 0;
+                tech.wimpExperiment = event.techBuildFlags.wimpExperiment || 0;
+                tech.isFlipFlopLevelReset = !!event.techBuildFlags.isFlipFlopLevelReset;
+                tech.isFlipFlopOn = !!event.techBuildFlags.isFlipFlopOn;
+                tech.isDuplicateBoss = !!event.techBuildFlags.isDuplicateBoss;
+                // Where duplicationChance is a method, we can't overwrite it; but many branches use isDuplicateBoss && Math.random() < 2 * tech.duplicationChance()
+                // The RNG seed aligns the random < threshold, so aligning isDuplicateBoss is usually enough to keep call counts identical.
+            }
+            // Set indices so nextLevel() advances to the same named level
             level.levelsCleared = Math.max(0, (event.levelsCleared || 1) - 1);
-            level.onLevel = Math.max(-1, (event.levelIndex || 0) - 1);
+            const idxByName = Array.isArray(level.levels) ? level.levels.indexOf(event.levelName) : -1;
+            if (idxByName >= 0) {
+                level.onLevel = idxByName - 1;
+            } else {
+                // Fallback to index if name not found (should not happen if level lists are consistent)
+                level.onLevel = Math.max(-1, (event.levelIndex || 0) - 1);
+            }
             // Advance without syncing
             level.nextLevel(true);
         }
