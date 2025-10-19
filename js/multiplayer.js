@@ -1020,22 +1020,6 @@ const multiplayer = {
         });
     },
     
-    // Sync portal teleport - teleport all players when one enters a portal
-    syncPortalTeleport(targetPosition, targetVelocity) {
-        if (!this.enabled || !this.lobbyId) return;
-        
-        console.log('📤 Syncing portal teleport to:', targetPosition, 'velocity:', targetVelocity);
-        
-        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
-        eventRef.set({
-            type: 'portal_teleport',
-            playerId: this.playerId,
-            position: { x: targetPosition.x, y: targetPosition.y },
-            velocity: { x: targetVelocity.x, y: targetVelocity.y },
-            timestamp: Date.now()
-        });
-    },
-    
     // Sync tech selection
     syncTechSelection(techName, techIndex) {
         if (!this.enabled || !this.lobbyId) return;
@@ -1094,17 +1078,10 @@ const multiplayer = {
     listenToFieldEvents() {
         if (!this.enabled || !this.lobbyId) return;
         
-        const joinTime = Date.now();
         const eventsRef = database.ref(`lobbies/${this.lobbyId}/events`);
         eventsRef.on('child_added', (snapshot) => {
             const event = snapshot.val();
             if (event.playerId === this.playerId) return; // Ignore own events
-            
-            // Ignore old events from before we joined (prevents old portal events from triggering)
-            if (event.timestamp && event.timestamp < joinTime - 1000) {
-                console.log('⏭️ Ignoring old event:', event.type, 'from', (joinTime - event.timestamp) / 1000, 'seconds ago');
-                return;
-            }
             
             this.handleFieldEvent(event);
         });
@@ -1147,8 +1124,8 @@ const multiplayer = {
             case 'mob_damage':
                 this.handleRemoteMobDamage(event);
                 break;
-            case 'portal_teleport':
-                this.handleRemotePortalTeleport(event);
+            case 'teleport':
+                this.handleRemoteTeleport(event);
                 break;
         }
     },
@@ -1215,6 +1192,42 @@ const multiplayer = {
             console.log('❌ Could not trigger explosion - b.explosion not available');
         }
     },
+
+    // Sync teleport event so all players are moved together
+    syncTeleport(position, velocity) {
+        if (!this.enabled || !this.lobbyId) return;
+        if (!position) return;
+
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'teleport',
+            playerId: this.playerId,
+            position: { x: position.x, y: position.y },
+            velocity: velocity ? { x: velocity.x, y: velocity.y } : null,
+            timestamp: Date.now()
+        });
+    },
+
+    // Handle remote teleport - move local player to the given position
+    handleRemoteTeleport(event) {
+        try {
+            console.log('🌀 Remote teleport to:', event.position);
+            if (typeof Matter === 'undefined' || typeof player === 'undefined' || !event.position) return;
+
+            // Prevent echo while applying remote teleport
+            const wasEnabled = this.enabled;
+            this.enabled = false;
+
+            Matter.Body.setPosition(player, event.position);
+            if (event.velocity) {
+                Matter.Body.setVelocity(player, event.velocity);
+            }
+
+            this.enabled = wasEnabled;
+        } catch (e) {
+            console.error('Error applying remote teleport:', e);
+        }
+    },
     
     // Handle remote visual effect
     handleRemoteVisualEffect(event) {
@@ -1274,38 +1287,6 @@ const multiplayer = {
                     simulation.draw.setPaths();
                 }
             }, 100);
-        }
-    },
-    
-    // Handle remote portal teleport - teleport local player when someone else enters portal
-    handleRemotePortalTeleport(event) {
-        console.log('🌀 Remote portal teleport from player:', event.playerId, 'to:', event.position);
-        
-        // ONLY sync if game is actually running (not in lobby/menu)
-        if (typeof simulation === 'undefined' || simulation.paused || !level || level.onLevel < 0 || !player) {
-            console.log('⚠️ Ignoring portal teleport - game not started yet. onLevel:', level?.onLevel, 'paused:', simulation?.paused, 'player:', !!player);
-            return;
-        }
-        
-        // Teleport the local player to the same destination
-        if (typeof Matter !== 'undefined') {
-            Matter.Body.setPosition(player, event.position);
-            Matter.Body.setVelocity(player, event.velocity);
-            
-            console.log('✅ Local player teleported to:', event.position);
-            
-            // Also teleport bots if they exist (matching the original portal logic)
-            if (typeof bullet !== 'undefined') {
-                for (let i = 0; i < bullet.length; i++) {
-                    if (bullet[i].botType) {
-                        Matter.Body.setPosition(bullet[i], {
-                            x: event.position.x + 250 * (Math.random() - 0.5),
-                            y: event.position.y + 250 * (Math.random() - 0.5)
-                        });
-                        Matter.Body.setVelocity(bullet[i], { x: 0, y: 0 });
-                    }
-                }
-            }
         }
     },
     

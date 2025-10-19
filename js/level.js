@@ -703,10 +703,13 @@ const level = {
                 m.buttonCD_jump = 0 //disable short jumps when letting go of jump key
                 player.isInPortal = this.portalPair
                 //teleport
+                let targetPos;
                 if (this.portalPair.angle % (Math.PI / 2)) { //if left, right up or down
-                    Matter.Body.setPosition(player, this.portalPair.portal.position);
+                    targetPos = this.portalPair.portal.position;
+                    Matter.Body.setPosition(player, targetPos);
                 } else { //if at some odd angle
-                    Matter.Body.setPosition(player, this.portalPair.position);
+                    targetPos = this.portalPair.position;
+                    Matter.Body.setPosition(player, targetPos);
                 }
                 //rotate velocity
                 let mag
@@ -717,18 +720,10 @@ const level = {
                 }
                 let v = Vector.mult(this.portalPair.unit, mag)
                 Matter.Body.setVelocity(player, v);
-                
-                // Sync portal teleport to all players in multiplayer
-                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                    const targetPos = this.portalPair.angle % (Math.PI / 2) 
-                        ? this.portalPair.portal.position 
-                        : this.portalPair.position;
-                    console.log('🌀 LOCAL: Syncing portal teleport to:', targetPos, 'velocity:', v);
-                    multiplayer.syncPortalTeleport(targetPos, v);
-                } else {
-                    console.log('⚠️ LOCAL: Not syncing portal - multiplayer:', typeof multiplayer, 'enabled:', multiplayer?.enabled);
+                // sync teleport to all players in multiplayer
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && targetPos) {
+                    multiplayer.syncTeleport({ x: targetPos.x, y: targetPos.y }, { x: v.x, y: v.y });
                 }
-                
                 // move bots to player
                 for (let i = 0; i < bullet.length; i++) {
                     if (bullet[i].botType) {
