@@ -717,6 +717,15 @@ const level = {
                 }
                 let v = Vector.mult(this.portalPair.unit, mag)
                 Matter.Body.setVelocity(player, v);
+                
+                // Sync portal teleport to all players in multiplayer
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                    const targetPos = this.portalPair.angle % (Math.PI / 2) 
+                        ? this.portalPair.portal.position 
+                        : this.portalPair.position;
+                    multiplayer.syncPortalTeleport(targetPos, v);
+                }
+                
                 // move bots to player
                 for (let i = 0; i < bullet.length; i++) {
                     if (bullet[i].botType) {

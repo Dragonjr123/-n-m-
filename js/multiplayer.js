@@ -1020,6 +1020,22 @@ const multiplayer = {
         });
     },
     
+    // Sync portal teleport - teleport all players when one enters a portal
+    syncPortalTeleport(targetPosition, targetVelocity) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        console.log('📤 Syncing portal teleport to:', targetPosition, 'velocity:', targetVelocity);
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'portal_teleport',
+            playerId: this.playerId,
+            position: { x: targetPosition.x, y: targetPosition.y },
+            velocity: { x: targetVelocity.x, y: targetVelocity.y },
+            timestamp: Date.now()
+        });
+    },
+    
     // Sync tech selection
     syncTechSelection(techName, techIndex) {
         if (!this.enabled || !this.lobbyId) return;
@@ -1123,6 +1139,9 @@ const multiplayer = {
                 break;
             case 'mob_damage':
                 this.handleRemoteMobDamage(event);
+                break;
+            case 'portal_teleport':
+                this.handleRemotePortalTeleport(event);
                 break;
         }
     },
@@ -1248,6 +1267,32 @@ const multiplayer = {
                     simulation.draw.setPaths();
                 }
             }, 100);
+        }
+    },
+    
+    // Handle remote portal teleport - teleport local player when someone else enters portal
+    handleRemotePortalTeleport(event) {
+        console.log('🌀 Remote portal teleport from player:', event.playerId, 'to:', event.position);
+        
+        // Teleport the local player to the same destination
+        if (typeof player !== 'undefined' && typeof Matter !== 'undefined') {
+            Matter.Body.setPosition(player, event.position);
+            Matter.Body.setVelocity(player, event.velocity);
+            
+            console.log('✅ Local player teleported to:', event.position);
+            
+            // Also teleport bots if they exist (matching the original portal logic)
+            if (typeof bullet !== 'undefined') {
+                for (let i = 0; i < bullet.length; i++) {
+                    if (bullet[i].botType) {
+                        Matter.Body.setPosition(bullet[i], {
+                            x: event.position.x + 250 * (Math.random() - 0.5),
+                            y: event.position.y + 250 * (Math.random() - 0.5)
+                        });
+                        Matter.Body.setVelocity(bullet[i], { x: 0, y: 0 });
+                    }
+                }
+            }
         }
     },
     
