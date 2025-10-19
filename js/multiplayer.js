@@ -74,6 +74,7 @@ const multiplayer = {
         this.lobbyId = 'lobby_' + Math.random().toString(36).substr(2, 9);
         this.isHost = true;
         this.enabled = true;
+        this.gameStarted = false;
         
         const lobbyData = {
             host: this.playerId,
@@ -105,6 +106,18 @@ const multiplayer = {
         // Start listening for physics (all players)
         this.listenToPhysics();
         
+        // Prevent immediate game start; wait for host to start
+        if (typeof simulation !== 'undefined') {
+            simulation.clearNow = false;
+        }
+        
+        // Listen for host starting the game
+        this.listenForGameStart(() => {
+            if (typeof simulation !== 'undefined') {
+                simulation.clearNow = true; // trigger level.start() via index loop
+            }
+        });
+        
         console.log('Lobby created:', this.lobbyId);
         return this.lobbyId;
     },
@@ -127,6 +140,7 @@ const multiplayer = {
         this.lobbyId = lobbyId;
         this.enabled = true;
         this.isHost = false;
+        this.gameStarted = false;
         
         // Add self to lobby
         const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
@@ -146,6 +160,18 @@ const multiplayer = {
         
         // Start listening for physics (all players)
         this.listenToPhysics();
+        
+        // Prevent immediate game start; wait for host to start
+        if (typeof simulation !== 'undefined') {
+            simulation.clearNow = false;
+        }
+        
+        // Listen for host starting the game
+        this.listenForGameStart(() => {
+            if (typeof simulation !== 'undefined') {
+                simulation.clearNow = true; // trigger level.start() via index loop
+            }
+        });
         
         console.log('Joined lobby:', this.lobbyId);
         return lobbyData.gameMode;
@@ -1382,6 +1408,10 @@ const multiplayer = {
         await lobbyRef.update({ gameStarted: true });
         
         this.gameStarted = true;
+        // Start locally as well
+        if (typeof simulation !== 'undefined') {
+            simulation.clearNow = true;
+        }
     },
     
     // Listen for game start
