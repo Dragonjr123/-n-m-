@@ -196,14 +196,6 @@ const level = {
         simulation.updateTechHUD();
         simulation.clearNow = true; //triggers in simulation.clearMap to remove all physics bodies and setup for new map
     },
-    // Load a specific level by index and levelsCleared using the standard transition path, without rebroadcasting
-    loadLevelByIndex(index, levelsCleared) {
-        // Prepare so that nextLevel() transitions to the desired level
-        level.onLevel = index - 1;
-        level.levelsCleared = Math.max(0, (levelsCleared || 0) - 1);
-        // Call nextLevel without syncing back to network to avoid echo
-        this.nextLevel(true);
-    },
     flipHorizontal() {
         const flipX = (who) => {
             for (let i = 0, len = who.length; i < len; i++) {

@@ -41,7 +41,6 @@ const multiplayer = {
     updateInterval: 50, // Send updates every 50ms (20 updates/sec)
     maxPlayers: 10,
     gameStarted: false,
-    pendingLevelChange: null,
     
     // Powerup networking
     powerupIdCounter: 0,
@@ -75,7 +74,6 @@ const multiplayer = {
         this.lobbyId = 'lobby_' + Math.random().toString(36).substr(2, 9);
         this.isHost = true;
         this.enabled = true;
-        this.gameStarted = false;
         
         const lobbyData = {
             host: this.playerId,
@@ -107,18 +105,6 @@ const multiplayer = {
         // Start listening for physics (all players)
         this.listenToPhysics();
         
-        // Prevent immediate game start; wait for host to start
-        if (typeof simulation !== 'undefined') {
-            simulation.clearNow = false;
-        }
-        
-        // Listen for host starting the game
-        this.listenForGameStart(() => {
-            if (typeof simulation !== 'undefined') {
-                simulation.clearNow = true; // trigger level.start() via index loop
-            }
-        });
-        
         console.log('Lobby created:', this.lobbyId);
         return this.lobbyId;
     },
@@ -141,7 +127,6 @@ const multiplayer = {
         this.lobbyId = lobbyId;
         this.enabled = true;
         this.isHost = false;
-        this.gameStarted = false;
         
         // Add self to lobby
         const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
@@ -161,18 +146,6 @@ const multiplayer = {
         
         // Start listening for physics (all players)
         this.listenToPhysics();
-        
-        // Prevent immediate game start; wait for host to start
-        if (typeof simulation !== 'undefined') {
-            simulation.clearNow = false;
-        }
-        
-        // Listen for host starting the game
-        this.listenForGameStart(() => {
-            if (typeof simulation !== 'undefined') {
-                simulation.clearNow = true; // trigger level.start() via index loop
-            }
-        });
         
         console.log('Joined lobby:', this.lobbyId);
         return lobbyData.gameMode;
@@ -1256,13 +1229,17 @@ const multiplayer = {
             return;
         }
         
-        // If someone else goes to next level, follow them using the standard transition path
-        if (typeof level !== 'undefined' && typeof level.loadLevelByIndex === 'function') {
+        // Follow the same transition path as local nextLevel, without rebroadcasting
+        if (typeof level !== 'undefined' && typeof level.nextLevel === 'function') {
             const playerName = this.otherPlayers?.get?.(event.playerId)?.name || 'Player';
             if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
                 simulation.makeTextLog(`<span style='color:#0cf'>${playerName}</span> entered <span style='color:#ff0'>next level</span>`);
             }
-            level.loadLevelByIndex(event.levelIndex, event.levelsCleared);
+            // Set indices so nextLevel() advances to the same level
+            level.levelsCleared = Math.max(0, (event.levelsCleared || 1) - 1);
+            level.onLevel = Math.max(-1, (event.levelIndex || 0) - 1);
+            // Advance without syncing
+            level.nextLevel(true);
         }
     },
     
@@ -1409,10 +1386,6 @@ const multiplayer = {
         await lobbyRef.update({ gameStarted: true });
         
         this.gameStarted = true;
-        // Start locally as well
-        if (typeof simulation !== 'undefined') {
-            simulation.clearNow = true;
-        }
     },
     
     // Listen for game start
@@ -1424,12 +1397,6 @@ const multiplayer = {
             if (snapshot.val() === true && !this.gameStarted) {
                 this.gameStarted = true;
                 if (callback) callback();
-                // Apply any pending level change that arrived before start
-                if (this.pendingLevelChange && typeof level !== 'undefined' && typeof level.loadLevelByIndex === 'function') {
-                    const evt = this.pendingLevelChange;
-                    this.pendingLevelChange = null;
-                    level.loadLevelByIndex(evt.levelIndex, evt.levelsCleared);
-                }
             }
         });
     },
