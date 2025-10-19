@@ -1274,6 +1274,12 @@ const multiplayer = {
     handleRemotePortalTeleport(event) {
         console.log('🌀 Remote portal teleport from player:', event.playerId, 'to:', event.position);
         
+        // ONLY sync if game is actually running (not in lobby/menu)
+        if (typeof simulation === 'undefined' || simulation.paused || !level || level.onLevel === -1) {
+            console.log('⚠️ Ignoring portal teleport - game not started yet');
+            return;
+        }
+        
         // Teleport the local player to the same destination
         if (typeof player !== 'undefined' && typeof Matter !== 'undefined') {
             Matter.Body.setPosition(player, event.position);
