@@ -41,6 +41,7 @@ const multiplayer = {
     updateInterval: 50, // Send updates every 50ms (20 updates/sec)
     maxPlayers: 10,
     gameStarted: false,
+    pendingLevelChange: null,
     
     // Powerup networking
     powerupIdCounter: 0,
@@ -1423,6 +1424,12 @@ const multiplayer = {
             if (snapshot.val() === true && !this.gameStarted) {
                 this.gameStarted = true;
                 if (callback) callback();
+                // Apply any pending level change that arrived before start
+                if (this.pendingLevelChange && typeof level !== 'undefined' && typeof level.loadLevelByIndex === 'function') {
+                    const evt = this.pendingLevelChange;
+                    this.pendingLevelChange = null;
+                    level.loadLevelByIndex(evt.levelIndex, evt.levelsCleared);
+                }
             }
         });
     },
