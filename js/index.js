@@ -1163,8 +1163,25 @@ function cycle() {
         m.cycle++; //tracks player cycles  //used to alow time to stop for everything, but the player
         if (simulation.clearNow) {
             simulation.clearNow = false;
+            // Apply deterministic RNG across entire build window (clearMap + level.start)
+            let __restoreRandom = null;
+            if (typeof multiplayer !== 'undefined' && multiplayer.enabled && typeof multiplayer.pendingRngSeed === 'number') {
+                const __oldRandom = Math.random;
+                let __seed = (multiplayer.pendingRngSeed >>> 0);
+                Math.random = function() {
+                    __seed = (Math.imul(__seed, 1664525) + 1013904223) >>> 0;
+                    return (__seed >>> 0) / 4294967296;
+                };
+                if (typeof simulation !== 'undefined') simulation.isBuildingLevel = true;
+                __restoreRandom = () => {
+                    Math.random = __oldRandom;
+                    multiplayer.pendingRngSeed = null;
+                    if (typeof simulation !== 'undefined') simulation.isBuildingLevel = false;
+                };
+            }
             simulation.clearMap();
             level.start();
+            if (__restoreRandom) __restoreRandom();
         }
         
         // Tick poly miners if in progressive mode

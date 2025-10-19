@@ -26,7 +26,15 @@ const spawn = {
     setSpawnList() { //this is run at the start of each new level to determine the possible mobs for the level
         //each level has 2 mobs: one new mob and one from the last level
         spawn.pickList.splice(0, 1);
-        spawn.pickList.push(spawn.fullPickList[Math.floor(Math.random() * spawn.fullPickList.length)]);
+        // If multiplayer provided the next pick, use it; otherwise pick randomly
+        let nextPick = null;
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.pendingNextSpawnPick) {
+            nextPick = multiplayer.pendingNextSpawnPick;
+            multiplayer.pendingNextSpawnPick = null;
+        } else {
+            nextPick = spawn.fullPickList[Math.floor(Math.random() * spawn.fullPickList.length)];
+        }
+        spawn.pickList.push(nextPick);
     },
     spawnChance(chance) {
         return Math.random() < chance + 0.07 * simulation.difficulty && mob.length < -1 + 16 * Math.log10(simulation.difficulty + 1)

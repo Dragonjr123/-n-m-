@@ -26,6 +26,8 @@ const level = {
                 multiplayer.pendingRngSeed = null;
             };
         }
+        // Mark build window to keep RNG draw counts identical across clients
+        if (typeof simulation !== 'undefined') simulation.isBuildingLevel = true;
         if (level.levelsCleared === 0) { //this code only runs on the first level
             // simulation.zoomScale = 1000;
             // simulation.setZoom();
@@ -122,8 +124,24 @@ const level = {
             m.eyeFillColor = m.fieldMeterColor
             simulation.makeTextLog(`tech.isFlipFlopOn <span class='color-symbol'>=</span> true`);
         }
+        // Build signature for debugging determinism
+        try {
+            const sig = {
+                lvl: level.levels[level.onLevel],
+                counts: {
+                    map: map.length,
+                    body: body.length,
+                    mobs: (typeof mob !== 'undefined' ? mob.length : 0),
+                    power: powerUp.length,
+                    comp: composite.length
+                },
+                spawns: (typeof spawn !== 'undefined' && Array.isArray(spawn.pickList)) ? [...spawn.pickList] : null
+            };
+            console.log('🧩 Build signature', sig);
+        } catch(e) {}
         // Restore RNG after level construction
         if (__restoreRandom) __restoreRandom();
+        if (typeof simulation !== 'undefined') simulation.isBuildingLevel = false;
     },
     custom() {},
     customTopLayer() {},

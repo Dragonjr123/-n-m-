@@ -900,7 +900,17 @@ const powerUps = {
     spawn(x, y, target, moving = true, mode = null, size = powerUps[target].size()) {
         // In multiplayer, only host spawns powerups
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            return; // Clients don't spawn powerups - they receive them from host
+            // Clients don't spawn powerups - they receive them from host
+            // BUT during level build we must consume the same RNG draws to keep streams aligned
+            if (typeof simulation !== 'undefined' && simulation.isBuildingLevel) {
+                // directSpawn would draw 2 randoms for velocity if moving
+                if (moving) { Math.random(); Math.random(); }
+                // duplication check: if it would duplicate, consume two more draws for the second directSpawn's velocity
+                if (Math.random() < (typeof tech !== 'undefined' && typeof tech.duplicationChance === 'function' ? tech.duplicationChance() : 0)) {
+                    if (moving) { Math.random(); Math.random(); }
+                }
+            }
+            return;
         }
         
         if (

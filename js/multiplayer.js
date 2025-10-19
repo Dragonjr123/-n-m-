@@ -43,6 +43,9 @@ const multiplayer = {
     gameStarted: false,
     // Deterministic level build
     pendingRngSeed: null,
+    // Deterministic mob picks for the next level
+    pendingNextSpawnPick: null,
+    pendingDupChance: null,
     
     // Powerup networking
     powerupIdCounter: 0,
@@ -1046,6 +1049,19 @@ const multiplayer = {
         // generate and store a seed to be used by all clients during level build
         const rngSeed = Date.now() ^ Math.floor(Math.random() * 1e9);
         this.pendingRngSeed = rngSeed;
+        // Choose next mob pick deterministically from host and share it
+        let nextSpawnPick = null;
+        let spawnPriorPick = null;
+        try {
+            if (typeof spawn !== 'undefined') {
+                nextSpawnPick = spawn.fullPickList[Math.floor(Math.random() * spawn.fullPickList.length)];
+                // pickList format is [older, prior]; we want prior for the carry-over slot
+                spawnPriorPick = Array.isArray(spawn.pickList) && spawn.pickList.length > 1 ? spawn.pickList[1] : 'starter';
+                this.pendingNextSpawnPick = nextSpawnPick;
+            }
+        } catch (e) {
+            console.warn('Could not compute nextSpawnPick/priorPick:', e);
+        }
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
         eventRef.set({
@@ -1069,6 +1085,9 @@ const multiplayer = {
                 isDuplicateBoss: !!tech.isDuplicateBoss,
                 duplicateChance: (typeof tech.duplicationChance === 'function') ? tech.duplicationChance() : (tech.duplicateChance || 0)
             } : undefined),
+            // Mob spawn pick alignment
+            spawnPriorPick: spawnPriorPick,
+            nextSpawnPick: nextSpawnPick,
             timestamp: Date.now()
         });
     },
@@ -1275,6 +1294,15 @@ const multiplayer = {
                 tech.isDuplicateBoss = !!event.techBuildFlags.isDuplicateBoss;
                 // Where duplicationChance is a method, we can't overwrite it; but many branches use isDuplicateBoss && Math.random() < 2 * tech.duplicationChance()
                 // The RNG seed aligns the random < threshold, so aligning isDuplicateBoss is usually enough to keep call counts identical.
+            }
+            // Provide override for duplication chance during build
+            this.pendingDupChance = (event.techBuildFlags && typeof event.techBuildFlags.duplicateChance === 'number') ? event.techBuildFlags.duplicateChance : null;
+            // Align mob pick list across clients: set prior, and override next pick
+            if (typeof spawn !== 'undefined') {
+                if (event.spawnPriorPick) {
+                    spawn.pickList = ['starter', event.spawnPriorPick];
+                }
+                this.pendingNextSpawnPick = event.nextSpawnPick || null;
             }
             // Set indices so nextLevel() advances to the same named level
             level.levelsCleared = Math.max(0, (event.levelsCleared || 1) - 1);
