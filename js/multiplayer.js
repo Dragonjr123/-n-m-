@@ -86,6 +86,11 @@ const multiplayer = {
     
     // Create a new lobby
     async createLobby(isPrivate, password, gameMode) {
+        // Ensure we have a playerId
+        if (!this.playerId) {
+            const ok = this.init();
+            if (!ok) throw new Error('Multiplayer init failed');
+        }
         this.lobbyId = 'lobby_' + Math.random().toString(36).substr(2, 9);
         this.isHost = true;
         this.enabled = true;
@@ -102,7 +107,10 @@ const multiplayer = {
         
         lobbyData.players[this.playerId] = this.getPlayerData();
         
-        await database.ref('lobbies/' + this.lobbyId).set(lobbyData);
+        await database.ref('lobbies/' + this.lobbyId).set(lobbyData).catch((e) => {
+            console.error('Failed to create lobby at path:', 'lobbies/' + this.lobbyId, e);
+            throw e;
+        });
         this.hostId = this.playerId; // host is self
         
         // Initialize local start state for host
@@ -135,8 +143,16 @@ const multiplayer = {
     
     // Join an existing lobby
     async joinLobby(lobbyId, password) {
+        // Ensure we have a playerId
+        if (!this.playerId) {
+            const ok = this.init();
+            if (!ok) throw new Error('Multiplayer init failed');
+        }
         const lobbyRef = database.ref('lobbies/' + lobbyId);
-        const snapshot = await lobbyRef.once('value');
+        const snapshot = await lobbyRef.once('value').catch((e) => {
+            console.error('Failed to read lobby path:', 'lobbies/' + lobbyId, e);
+            throw e;
+        });
         
         if (!snapshot.exists()) {
             throw new Error('Lobby not found');
@@ -155,7 +171,10 @@ const multiplayer = {
         
         // Add self to lobby
         const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
-        await playerRef.set(this.getPlayerData());
+        await playerRef.set(this.getPlayerData()).catch((e) => {
+            console.error('Failed to add player to lobby:', this.playerId, 'at', `lobbies/${this.lobbyId}/players/${this.playerId}`, e);
+            throw e;
+        });
         
         // Setup disconnect handler
         playerRef.onDisconnect().remove();
