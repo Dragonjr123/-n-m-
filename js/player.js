@@ -1187,7 +1187,9 @@ const m = {
                 
                 // Sync block throw to multiplayer
                 if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                    const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
                     multiplayer.syncBlockInteraction('throw', {
+                        index: idx,
                         position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
                         velocity: throwVelocity,
                         mass: m.holdingTarget.mass,
@@ -1411,6 +1413,11 @@ const m = {
             ) {
                 mob[i].locatePlayer();
                 m.pushMass(mob[i]);
+                // Notify host to apply mob push for clients
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+                    const data = { netId: mob[i].netId || null, index: i };
+                    multiplayer.syncFieldInteraction('mob_push', data);
+                }
             }
         }
     },
@@ -1423,6 +1430,11 @@ const m = {
             ) {
                 mob[i].locatePlayer();
                 m.pushMass(mob[i]);
+                // Notify host to apply mob push for clients
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+                    const data = { netId: mob[i].netId || null, index: i };
+                    multiplayer.syncFieldInteraction('mob_push', data);
+                }
             }
         }
     },
@@ -1476,7 +1488,9 @@ const m = {
 
         // Sync block pickup to multiplayer
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
             multiplayer.syncBlockInteraction('pickup', {
+                index: idx,
                 position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
                 velocity: { x: m.holdingTarget.velocity.x, y: m.holdingTarget.velocity.y },
                 mass: m.holdingTarget.mass

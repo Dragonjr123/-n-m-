@@ -2036,6 +2036,9 @@ const b = {
             lookFrequency: 80 + Math.floor(23 * Math.random()),
             endCycle: simulation.cycle + Math.floor((950 + 420 * Math.random()) * tech.isBulletsLastLonger * tech.droneCycleReduction) + 140 + RADIUS * 5,
             classType: "bullet",
+            ownerId: (typeof multiplayer !== 'undefined' && multiplayer.enabled)
+                ? ((multiplayer.isSpawningRemote && multiplayer.spawningRemoteOwnerId) ? multiplayer.spawningRemoteOwnerId : multiplayer.playerId)
+                : null,
             collisionFilter: {
                 category: cat.bullet,
                 mask: cat.map | cat.body | cat.bullet | cat.mob | cat.mobBullet | cat.mobShield //self collide
@@ -2207,8 +2210,15 @@ const b = {
                     }
                     if (this.lockedOn) { //accelerate towards mobs
                         this.force = Vector.mult(Vector.normalise(Vector.sub(this.position, this.lockedOn.position)), -this.mass * THRUST)
-                    } else { //accelerate towards mouse
-                        this.force = Vector.mult(Vector.normalise(Vector.sub(this.position, simulation.mouseInGame)), -this.mass * THRUST)
+                    } else { //accelerate towards owner's aim (or local mouse for owner)
+                        let target = simulation.mouseInGame;
+                        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && this.ownerId && multiplayer.playerId !== this.ownerId) {
+                            const p = multiplayer.players && multiplayer.players[this.ownerId];
+                            if (p && isFinite(p.aimX) && isFinite(p.aimY)) {
+                                target = { x: p.aimX, y: p.aimY };
+                            }
+                        }
+                        this.force = Vector.mult(Vector.normalise(Vector.sub(this.position, target)), -this.mass * THRUST)
                     }
                     // speed cap instead of friction to give more agility
                     if (this.speed > 6) {
@@ -3169,6 +3179,9 @@ const b = {
         bullet[me] = Bodies.polygon(position.x, position.y, 9, 12, {
             isUpgraded: tech.isOrbitBotUpgrade,
             botType: "orbit",
+            ownerId: (typeof multiplayer !== 'undefined' && multiplayer.enabled)
+                ? ((multiplayer.isSpawningRemote && multiplayer.spawningRemoteOwnerId) ? multiplayer.spawningRemoteOwnerId : multiplayer.playerId)
+                : null,
             friction: 0,
             frictionStatic: 0,
             frictionAir: 1,
@@ -3234,13 +3247,18 @@ const b = {
                         }
                     }
                 }
-                //orbit player
+                //orbit owner
                 const time = simulation.cycle * this.orbitalSpeed + this.phase
                 const orbit = {
                     x: Math.cos(time),
-                    y: Math.sin(time) //*1.1
+                    y: Math.sin(time)
                 }
-                Matter.Body.setPosition(this, Vector.add(m.pos, Vector.mult(orbit, this.range))) //bullets move with player
+                let anchor = m.pos;
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && this.ownerId && multiplayer.playerId !== this.ownerId) {
+                    const p = multiplayer.players && multiplayer.players[this.ownerId];
+                    if (p && isFinite(p.x) && isFinite(p.y)) anchor = { x: p.x, y: p.y };
+                }
+                Matter.Body.setPosition(this, Vector.add(anchor, Vector.mult(orbit, this.range)))
             }
         })
         // bullet[me].orbitalSpeed = Math.sqrt(0.7 / bullet[me].range)

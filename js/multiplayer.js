@@ -305,6 +305,11 @@ const multiplayer = {
             angle: m.angle || 0,
             health: m.health || 1,
             fieldActive: this.isFieldActive(),
+            // Aim and input state
+            aimX: (typeof simulation !== 'undefined' && simulation.mouseInGame) ? simulation.mouseInGame.x : 0,
+            aimY: (typeof simulation !== 'undefined' && simulation.mouseInGame) ? simulation.mouseInGame.y : 0,
+            isFiring: !!(typeof input !== 'undefined' && input.fire),
+            isFieldDown: !!(typeof input !== 'undefined' && input.field),
             // Network leg animation data
             walkCycle: m.walk_cycle || 0,
             flipLegs: m.flipLegs || 1,
@@ -1179,13 +1184,19 @@ const multiplayer = {
                 this.handleRemotePowerupGrab(event.data);
                 break;
             case 'field_block_push':
-                this.handleRemoteBlockPush(event.data);
+                this.handleRemoteBlockPush(event);
+                break;
+            case 'field_mob_push':
+                this.handleRemoteMobPush(event);
                 break;
             case 'block_pickup':
-                this.handleRemoteBlockPickup(event.blockData);
+                this.handleRemoteBlockPickup(event);
                 break;
             case 'block_throw':
-                this.handleRemoteBlockThrow(event.blockData);
+                this.handleRemoteBlockThrow(event);
+                break;
+            case 'block_hold':
+                this.handleRemoteBlockHold(event);
                 break;
             case 'gun_fire':
                 this.handleRemoteGunFire(event);
@@ -1290,45 +1301,54 @@ const multiplayer = {
         }
     },
     
-    // Handle remote gun fire - spawn bullets visually, DON'T fire the gun
+    // Handle remote gun fire - spawn bullets visually, DON'T alter local player state or ammo
     handleRemoteGunFire(event) {
         console.log('🔫 Remote gun fire:', event.gunName, 'from remote player');
         
-        // DON'T call gun.fire() - that would make the remote player fire too!
-        // Instead, just spawn visual bullets at the remote player's position
-        
-        if (typeof b !== 'undefined' && event.position) {
-            // Temporarily set position/angle for bullet spawning
-            const originalPos = { x: m.pos.x, y: m.pos.y };
-            const originalAngle = m.angle;
-            const originalCrouch = m.crouch;
-            
+        if (typeof b !== 'undefined' && event.position && typeof m !== 'undefined') {
+            // Snapshot local player state to avoid side-effects
+            const snap = {
+                pos: { x: m.pos.x, y: m.pos.y },
+                angle: m.angle,
+                crouch: m.crouch,
+                fireCDcycle: m.fireCDcycle,
+                fieldCDcycle: m.fieldCDcycle,
+                energy: m.energy,
+                activeGun: typeof b !== 'undefined' ? b.activeGun : null
+            };
+
+            // Override to remote player's pose
             m.pos = event.position;
             m.angle = event.angle;
-            m.crouch = event.crouch;
-            
-            // Temporarily disable multiplayer to prevent echo
-            const wasEnabled = this.enabled;
-            this.enabled = false;
-            
-            // Spawn bullets based on gun type (without consuming ammo or triggering fire)
+            m.crouch = !!event.crouch;
+
+            // Tag spawned bullets with remote ownerId
+            this.isSpawningRemote = true;
+            this.spawningRemoteOwnerId = event.playerId;
+
             try {
-                const gun = b.guns.find(g => g.name === event.gunName);
-                if (gun && gun.fire) {
-                    gun.fire(); // Spawn bullets only
+                const gunIndex = (typeof b !== 'undefined' && b.guns) ? b.guns.findIndex(g => g.name === event.gunName) : -1;
+                if (gunIndex >= 0 && b.guns[gunIndex] && typeof b.guns[gunIndex].fire === 'function') {
+                    const oldActive = b.activeGun;
+                    b.activeGun = gunIndex;
+                    // Call gun.fire() directly (no ammo decrement)
+                    b.guns[gunIndex].fire();
+                    b.activeGun = oldActive;
                 }
             } catch (e) {
                 console.error('Error spawning remote bullets:', e);
+            } finally {
+                this.isSpawningRemote = false;
+                this.spawningRemoteOwnerId = null;
+                // Restore local player state
+                m.pos = snap.pos;
+                m.angle = snap.angle;
+                m.crouch = snap.crouch;
+                m.fireCDcycle = snap.fireCDcycle;
+                m.fieldCDcycle = snap.fieldCDcycle;
+                m.energy = snap.energy;
+                if (snap.activeGun !== null) b.activeGun = snap.activeGun;
             }
-            
-            // Re-enable multiplayer
-            this.enabled = wasEnabled;
-            
-            // Restore original position/angle
-            m.pos = originalPos;
-            m.angle = originalAngle;
-            m.crouch = originalCrouch;
-            
             console.log('✅ Spawned remote bullets for:', event.gunName);
         }
     },
@@ -1687,6 +1707,96 @@ const multiplayer = {
         });
         
         console.log('Listening for powerup events');
+    },
+
+    // ===== REMOTE FIELD/BLOCK HANDLERS (host applies; clients ignore) =====
+    handleRemoteBlockPush(event) {
+        if (!this.isHost) return; // host authoritative
+        if (!event || !event.data || !isFinite(event.data.blockIndex)) return;
+        if (typeof body === 'undefined' || !body[event.data.blockIndex]) return;
+        const blk = body[event.data.blockIndex];
+        const p = this.players && this.players[event.playerId];
+        if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
+        // Push block away from remote player position
+        const unit = Matter.Vector.normalise(Matter.Vector.sub({ x: blk.position.x, y: blk.position.y }, { x: p.x, y: p.y }));
+        const massRoot = Math.sqrt(Math.max(0.15, blk.mass));
+        Matter.Body.setVelocity(blk, {
+            x: blk.velocity.x + (20 * unit.x) / massRoot,
+            y: blk.velocity.y + (20 * unit.y) / massRoot
+        });
+    },
+
+    handleRemoteBlockPickup(event) {
+        if (!this.isHost) return; // host authoritative
+        if (!event || !event.blockData) return;
+        const idx = event.blockData.index;
+        if (!isFinite(idx) || typeof body === 'undefined' || !body[idx]) return;
+        const blk = body[idx];
+        // Make non-colliding while held
+        blk.collisionFilter.category = 0;
+        blk.collisionFilter.mask = 0;
+    },
+
+    handleRemoteBlockThrow(event) {
+        if (!this.isHost) return; // host authoritative
+        if (!event || !event.blockData) return;
+        const data = event.blockData;
+        const idx = data.index;
+        if (!isFinite(idx) || typeof body === 'undefined' || !body[idx]) return;
+        const blk = body[idx];
+        // Reposition near throw origin and apply throw velocity
+        if (data.position && isFinite(data.position.x) && isFinite(data.position.y)) {
+            Matter.Body.setPosition(blk, { x: data.position.x, y: data.position.y });
+        }
+        if (data.velocity) {
+            Matter.Body.setVelocity(blk, { x: data.velocity.x || 0, y: data.velocity.y || 0 });
+        }
+        // Restore collisions after throw
+        blk.collisionFilter.category = cat.body;
+        blk.collisionFilter.mask = cat.player | cat.map | cat.body | cat.bullet | cat.mob | cat.mobBullet | cat.mobShield;
+    },
+
+    handleRemoteBlockHold(event) {
+        if (!this.isHost) return; // host authoritative
+        if (!event || !event.blockData) return;
+        const data = event.blockData;
+        const idx = data.index;
+        if (!isFinite(idx) || typeof body === 'undefined' || !body[idx]) return;
+        const blk = body[idx];
+        if (data.position && isFinite(data.position.x) && isFinite(data.position.y)) {
+            Matter.Body.setPosition(blk, { x: data.position.x, y: data.position.y });
+        }
+        if (data.velocity) {
+            Matter.Body.setVelocity(blk, { x: data.velocity.x || 0, y: data.velocity.y || 0 });
+        }
+        // Keep non-colliding while held
+        blk.collisionFilter.category = 0;
+        blk.collisionFilter.mask = 0;
+    },
+
+    handleRemoteMobPush(event) {
+        if (!this.isHost) return; // host authoritative
+        if (!event || !event.data) return;
+        // Resolve mob by netId first
+        let idx = null;
+        const netId = event.data.netId;
+        if (netId && this.mobIndexByNetId && this.mobIndexByNetId.has(netId)) {
+            idx = this.mobIndexByNetId.get(netId);
+        } else if (isFinite(event.data.index)) {
+            idx = event.data.index;
+        }
+        if (!isFinite(idx) || typeof mob === 'undefined' || !mob[idx]) return;
+        const mref = mob[idx];
+        // Find remote player's position to compute push direction
+        const p = this.players && this.players[event.playerId];
+        if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
+        const unit = Matter.Vector.normalise(Matter.Vector.sub(mref.position, { x: p.x, y: p.y }));
+        const massRoot = Math.sqrt(Math.max(0.15, mref.mass || 1));
+        Matter.Body.setVelocity(mref, {
+            x: mref.velocity.x + (18 * unit.x) / massRoot,
+            y: mref.velocity.y + (18 * unit.y) / massRoot
+        });
+        mref.locatePlayer && mref.locatePlayer();
     },
     
     // Handle remote powerup spawn
