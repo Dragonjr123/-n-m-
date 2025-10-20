@@ -1112,6 +1112,21 @@ const m = {
             });
             Matter.Body.setVelocity(m.holdingTarget, player.velocity);
             Matter.Body.rotate(m.holdingTarget, 0.01 / m.holdingTarget.mass); //gently spin the block
+            // Multiplayer: while holding, let host move this block for us
+            if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+                // Throttle to ~20 Hz assuming m.cycle ~60 fps
+                if (!(m.cycle % 3)) {
+                    const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
+                    if (idx !== -1) {
+                        multiplayer.syncBlockInteraction('hold', {
+                            index: idx,
+                            position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
+                            velocity: { x: m.holdingTarget.velocity.x, y: m.holdingTarget.velocity.y },
+                            mass: m.holdingTarget.mass
+                        });
+                    }
+                }
+            }
         } else {
             m.isHolding = false
         }

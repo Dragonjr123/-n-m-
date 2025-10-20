@@ -1954,7 +1954,9 @@ const multiplayer = {
         
         // Sync blocks (physics bodies)
         if (typeof body !== 'undefined') {
-            for (let i = 0; i < Math.min(body.length, 30); i++) {
+            const maxBlocks = 30;
+            let count = 0;
+            for (let i = 0; i < body.length && count < maxBlocks; i++) {
                 if (body[i] && body[i].position) {
                     physicsData.blocks.push({
                         index: i,
@@ -1964,6 +1966,22 @@ const multiplayer = {
                         vy: body[i].velocity.y,
                         angle: body[i].angle,
                         angularVelocity: body[i].angularVelocity
+                    });
+                    count++;
+                }
+            }
+            // Always include currently held block if any (prioritize for visibility)
+            if (typeof m !== 'undefined' && m.holdingTarget) {
+                const heldIdx = body.indexOf(m.holdingTarget);
+                if (heldIdx !== -1 && !physicsData.blocks.some(b => b.index === heldIdx)) {
+                    physicsData.blocks.unshift({
+                        index: heldIdx,
+                        x: body[heldIdx].position.x,
+                        y: body[heldIdx].position.y,
+                        vx: body[heldIdx].velocity.x,
+                        vy: body[heldIdx].velocity.y,
+                        angle: body[heldIdx].angle,
+                        angularVelocity: body[heldIdx].angularVelocity
                     });
                 }
             }
@@ -2055,6 +2073,42 @@ const multiplayer = {
                     }
                     if (mobData.health !== undefined) mob[targetIndex].health = mobData.health;
                     if (mobData.alive !== undefined) mob[targetIndex].alive = mobData.alive;
+                } else if (targetIndex !== null && (typeof mob !== 'undefined')) {
+                    // Ghost-create a mob for clients when missing
+                    try {
+                        const radius = 30; // generic fallback
+                        const ghost = Bodies.circle(mobData.x || 0, mobData.y || 0, radius, {
+                            inertia: Infinity,
+                            frictionAir: 0.02,
+                            restitution: 0.2,
+                            classType: 'mob',
+                            isGhost: true,
+                            alive: mobData.alive !== false,
+                            health: isFinite(mobData.health) ? mobData.health : 1,
+                            radius: radius
+                        });
+                        // Safe no-op methods to avoid crashes in client loops
+                        ghost.damage = function(amount) {
+                            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                multiplayer.syncMobDamage(targetIndex, amount, (this.health || 1) - amount, this.alive);
+                            }
+                        };
+                        ghost.locatePlayer = function(){};
+                        ghost.foundPlayer = function(){};
+                        ghost.onDeath = function(){};
+                        // Insert and tag
+                        World.add(engine.world, ghost);
+                        mob[targetIndex] = ghost;
+                        if (mobData.netId) {
+                            this.mobIndexByNetId.set(mobData.netId, targetIndex);
+                            mob[targetIndex].netId = mobData.netId;
+                        }
+                        // Set initial kinematics
+                        Matter.Body.setVelocity(ghost, { x: mobData.vx || 0, y: mobData.vy || 0 });
+                        Matter.Body.setAngle(ghost, mobData.angle || 0);
+                    } catch (e) {
+                        console.warn('Failed to create ghost mob for client:', e);
+                    }
                 }
             }
         }
