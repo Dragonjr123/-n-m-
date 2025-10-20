@@ -66,6 +66,12 @@ const multiplayer = {
     mobNetIdCounter: 0,
     mobIndexByNetId: new Map(), // netId -> index
     
+    // Client authority tracking (which player is manipulating which object)
+    clientAuthority: new Map(), // objectId -> {playerId, type, timestamp}
+    
+    // Lobby settings
+    hostOnlyLevelExit: false, // Only host can trigger level exits
+    
     // Player settings
     settings: {
         name: "Player",
@@ -102,6 +108,8 @@ const multiplayer = {
             gameMode: gameMode,
             createdAt: Date.now(),
             gameStarted: false,
+            hostOnlyLevelExit: false,
+            persistEmptyLobby: true,
             players: {}
         };
         
@@ -132,6 +140,10 @@ const multiplayer = {
         // Start listening for physics (all players)
         this.listenToPhysics();
         
+        // Host listens for client authority claims
+        if (this.isHost) {
+            this.listenToAuthority();
+        }
 
         this.listenForGameStart(() => {
             if (typeof simulation !== 'undefined') simulation.paused = false;
@@ -160,6 +172,7 @@ const multiplayer = {
         
         const lobbyData = snapshot.val();
         this.hostId = lobbyData.host || null;
+        this.hostOnlyLevelExit = !!lobbyData.hostOnlyLevelExit;
         
         if (lobbyData.isPrivate && lobbyData.password !== password) {
             throw new Error('Invalid password');
@@ -230,11 +243,8 @@ const multiplayer = {
         const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
         await playerRef.remove();
         
-        // If host, delete entire lobby
-        if (this.isHost) {
-            const lobbyRef = database.ref('lobbies/' + this.lobbyId);
-            await lobbyRef.remove();
-        }
+        // Don't delete lobby when host leaves - allow it to persist for others to join
+        // Lobbies will be cleaned up by Firebase TTL or manual cleanup
         
         this.enabled = false;
         this.lobbyId = null;
@@ -1597,6 +1607,14 @@ const multiplayer = {
         await playerRef.remove();
     },
     
+    // Set host-only level exit (host only)
+    async setHostOnlyLevelExit(enabled) {
+        if (!this.isHost || !this.lobbyId) return;
+        this.hostOnlyLevelExit = enabled;
+        const lobbyRef = database.ref(`lobbies/${this.lobbyId}`);
+        await lobbyRef.update({ hostOnlyLevelExit: enabled });
+    },
+    
     // Start game (host only)
     async startGame() {
         if (!this.isHost || !this.lobbyId) return;
@@ -1605,6 +1623,53 @@ const multiplayer = {
         await lobbyRef.update({ gameStarted: true });
         
         this.gameStarted = true;
+    },
+    
+    // Claim client authority over an object (prevents host from overwriting)
+    claimAuthority(objectType, objectIndex) {
+        if (!this.enabled || !this.lobbyId) return;
+        const key = `${objectType}_${objectIndex}`;
+        this.clientAuthority.set(key, {
+            playerId: this.playerId,
+            type: objectType,
+            timestamp: Date.now()
+        });
+        
+        // Notify host
+        const authRef = database.ref(`lobbies/${this.lobbyId}/authority/${key}`);
+        authRef.set({
+            playerId: this.playerId,
+            type: objectType,
+            index: objectIndex,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Release client authority
+    releaseAuthority(objectType, objectIndex) {
+        if (!this.enabled || !this.lobbyId) return;
+        const key = `${objectType}_${objectIndex}`;
+        this.clientAuthority.delete(key);
+        
+        // Notify host
+        const authRef = database.ref(`lobbies/${this.lobbyId}/authority/${key}`);
+        authRef.remove();
+    },
+    
+    // Listen for authority claims (host only)
+    listenToAuthority() {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const authRef = database.ref(`lobbies/${this.lobbyId}/authority`);
+        authRef.on('value', (snapshot) => {
+            const authorities = snapshot.val();
+            this.clientAuthority.clear();
+            if (authorities) {
+                for (const [key, auth] of Object.entries(authorities)) {
+                    this.clientAuthority.set(key, auth);
+                }
+            }
+        });
     },
     
     // Listen for game start
@@ -1916,12 +1981,13 @@ const multiplayer = {
         
         this.lastPhysicsSyncTime = now;
         
-        // Collect physics data for mobs, blocks, and powerups
+        // Collect physics data for mobs, blocks, powerups, and mob bullets
         const physicsData = {
             timestamp: now,
             mobs: [],
             blocks: [],
-            powerups: []
+            powerups: [],
+            mobBullets: []
         };
         
         // Sync mobs (enemies)
@@ -1952,12 +2018,16 @@ const multiplayer = {
             this.mobSyncCursor = i;
         }
         
-        // Sync blocks (physics bodies)
+        // Sync blocks (physics bodies) - skip blocks under client authority
         if (typeof body !== 'undefined') {
             const maxBlocks = 30;
             let count = 0;
             for (let i = 0; i < body.length && count < maxBlocks; i++) {
                 if (body[i] && body[i].position) {
+                    // Skip if under client authority
+                    const authKey = `block_${i}`;
+                    if (this.clientAuthority.has(authKey)) continue;
+                    
                     physicsData.blocks.push({
                         index: i,
                         x: body[i].position.x,
@@ -2001,6 +2071,23 @@ const multiplayer = {
                             vy: powerUp[i].velocity.y
                         });
                     }
+                }
+            }
+        }
+        
+        // Sync mob bullets (projectiles from mobs)
+        if (typeof mob !== 'undefined') {
+            for (let i = 0; i < mob.length; i++) {
+                const m = mob[i];
+                if (m && m.position && m.collisionFilter && m.collisionFilter.category === cat.mobBullet) {
+                    physicsData.mobBullets.push({
+                        index: i,
+                        x: m.position.x,
+                        y: m.position.y,
+                        vx: m.velocity.x,
+                        vy: m.velocity.y,
+                        angle: m.angle
+                    });
                 }
             }
         }
@@ -2116,6 +2203,13 @@ const multiplayer = {
         // Update blocks (use interpolation to smooth the updates)
         if (physicsData.blocks && typeof body !== 'undefined') {
             for (const blockData of physicsData.blocks) {
+                // Skip blocks under local authority
+                const authKey = `block_${blockData.index}`;
+                if (this.clientAuthority.has(authKey) && 
+                    this.clientAuthority.get(authKey).playerId === this.playerId) {
+                    continue;
+                }
+                
                 if (body[blockData.index]) {
                     // Smoothly interpolate to new position
                     const currentPos = body[blockData.index].position;
@@ -2145,6 +2239,24 @@ const multiplayer = {
                         y: currentPos.y + (powerupData.y - currentPos.y) * lerpFactor
                     });
                     Matter.Body.setVelocity(powerUp[localIndex], { x: powerupData.vx, y: powerupData.vy });
+                }
+            }
+        }
+        
+        // Update mob bullets (use interpolation)
+        if (physicsData.mobBullets && typeof mob !== 'undefined') {
+            for (const bulletData of physicsData.mobBullets) {
+                if (mob[bulletData.index] && mob[bulletData.index].collisionFilter && 
+                    mob[bulletData.index].collisionFilter.category === cat.mobBullet) {
+                    const currentPos = mob[bulletData.index].position;
+                    const lerpFactor = 0.4;
+                    
+                    Matter.Body.setPosition(mob[bulletData.index], {
+                        x: currentPos.x + (bulletData.x - currentPos.x) * lerpFactor,
+                        y: currentPos.y + (bulletData.y - currentPos.y) * lerpFactor
+                    });
+                    Matter.Body.setVelocity(mob[bulletData.index], { x: bulletData.vx, y: bulletData.vy });
+                    Matter.Body.setAngle(mob[bulletData.index], bulletData.angle);
                 }
             }
         }

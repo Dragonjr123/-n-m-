@@ -83,6 +83,14 @@ const multiplayerUI = {
                     </div>
                     
                     <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 10px;">
+                            <input type="checkbox" id="mp-host-only-exit" style="width: 20px; height: 20px; vertical-align: middle;">
+                            <span style="font-weight: bold; margin-left: 5px;">Host Only Level Exit</span>
+                        </label>
+                        <p style="margin: 5px 0 0 25px; font-size: 12px; color: #666;">Only the host can trigger level transitions</p>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
                         <label style="display: block; margin-bottom: 5px; font-weight: bold;">Game Mode:</label>
                         <select id="mp-gamemode" style="width: 100%; padding: 8px; font-size: 16px;">
                             <option value="adventure">Adventure</option>
@@ -160,6 +168,7 @@ const multiplayerUI = {
         const isPrivate = document.getElementById('mp-private').checked;
         const password = isPrivate ? document.getElementById('mp-password').value : null;
         const gameMode = document.getElementById('mp-gamemode').value;
+        const hostOnlyExit = document.getElementById('mp-host-only-exit').checked;
         
         if (isPrivate && !password) {
             alert('Please enter a password for private lobby');
@@ -172,6 +181,11 @@ const multiplayerUI = {
         // Create lobby WITHOUT starting game
         try {
             const lobbyId = await multiplayer.createLobby(isPrivate, password, gameMode);
+            
+            // Set host-only exit if enabled
+            if (hostOnlyExit) {
+                await multiplayer.setHostOnlyLevelExit(true);
+            }
             
             // Show lobby waiting room
             this.showLobbyRoom(lobbyId, isPrivate, password, gameMode);

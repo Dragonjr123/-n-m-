@@ -259,7 +259,16 @@ const level = {
             player.position.y < level.exit.y - 40 &&
             player.velocity.y < 0.1
         ) {
-            level.nextLevel()
+            // Check if host-only level exit is enabled
+            if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.hostOnlyLevelExit) {
+                // Only host can trigger level change
+                if (multiplayer.isHost) {
+                    level.nextLevel()
+                }
+            } else {
+                // Anyone can trigger level change
+                level.nextLevel()
+            }
         }
     },
     setPosToSpawn(xPos, yPos) {

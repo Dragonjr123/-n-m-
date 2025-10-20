@@ -1051,25 +1051,6 @@ const m = {
         return false;
     },
     drop() {
-        if (m.isHolding) {
-            m.fieldCDcycle = m.cycle + 15;
-            m.isHolding = false;
-            m.throwCharge = 0;
-            m.definePlayerMass()
-        }
-        if (m.holdingTarget) {
-            m.holdingTarget.collisionFilter.category = cat.body;
-            m.holdingTarget.collisionFilter.mask = cat.player | cat.map | cat.body | cat.bullet | cat.mob | cat.mobBullet
-            m.holdingTarget = null;
-        }
-    },
-    definePlayerMass(mass = m.defaultMass) {
-        Matter.Body.setMass(player, mass);
-        //reduce air and ground move forces
-        m.Fx = 0.08 / mass * tech.squirrelFx //base player mass is 5
-        m.FxAir = 0.4 / mass / mass //base player mass is 5
-        //make player stand a bit lower when holding heavy masses
-        m.yOffWhen.stand = Math.max(m.yOffWhen.crouch, Math.min(49, 49 - (mass - 5) * 6))
         if (m.onGround && !m.crouch) m.yOffGoal = m.yOffWhen.stand;
     },
     drawHold(target, stroke = true) {
@@ -1210,6 +1191,8 @@ const m = {
                         mass: m.holdingTarget.mass,
                         charge: charge
                     });
+                    // Release authority after throw
+                    multiplayer.releaseAuthority('block', idx);
                 }
                 
                 Matter.Body.setVelocity(m.holdingTarget, throwVelocity);
@@ -1504,6 +1487,8 @@ const m = {
         // Sync block pickup to multiplayer
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
             const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
+            // Claim authority over this block
+            multiplayer.claimAuthority('block', idx);
             multiplayer.syncBlockInteraction('pickup', {
                 index: idx,
                 position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
