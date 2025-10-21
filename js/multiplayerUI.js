@@ -105,7 +105,7 @@ const multiplayerUI = {
                 </div>
             </div>
         `;
-        // tralalalala
+        // tralalalalas
         const container = document.createElement('div');
         container.id = 'create-lobby-menu';
         container.innerHTML = html;
