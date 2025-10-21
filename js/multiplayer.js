@@ -1096,6 +1096,37 @@ const multiplayer = {
         });
     },
     
+    // INSTANT mob spawn notification (called immediately when mob spawns)
+    syncMobSpawn(mobIndex) {
+        if (!this.enabled || !this.lobbyId || !this.isHost) return;
+        if (typeof mob === 'undefined' || mobIndex >= mob.length) return;
+        
+        const m = mob[mobIndex];
+        if (!m || !m.position) return;
+        
+        // Assign netId if not already assigned
+        if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'mob_spawn',
+            playerId: this.playerId,
+            mobData: {
+                netId: m.netId,
+                x: m.position.x,
+                y: m.position.y,
+                vx: m.velocity?.x || 0,
+                vy: m.velocity?.y || 0,
+                angle: m.angle || 0,
+                radius: m.radius || 30,
+                sides: m.vertices ? m.vertices.length : 6,
+                fill: m.fill || '#735084',
+                stroke: m.stroke || '#000000'
+            },
+            timestamp: Date.now()
+        });
+    },
+    
     // Sync mob action (for special mob behaviors)
     syncMobAction(actionType, mobIndex, data) {
         if (!this.enabled || !this.lobbyId) return;
@@ -1460,6 +1491,37 @@ const multiplayer = {
                         b.randomBot(event.position, event.params.isKeep, event.params.isAll);
                     }
                     // Add more bot types as needed
+                }
+                break;
+            case 'mob_spawn':
+                if (event.playerId !== this.playerId && event.mobData && typeof mob !== 'undefined') {
+                    // INSTANT mob spawn from host - create ghost mob immediately
+                    console.log('👹 Instant mob spawn from host:', event.mobData.netId);
+                    const mobData = event.mobData;
+                    
+                    // Check if we already have this mob
+                    const exists = mob.some(m => m && m.netId === mobData.netId);
+                    if (!exists) {
+                        // Create ghost mob immediately
+                        try {
+                            const radius = mobData.radius || 30;
+                            const sides = Math.max(3, Math.min(8, Math.floor(mobData.sides) || 6));
+                            
+                            if (typeof mobs !== 'undefined' && typeof mobs.spawn === 'function') {
+                                mobs.spawn(mobData.x, mobData.y, sides, radius, mobData.fill || '#735084');
+                                const newMob = mob[mob.length - 1];
+                                if (newMob) {
+                                    newMob.netId = mobData.netId;
+                                    newMob.stroke = mobData.stroke || '#000000';
+                                    Matter.Body.setVelocity(newMob, { x: mobData.vx || 0, y: mobData.vy || 0 });
+                                    Matter.Body.setAngle(newMob, mobData.angle || 0);
+                                    console.log('✅ Created ghost mob instantly:', mobData.netId);
+                                }
+                            }
+                        } catch (e) {
+                            console.error('❌ Failed to create instant ghost mob:', e);
+                        }
+                    }
                 }
                 break;
             case 'player_died': {

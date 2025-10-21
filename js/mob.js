@@ -359,6 +359,11 @@ const mobs = {
             // },
             seePlayerCheck() {
                 if (!(simulation.cycle % this.seePlayerFreq)) {
+                    // In multiplayer, ALWAYS recheck for closest player to allow dynamic retargeting
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        this.locatePlayer(); // Update target to closest player
+                    }
+                    
                     if (
                         this.distanceToPlayer2() < this.seeAtDistance2 &&
                         Matter.Query.ray(map, this.position, this.mPosRange()).length === 0 &&
@@ -373,6 +378,11 @@ const mobs = {
             },
             seePlayerCheckByDistance() {
                 if (!(simulation.cycle % this.seePlayerFreq)) {
+                    // In multiplayer, ALWAYS recheck for closest player
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        this.locatePlayer();
+                    }
+                    
                     if (this.distanceToPlayer2() < this.seeAtDistance2 && !m.isCloak) {
                         this.foundPlayer();
                     } else if (this.seePlayer.recall) {
@@ -382,6 +392,11 @@ const mobs = {
             },
             seePlayerByDistOrLOS() {
                 if (!(simulation.cycle % this.seePlayerFreq)) {
+                    // In multiplayer, ALWAYS recheck for closest player
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        this.locatePlayer();
+                    }
+                    
                     if (
                         (this.distanceToPlayer2() < this.seeAtDistance2 || (Matter.Query.ray(map, this.position, this.mPosRange()).length === 0 && Matter.Query.ray(body, this.position, this.mPosRange()).length === 0)) &&
                         !m.isCloak
@@ -752,13 +767,14 @@ const mobs = {
                     const dist2 = dx * dx + dy * dy;
                     
                     if (dist2 < 1000000) {
-                        // Only apply force to local player if they're the target
+                        // Only apply force to local player if they're the target (within 50 units)
                         if (Math.abs(targetX - m.pos.x) < 50 && Math.abs(targetY - m.pos.y) < 50) {
                             const angle = Math.atan2(dy, dx);
                             player.force.x -= simulation.accelScale * 0.00113 * player.mass * Math.cos(angle) * (m.onGround ? 2 : 1);
                             player.force.y -= simulation.accelScale * 0.00084 * player.mass * Math.sin(angle);
                         }
                         
+                        // VISUAL FIX: Draw line to mob's ACTUAL target (not just local player)
                         ctx.beginPath();
                         ctx.moveTo(this.position.x, this.position.y);
                         ctx.lineTo(targetX, targetY);
@@ -1296,5 +1312,15 @@ const mobs = {
         });
         mob[i].alertRange2 = Math.pow(mob[i].radius * 3 + 550, 2);
         World.add(engine.world, mob[i]); //add to world
+        
+        // INSTANT MULTIPLAYER SYNC: Notify clients immediately when host spawns a mob
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
+            // Use setTimeout to ensure the mob is fully initialized before syncing
+            setTimeout(() => {
+                if (mob[i] && mob[i].alive) {
+                    multiplayer.syncMobSpawn(i);
+                }
+            }, 0);
+        }
     }
 };

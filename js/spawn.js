@@ -1976,7 +1976,9 @@ const spawn = {
                         }
                     } else { //aim at player
                         this.fireCycle++
-                        this.fireDir = Vector.normalise(Vector.sub(m.pos, this.position)); //set direction to turn to fire
+                        // MULTIPLAYER FIX: Use actual target position, not just local player
+                        const targetPos = this.seePlayer.position || m.pos;
+                        this.fireDir = Vector.normalise(Vector.sub(targetPos, this.position)); //set direction to turn to fire
                         //rotate towards fireAngle
                         const angle = this.angle + Math.PI / 2;
                         const c = Math.cos(angle) * this.fireDir.x + Math.sin(angle) * this.fireDir.y;
@@ -1988,7 +1990,7 @@ const spawn = {
                         } else if (this.fireCycle > 45) { //fire
                             unit = Vector.mult(Vector.normalise(Vector.sub(this.vertices[1], this.position)), this.distanceToPlayer() - 100)
                             this.fireTarget = Vector.add(this.vertices[1], unit)
-                            if (Vector.magnitude(Vector.sub(m.pos, this.fireTarget)) < 1000) { //if's possible for this to be facing 180 degrees away from the player, this makes sure that doesn't occur
+                            if (Vector.magnitude(Vector.sub(targetPos, this.fireTarget)) < 1000) { //if's possible for this to be facing 180 degrees away from the player, this makes sure that doesn't occur
                                 Matter.Body.setAngularVelocity(this, 0)
                                 this.fireLockCount = 0
                                 this.isFiring = true
@@ -2052,10 +2054,12 @@ const spawn = {
                 y: Math.sin(angle)
             }, Vector.normalise(Vector.sub(this.fireTarget, this.position)));
             //distance between the target and the player's location
+            // MULTIPLAYER FIX: Use actual target position
+            const targetPos = this.seePlayer.position || m.pos;
             if (
                 dot > 0.03 || // not looking at target
                 Matter.Query.ray(map, this.fireTarget, this.position).length || Matter.Query.ray(body, this.fireTarget, this.position).length || //something blocking line of sight
-                Vector.magnitude(Vector.sub(m.pos, this.fireTarget)) > 1000 // distance from player to target is very far,  (this is because dot product can't tell if facing 180 degrees away)
+                Vector.magnitude(Vector.sub(targetPos, this.fireTarget)) > 1000 // distance from player to target is very far,  (this is because dot product can't tell if facing 180 degrees away)
             ) {
                 this.isFiring = false
                 return false
