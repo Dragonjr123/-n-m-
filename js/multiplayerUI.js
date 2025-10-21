@@ -368,6 +368,10 @@ const multiplayerUI = {
 
         // Close lobby room UI but keep connection
         this.leaveLobbyRoom(false);
+        
+        // Hide splash screen if still visible
+        const splash = document.getElementById('splash');
+        if (splash) splash.style.display = 'none';
 
         // Start actual game on both host and clients
         simulation.gameMode = gameMode;

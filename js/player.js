@@ -453,18 +453,30 @@ const m = {
                 simulation.makeTextLog("simulation.amplitude <span class='color-symbol'>=</span> null");
             }, 6 * swapPeriod);
         } else if (m.alive) { //normal death code here
-            m.alive = false;
-            simulation.paused = true;
-            m.health = 0;
-            m.displayHealth();
-            document.getElementById("text-log").style.opacity = 0; //fade out any active text logs
-            document.getElementById("fade-out").style.opacity = 1; //slowly fades out
-            // build.shareURL(false)
-            setTimeout(function() {
-                World.clear(engine.world);
-                Engine.clear(engine);
-                simulation.splashReturn();
-            }, 3000);
+            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                m.alive = false;
+                m.health = 0;
+                m.displayHealth();
+                if (typeof multiplayer.syncPlayerDied === 'function') multiplayer.syncPlayerDied();
+                if (typeof simulation !== 'undefined' && simulation.makeTextLog) simulation.makeTextLog(`Player has died: <span class='color-text'>${multiplayer.settings?.name || 'Player'}</span>`);
+                document.getElementById("text-log").style.opacity = 1;
+                document.getElementById("fade-out").style.opacity = 0;
+                simulation.paused = false;
+                return;
+            } else {
+                m.alive = false;
+                simulation.paused = true;
+                m.health = 0;
+                m.displayHealth();
+                document.getElementById("text-log").style.opacity = 0; //fade out any active text logs
+                document.getElementById("fade-out").style.opacity = 1; //slowly fades out
+                // build.shareURL(false)
+                setTimeout(function() {
+                    World.clear(engine.world);
+                    Engine.clear(engine);
+                    simulation.splashReturn();
+                }, 3000);
+            }
         }
     },
     health: 0,

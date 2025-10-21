@@ -7,10 +7,12 @@ const simulation = {
         Engine.update(engine, simulation.delta);
         simulation.wipe();
         simulation.textLog();
-        if (m.onGround) {
-            m.groundControl()
-        } else {
-            m.airControl()
+        if (m.alive) {
+            if (m.onGround) {
+                m.groundControl()
+            } else {
+                m.airControl()
+            }
         }
         m.move();
         m.look();
@@ -31,11 +33,11 @@ const simulation = {
         }
         
         m.draw();
-        m.hold();
+        if (m.alive) m.hold();
         // v.draw(); //working on visibility work in progress
         level.customTopLayer();
         simulation.draw.drawMapPath();
-        b.fire();
+        if (m.alive) b.fire();
         b.bulletRemove();
         b.bulletDraw();
         b.bulletDo();

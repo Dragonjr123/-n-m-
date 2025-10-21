@@ -471,7 +471,9 @@ const b = {
         ];
         const vertexCollision = function(v1, v1End, domain) {
             for (let i = 0; i < domain.length; ++i) {
-                let vertices = domain[i].vertices;
+                const d = domain[i];
+                if (!d || !d.vertices) continue;
+                let vertices = d.vertices;
                 const len = vertices.length - 1;
                 for (let j = 0; j < len; j++) {
                     results = simulation.checkLineIntersection(v1, v1End, vertices[j], vertices[j + 1]);
@@ -479,12 +481,12 @@ const b = {
                         const dx = v1.x - results.x;
                         const dy = v1.y - results.y;
                         const dist2 = dx * dx + dy * dy;
-                        if (dist2 < best.dist2 && (!domain[i].mob || domain[i].alive)) {
+                        if (dist2 < best.dist2 && (!d.mob || d.alive)) {
                             best = {
                                 x: results.x,
                                 y: results.y,
                                 dist2: dist2,
-                                who: domain[i],
+                                who: d,
                                 v1: vertices[j],
                                 v2: vertices[j + 1]
                             };
@@ -496,12 +498,12 @@ const b = {
                     const dx = v1.x - results.x;
                     const dy = v1.y - results.y;
                     const dist2 = dx * dx + dy * dy;
-                    if (dist2 < best.dist2 && (!domain[i].mob || domain[i].alive)) {
+                    if (dist2 < best.dist2 && (!d.mob || d.alive)) {
                         best = {
                             x: results.x,
                             y: results.y,
                             dist2: dist2,
-                            who: domain[i],
+                            who: d,
                             v1: vertices[0],
                             v2: vertices[len]
                         };

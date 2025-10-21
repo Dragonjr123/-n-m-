@@ -316,6 +316,7 @@ const multiplayer = {
             vy: player.velocity.y || 0,
             angle: m.angle || 0,
             health: m.health || 1,
+            alive: !!m.alive,
             fieldActive: this.isFieldActive(),
             // Aim and input state
             aimX: (typeof simulation !== 'undefined' && simulation.mouseInGame) ? simulation.mouseInGame.x : 0,
@@ -772,6 +773,11 @@ const multiplayer = {
                 console.log('Player', player.name, 'at', pos.x, pos.y, 'raw:', player.x, player.y);
             }
             
+            // Skip rendering dead players (spectator mode)
+            if (player.alive === false) {
+                continue;
+            }
+
             // Skip if player has no valid position data - but log this
             if (!pos || (pos.x === 0 && pos.y === 0)) {
                 if (Math.random() < 0.1) {
@@ -1102,6 +1108,75 @@ const multiplayer = {
             timestamp: Date.now()
         });
     },
+
+    // Sync that this player died (for UI only)
+    syncPlayerDied() {
+        if (!this.enabled || !this.lobbyId) return;
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'player_died',
+            playerId: this.playerId,
+            timestamp: Date.now()
+        });
+    },
+
+    // Request a revive of a specific playerId
+    syncPlayerRevive(targetPlayerId) {
+        if (!this.enabled || !this.lobbyId || !targetPlayerId) return;
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'player_revive',
+            playerId: this.playerId,
+            data: { targetId: targetPlayerId },
+            timestamp: Date.now()
+        });
+    },
+
+    // List of dead players (by latest known state)
+    getDeadPlayers() {
+        const list = [];
+        try {
+            // Include others
+            for (const [id, p] of Object.entries(this.players || {})) {
+                if ((p && (p.alive === false || (typeof p.health === 'number' && p.health <= 0)))) {
+                    list.push({ id, name: p.name, color: p.color });
+                }
+            }
+            // Include self if dead
+            if (typeof m !== 'undefined' && m.alive === false) {
+                list.push({ id: this.playerId, name: this.settings?.name || 'Player', color: this.settings?.color });
+            }
+        } catch (e) { /* no-op */ }
+        return list;
+    },
+
+    // Local revive logic (only runs on the revived client's machine)
+    reviveLocal() {
+        try {
+            if (typeof m !== 'undefined') {
+                m.alive = true;
+                if (typeof b !== 'undefined' && typeof b.removeAllGuns === 'function') {
+                    b.removeAllGuns();
+                    if (typeof simulation !== 'undefined' && typeof simulation.makeGunHUD === 'function') simulation.makeGunHUD();
+                }
+                if (typeof tech !== 'undefined' && typeof tech.setupAllTech === 'function') {
+                    tech.setupAllTech();
+                    if (typeof simulation !== 'undefined' && typeof simulation.updateTechHUD === 'function') simulation.updateTechHUD();
+                }
+                if (typeof m.setMaxHealth === 'function') m.setMaxHealth();
+                m.health = m.maxHealth;
+                if (typeof m.displayHealth === 'function') m.displayHealth();
+                if (typeof m.setMaxEnergy === 'function') m.setMaxEnergy();
+                if (typeof m.maxEnergy !== 'undefined') m.energy = m.maxEnergy;
+                if (typeof m.setField === 'function') m.setField(0);
+            }
+            if (typeof simulation !== 'undefined') simulation.paused = false;
+            // Optional: small visual effect
+            if (typeof simulation !== 'undefined' && simulation.drawList) {
+                simulation.drawList.push({ x: m.pos.x, y: m.pos.y, radius: 60, color: 'rgba(255,230,0,0.4)', time: 14 });
+            }
+        } catch (e) { /* no-op */ }
+    },
     
     // Sync level change (when someone goes to next level)
     syncLevelChange(levelName, levelIndex) {
@@ -1234,6 +1309,33 @@ const multiplayer = {
             case 'mob_action':
                 this.handleRemoteMobAction(event);
                 break;
+            case 'player_died': {
+                // Show notification that a player died
+                try {
+                    const p = (this.players && this.players[event.playerId]) || {};
+                    if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
+                        simulation.makeTextLog(`<span class='color-text'>${p.name || 'Player'}</span> has died`);
+                    }
+                } catch (e) { /* no-op */ }
+                break;
+            }
+            case 'player_revive': {
+                try {
+                    const targetId = event.data && event.data.targetId;
+                    if (targetId) {
+                        // If this client is the revive target, restore local player state
+                        if (this.playerId === targetId && typeof this.reviveLocal === 'function') {
+                            this.reviveLocal();
+                        }
+                        // Everyone shows a small message
+                        const who = (this.players && this.players[targetId]) || {};
+                        if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
+                            simulation.makeTextLog(`<span class='color-text'>${who.name || 'Player'}</span> was revived`);
+                        }
+                    }
+                } catch (e) { /* no-op */ }
+                break;
+            }
         }
     },
 
@@ -1406,8 +1508,28 @@ const multiplayer = {
     handleRemoteTechSelection(event) {
         console.log('🔬 Remote tech selection:', event.techName, 'by player:', event.playerId);
         
-        // Apply the tech to the remote player (if we want to show it)
-        // For now, just show a notification
+        // Ignore our own event (the local picker already applied the tech)
+        if (event.playerId === this.playerId) return;
+
+        // Apply the tech so that all clients share the same abilities/flags
+        if (typeof tech !== 'undefined' && tech.giveTech && Array.isArray(tech.tech)) {
+            try {
+                let idx = -1;
+                if (Number.isInteger(event.techIndex) && tech.tech[event.techIndex]) {
+                    idx = event.techIndex;
+                } else if (typeof event.techName === 'string') {
+                    idx = tech.tech.findIndex(t => t && t.name === event.techName);
+                }
+                if (idx >= 0) {
+                    tech.giveTech(idx);
+                    if (typeof simulation !== 'undefined' && simulation.updateTechHUD) simulation.updateTechHUD();
+                }
+            } catch (e) {
+                console.warn('Failed to apply remote tech selection:', e);
+            }
+        }
+
+        // Show notification
         if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
             const playerName = this.otherPlayers.get(event.playerId)?.name || 'Player';
             simulation.makeTextLog(`<span style='color:#0cf'>${playerName}</span> selected <span class='color-m'>${event.techName}</span>`);
@@ -2179,45 +2301,57 @@ const multiplayer = {
                         Matter.Body.setAngle(bodyRef, ca + da * alpha);
                     }
                     if (mobData.health !== undefined) mob[targetIndex].health = mobData.health;
-                    if (mobData.alive !== undefined) mob[targetIndex].alive = mobData.alive;
-                } else if (targetIndex !== null && (typeof mob !== 'undefined')) {
-                    // Ghost-create a mob for clients when missing
-                    try {
-                        const radius = 30; // generic fallback
-                        const ghost = Bodies.circle(mobData.x || 0, mobData.y || 0, radius, {
-                            inertia: Infinity,
-                            frictionAir: 0.02,
-                            restitution: 0.2,
-                            classType: 'mob',
-                            isGhost: true,
-                            alive: mobData.alive !== false,
-                            health: isFinite(mobData.health) ? mobData.health : 1,
-                            radius: radius,
-                            seePlayer: { recall: false },
-                            showHealthBar: false
-                        });
-                        // Safe no-op methods to avoid crashes in client loops
-                        ghost.damage = function(amount) {
-                            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                                multiplayer.syncMobDamage(targetIndex, amount, (this.health || 1) - amount, this.alive);
-                            }
-                        };
-                        ghost.locatePlayer = function(){};
-                        ghost.foundPlayer = function(){};
-                        ghost.onDeath = function(){};
-                        ghost.do = function(){}; // No-op do() method for ghost mobs (synced by physics)
-                        // Insert and tag
-                        World.add(engine.world, ghost);
-                        mob[targetIndex] = ghost;
-                        if (mobData.netId) {
-                            this.mobIndexByNetId.set(mobData.netId, targetIndex);
-                            mob[targetIndex].netId = mobData.netId;
+                    // If host reports dead, trigger local death transition once
+                    if (mobData.alive !== undefined) {
+                        const wasAlive = mob[targetIndex].alive;
+                        mob[targetIndex].alive = mobData.alive;
+                        if (wasAlive && mobData.alive === false && typeof mob[targetIndex].death === 'function') {
+                            mob[targetIndex].death();
                         }
-                        // Set initial kinematics
-                        Matter.Body.setVelocity(ghost, { x: mobData.vx || 0, y: mobData.vy || 0 });
-                        Matter.Body.setAngle(ghost, mobData.angle || 0);
-                    } catch (e) {
-                        console.warn('Failed to create ghost mob for client:', e);
+                    }
+                } else if (targetIndex !== null && (typeof mob !== 'undefined')) {
+                    // Only ghost-create if host reports the mob is alive
+                    if (mobData.alive === false) {
+                        // Do not create ghosts for dead mobs
+                    } else {
+                        try {
+                            const radius = 30; // generic fallback
+                            const ghost = Bodies.circle(mobData.x || 0, mobData.y || 0, radius, {
+                                inertia: Infinity,
+                                frictionAir: 0.02,
+                                restitution: 0.2,
+                                classType: 'mob',
+                                mob: true,
+                                isGhost: true,
+                                alive: true,
+                                health: isFinite(mobData.health) ? mobData.health : 1,
+                                radius: radius,
+                                seePlayer: { recall: false },
+                                showHealthBar: false
+                            });
+                            // Safe no-op methods to avoid crashes in client loops
+                            ghost.damage = function(amount) {
+                                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                                    multiplayer.syncMobDamage(targetIndex, amount, (this.health || 1) - amount, this.alive);
+                                }
+                            };
+                            ghost.locatePlayer = function(){};
+                            ghost.foundPlayer = function(){};
+                            ghost.onDeath = function(){};
+                            ghost.do = function(){}; // No-op do() method for ghost mobs (synced by physics)
+                            // Insert and tag
+                            World.add(engine.world, ghost);
+                            mob[targetIndex] = ghost;
+                            if (mobData.netId) {
+                                this.mobIndexByNetId.set(mobData.netId, targetIndex);
+                                mob[targetIndex].netId = mobData.netId;
+                            }
+                            // Set initial kinematics
+                            Matter.Body.setVelocity(ghost, { x: mobData.vx || 0, y: mobData.vy || 0 });
+                            Matter.Body.setAngle(ghost, mobData.angle || 0);
+                        } catch (e) {
+                            console.warn('Failed to create ghost mob for client:', e);
+                        }
                     }
                 }
             }
