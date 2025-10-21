@@ -2485,8 +2485,9 @@ const multiplayer = {
                     console.log(`👻 Client creating ghost mob with netId: ${mobData.netId} at (${Math.round(mobData.x)}, ${Math.round(mobData.y)})`);
                     try {
                         const radius = mobData.radius || 30; // Use actual radius if available
-                        const sides = mobData.sides || 6; // Use actual sides if available
-                        const ghost = Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, {
+                        // Clamp sides to a reasonable small polygon to avoid near-circles from high vertex counts
+                        const sides = Math.max(3, Math.min(8, isFinite(mobData.sides) ? Math.floor(mobData.sides) : 6));
+                        const ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, {
                             inertia: Infinity,
                             frictionAir: 0.005,
                             restitution: 0.5,
@@ -2518,6 +2519,19 @@ const multiplayer = {
                             Matter.World.remove(engine.world, this);
                             for (let i = 0; i < mob.length; i++) {
                                 if (mob[i] === this) { mob.splice(i, 1); break; }
+                            }
+                        };
+                        // Ensure mob loop can safely call replace(i) on ghost
+                        ghost.replace = function(i) {
+                            try {
+                                Matter.World.remove(engine.world, this);
+                            } catch(e) { /* no-op */ }
+                            if (isFinite(i) && i >= 0 && i < mob.length && mob[i] === this) {
+                                mob.splice(i, 1);
+                            } else {
+                                for (let j = 0; j < mob.length; j++) {
+                                    if (mob[j] === this) { mob.splice(j, 1); break; }
+                                }
                             }
                         };
                         ghost.do = function() { /* no-op */ };
