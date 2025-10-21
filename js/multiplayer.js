@@ -2192,7 +2192,9 @@ const multiplayer = {
                             isGhost: true,
                             alive: mobData.alive !== false,
                             health: isFinite(mobData.health) ? mobData.health : 1,
-                            radius: radius
+                            radius: radius,
+                            seePlayer: { recall: false },
+                            showHealthBar: false
                         });
                         // Safe no-op methods to avoid crashes in client loops
                         ghost.damage = function(amount) {
