@@ -245,7 +245,8 @@ const b = {
                 },
                 minDmgSpeed: 10,
                 beforeDmg() {}, //this.endCycle = 0  //triggers despawn
-                onEnd() {}
+                onEnd() {},
+                ownerId: (typeof multiplayer !== 'undefined' && multiplayer.enabled) ? multiplayer.playerId : null
             };
         } else {
             return {
@@ -262,7 +263,8 @@ const b = {
                 },
                 minDmgSpeed: 10,
                 beforeDmg() {}, //this.endCycle = 0  //triggers despawn
-                onEnd() {}
+                onEnd() {},
+                ownerId: (typeof multiplayer !== 'undefined' && multiplayer.enabled) ? multiplayer.playerId : null
             };
         }
     },
@@ -1578,11 +1580,6 @@ const b = {
             ctx.setLineDash([0, 0]);
             ctx.globalAlpha = 1;
         }
-        
-        // Sync laser to multiplayer if not a remote player's laser
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isSpawningRemote) {
-            multiplayer.syncLaser(where, whereEnd, dmg, reflections);
-        }
     },
     laserMine(position, velocity = { x: 0, y: -8 }) {
         const me = bullet.length;
@@ -2266,6 +2263,7 @@ const b = {
             target: null,
             targetVertex: null,
             targetRelativePosition: null,
+            ownerId: (typeof multiplayer !== 'undefined' && multiplayer.enabled) ? multiplayer.playerId : null,
             beforeDmg(who) {
                 if (!this.target && who.alive) {
                     this.target = who;
@@ -2399,11 +2397,6 @@ const b = {
         });
         World.add(engine.world, bullet[me]); //add bullet to world
         Matter.Body.setVelocity(bullet[me], velocity);
-        
-        // Sync foam to multiplayer if not a remote player's foam
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isSpawningRemote) {
-            multiplayer.syncFoam(position, velocity, radius);
-        }
     },
     targetedBlock(who, isSpin = false, speed = 50 - Math.min(20, who.mass * 2), range = 1600) {
         let closestMob, dist
@@ -4356,6 +4349,22 @@ const b = {
                         World.add(engine.world, bullet[me]); //add bullet to world
 
                         const speed = 67
+                        Matter.Body.setVelocity(bullet[me], {
+                            x: m.Vx / 2 + speed * Math.cos(m.angle),
+                            y: m.Vy / 2 + speed * Math.sin(m.angle)
+                        });
+
+                        //knock back
+                        const KNOCK = m.crouch ? 0.08 : 0.34
+                        player.force.x -= KNOCK * Math.cos(m.angle)
+                        player.force.y -= KNOCK * Math.sin(m.angle) * 0.35 //reduce knock back in vertical direction to stop super jumps
+
+                        pushAway(800)
+                    } else {
+                        m.fireCDcycle = m.cycle + Math.floor(120);
+                    }
+                } else {
+                    const me = bullet.length;
                     bullet[me] = Bodies.rectangle(0, 0, 0.015, 0.0015, {
                         density: 0.008, //0.001 is normal
                         //frictionAir: 0.01,			//restitution: 0,

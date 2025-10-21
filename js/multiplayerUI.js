@@ -93,9 +93,9 @@ const multiplayerUI = {
                     <div style="margin-bottom: 20px;">
                         <label style="display: block; margin-bottom: 10px;">
                             <input type="checkbox" id="mp-friendly-fire" style="width: 20px; height: 20px; vertical-align: middle;">
-                            <span style="font-weight: bold; margin-left: 5px;">Friendly Fire</span>
+                            <span style="font-weight: bold; margin-left: 5px;">Enable Friendly Fire</span>
                         </label>
-                        <p style="margin: 5px 0 0 25px; font-size: 12px; color: #666;">Players can damage each other</p>
+                        <p style="margin: 5px 0 0 25px; font-size: 12px; color: #666;">Allow players to damage each other with weapons</p>
                     </div>
                     
                     <div style="margin-bottom: 20px;">
