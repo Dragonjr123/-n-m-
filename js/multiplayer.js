@@ -2274,13 +2274,18 @@ const multiplayer = {
                         seePlayerYes: m.seePlayer ? m.seePlayer.yes : false,
                         targetX: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.x : null,
                         targetY: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.y : null,
-                        verts: (m.isVerticesChange && m.vertices) ? m.vertices.map(v => ({ x: v.x, y: v.y })) : null
+                        // ALWAYS send vertices so clients can render correct shapes
+                        verts: (m.vertices && m.vertices.length >= 3) ? m.vertices.map(v => ({ x: v.x, y: v.y })) : null
                     });
                 }
             }
             // Debug: log mob sync count occasionally
             if (physicsData.mobs.length > 0 && Math.random() < 0.05) {
                 console.log(`📡 Syncing ${physicsData.mobs.length} alive mobs out of ${mob.length} total`);
+                const mobsWithVerts = physicsData.mobs.filter(m => m.verts && m.verts.length > 0);
+                if (mobsWithVerts.length > 0) {
+                    console.log(`📡 ${mobsWithVerts.length} mobs have vertex data, sample:`, mobsWithVerts[0].verts.length, 'vertices');
+                }
             }
         }
         
@@ -2440,6 +2445,10 @@ const multiplayer = {
             // Debug: log received mob data
             if (physicsData.mobs.length > 0) {
                 console.log(`📥 Client received ${physicsData.mobs.length} mob updates from host, local mob count: ${mob.length}`);
+                if (Math.random() < 0.05) {
+                    const mobsWithVerts = physicsData.mobs.filter(m => m.verts && m.verts.length > 0);
+                    console.log(`📥 ${mobsWithVerts.length} received mobs have vertex data`);
+                }
             }
             for (const mobData of physicsData.mobs) {
                 // Resolve by netId first for stability
@@ -2487,7 +2496,14 @@ const multiplayer = {
                     }
                     // Apply exact vertex geometry when provided (special shapes)
                     if (Array.isArray(mobData.verts) && mobData.verts.length >= 3) {
-                        try { Matter.Body.setVertices(bodyRef, mobData.verts); } catch(e) { /* no-op */ }
+                        try { 
+                            Matter.Body.setVertices(bodyRef, mobData.verts);
+                            if (Math.random() < 0.05) {
+                                console.log(`🔷 Updated vertices for mob ${targetIndex}, ${mobData.verts.length} vertices`);
+                            }
+                        } catch(e) { 
+                            console.warn('Failed to update mob vertices:', e);
+                        }
                     }
                     if (mobData.health !== undefined) mob[targetIndex].health = mobData.health;
                     // Update visual properties
