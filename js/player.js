@@ -1378,6 +1378,13 @@ const m = {
                 if (blockIndex !== -1) {
                     console.log('Syncing block push:', blockIndex);
                     multiplayer.syncFieldInteraction('block_push', { blockIndex: blockIndex });
+                    // Claim short-lived authority so client can sync this block's movement
+                    if (typeof multiplayer.claimAuthority === 'function') {
+                        multiplayer.claimAuthority('block', blockIndex);
+                        setTimeout(() => {
+                            if (typeof multiplayer.releaseAuthority === 'function') multiplayer.releaseAuthority('block', blockIndex);
+                        }, 700);
+                    }
                 }
             } else {
                 console.log('Multiplayer not available for block push:', typeof multiplayer, multiplayer?.enabled);

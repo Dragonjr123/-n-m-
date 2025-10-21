@@ -1425,6 +1425,12 @@ const multiplayer = {
                     if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
                         simulation.makeTextLog(`<span class='color-text'>${p.name || 'Player'}</span> has died`);
                     }
+                    // Host guarantees a revive spawn at/near death location
+                    if (this.isHost && typeof powerUps !== 'undefined') {
+                        const sx = isFinite(p.x) ? p.x : (typeof m !== 'undefined' ? m.pos.x : 0);
+                        const sy = isFinite(p.y) ? p.y : (typeof m !== 'undefined' ? m.pos.y : 0);
+                        powerUps.spawn(sx, sy, 'revive', false);
+                    }
                 } catch (e) { /* no-op */ }
                 break;
             }
@@ -2267,7 +2273,8 @@ const multiplayer = {
                         stroke: m.stroke || '#000000',
                         seePlayerYes: m.seePlayer ? m.seePlayer.yes : false,
                         targetX: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.x : null,
-                        targetY: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.y : null
+                        targetY: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.y : null,
+                        verts: (m.isVerticesChange && m.vertices) ? m.vertices.map(v => ({ x: v.x, y: v.y })) : null
                     });
                 }
             }
@@ -2299,21 +2306,15 @@ const multiplayer = {
                 }
                 console.log(`📦 Syncing ALL ${physicsData.blocks.length} blocks`);
             } else {
-                // Normal sync: only moving blocks
+                // Normal sync
                 const maxBlocks = 50;
                 let count = 0;
                 for (let i = 0; i < body.length && count < maxBlocks; i++) {
-                    if (body[i] && body[i].position) {
-                        // Host syncs all moving blocks not under client authority
-                        if (this.isHost) {
-                            const authKey = `block_${i}`;
-                            if (this.clientAuthority.has(authKey)) continue;
-                        } else {
-                            // Clients don't sync blocks in normal update (only when holding)
-                            continue;
-                        }
-                        
-                        // Only sync if block has moved significantly
+                    if (!body[i] || !body[i].position) continue;
+                    if (this.isHost) {
+                        // Host syncs moving blocks not under client authority
+                        const authKey = `block_${i}`;
+                        if (this.clientAuthority.has(authKey)) continue;
                         const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
                         if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001) {
                             physicsData.blocks.push({
@@ -2327,6 +2328,21 @@ const multiplayer = {
                             });
                             count++;
                         }
+                    } else {
+                        // Clients: only sync blocks we have authority over (e.g., pushing or holding)
+                        const authKey = `block_${i}`;
+                        const auth = this.clientAuthority.get(authKey);
+                        if (!auth || auth.playerId !== this.playerId) continue;
+                        physicsData.blocks.push({
+                            index: i,
+                            x: body[i].position.x,
+                            y: body[i].position.y,
+                            vx: body[i].velocity.x,
+                            vy: body[i].velocity.y,
+                            angle: body[i].angle,
+                            angularVelocity: body[i].angularVelocity
+                        });
+                        count++;
                     }
                 }
             }
@@ -2458,6 +2474,10 @@ const multiplayer = {
                         let da = ((ta - ca + Math.PI) % (2*Math.PI)) - Math.PI;
                         Matter.Body.setAngle(bodyRef, ca + da * alpha);
                     }
+                    // Apply exact vertex geometry when provided (special shapes)
+                    if (Array.isArray(mobData.verts) && mobData.verts.length >= 3) {
+                        try { Matter.Body.setVertices(bodyRef, mobData.verts); } catch(e) { /* no-op */ }
+                    }
                     if (mobData.health !== undefined) mob[targetIndex].health = mobData.health;
                     // Update visual properties
                     if (mobData.fill) mob[targetIndex].fill = mobData.fill;
@@ -2487,7 +2507,8 @@ const multiplayer = {
                         const radius = mobData.radius || 30; // Use actual radius if available
                         // Clamp sides to a reasonable small polygon to avoid near-circles from high vertex counts
                         const sides = Math.max(3, Math.min(8, isFinite(mobData.sides) ? Math.floor(mobData.sides) : 6));
-                        const ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, {
+                        let ghost;
+                        const baseOpts = {
                             inertia: Infinity,
                             frictionAir: 0.005,
                             restitution: 0.5,
@@ -2508,7 +2529,12 @@ const multiplayer = {
                             showHealthBar: true,
                             fill: mobData.fill || '#735084', // Use actual fill or default purple
                             stroke: mobData.stroke || '#000000' // Use actual stroke or black
-                        });
+                        };
+                        if (Array.isArray(mobData.verts) && mobData.verts.length >= 3) {
+                            ghost = Matter.Bodies.fromVertices(mobData.x || 0, mobData.y || 0, mobData.verts, baseOpts);
+                        } else {
+                            ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
+                        }
                         
                         // Add minimal required methods
                         ghost.damage = function() { /* no-op on clients */ };
