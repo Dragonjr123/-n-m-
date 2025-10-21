@@ -175,15 +175,21 @@ const m = {
     lastGroundedPositionY: 0,
     // mouseZoom: 0,
     look() {
+        // Determine camera focus position (supports spectator mode)
+        let camX = m.pos.x, camY = m.pos.y;
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && m.alive === false && typeof multiplayer.getSpectateTargetPos === 'function') {
+            const t = multiplayer.getSpectateTargetPos();
+            if (t && isFinite(t.x) && isFinite(t.y)) { camX = t.x; camY = t.y; }
+        }
         //always on mouse look
         m.angle = Math.atan2(
-            simulation.mouseInGame.y - m.pos.y,
-            simulation.mouseInGame.x - m.pos.x
+            simulation.mouseInGame.y - camY,
+            simulation.mouseInGame.x - camX
         );
-        //smoothed mouse look translations
+        //smoothed mouse look translations (towards camX, camY)
         const scale = 0.8;
-        m.transSmoothX = canvas.width2 - m.pos.x - (simulation.mouse.x - canvas.width2) * scale;
-        m.transSmoothY = canvas.height2 - m.pos.y - (simulation.mouse.y - canvas.height2) * scale;
+        m.transSmoothX = canvas.width2 - camX - (simulation.mouse.x - canvas.width2) * scale;
+        m.transSmoothY = canvas.height2 - camY - (simulation.mouse.y - canvas.height2) * scale;
 
         m.transX += (m.transSmoothX - m.transX) * 0.07;
         m.transY += (m.transSmoothY - m.transY) * 0.07;
@@ -463,6 +469,7 @@ const m = {
                 document.getElementById("text-log").style.opacity = 1;
                 document.getElementById("fade-out").style.opacity = 0;
                 simulation.paused = false;
+                if (typeof multiplayer.showSpectateUI === 'function') multiplayer.showSpectateUI();
                 return;
             } else {
                 if (!m.alive) return; // Already dead, prevent spam

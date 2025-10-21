@@ -1150,6 +1150,99 @@ const multiplayer = {
         return list;
     },
 
+    // Alive players for spectating
+    getAlivePlayers() {
+        const list = [];
+        try {
+            for (const [id, p] of Object.entries(this.players || {})) {
+                if (p && p.alive !== false) list.push({ id, name: p.name, color: p.color });
+            }
+            // include self only if alive (rare spectator to self)
+            if (typeof m !== 'undefined' && m.alive !== false) {
+                list.push({ id: this.playerId, name: this.settings?.name || 'Player', color: this.settings?.color });
+            }
+        } catch (e) { /* no-op */ }
+        return list;
+    },
+
+    ensureSpectateTarget() {
+        if (!this._spectateTargetId) {
+            const alive = this.getAlivePlayers();
+            if (alive.length) this._spectateTargetId = alive[0].id;
+        } else {
+            const aliveIds = new Set(this.getAlivePlayers().map(p => p.id));
+            if (!aliveIds.has(this._spectateTargetId)) {
+                const alive = this.getAlivePlayers();
+                this._spectateTargetId = alive.length ? alive[0].id : null;
+            }
+        }
+    },
+
+    cycleSpectate(dir = 1) {
+        const alive = this.getAlivePlayers();
+        if (!alive.length) return;
+        const idx = Math.max(0, alive.findIndex(p => p.id === this._spectateTargetId));
+        const next = (idx + (dir > 0 ? 1 : -1) + alive.length) % alive.length;
+        this._spectateTargetId = alive[next].id;
+        this.showSpectateUI(true);
+    },
+
+    getSpectateTargetPos() {
+        try {
+            this.ensureSpectateTarget();
+            const id = this._spectateTargetId;
+            if (!id) return null;
+            if (id === this.playerId && typeof m !== 'undefined') return { x: m.pos.x, y: m.pos.y };
+            const p = (this.players && this.players[id]) || null;
+            if (p && isFinite(p.x) && isFinite(p.y)) return { x: p.x, y: p.y };
+        } catch(e) { /* no-op */ }
+        return null;
+    },
+
+    showSpectateUI(refreshOnly = false) {
+        if (!this.enabled) return;
+        try {
+            this.ensureSpectateTarget();
+            const alive = this.getAlivePlayers();
+            const current = alive.find(p => p.id === this._spectateTargetId) || alive[0];
+            const name = current ? current.name || 'Player' : 'No targets';
+            let el = document.getElementById('spectate-ui');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'spectate-ui';
+                el.style.position = 'fixed';
+                el.style.bottom = '24px';
+                el.style.left = '24px';
+                el.style.background = 'rgba(0,0,0,0.6)';
+                el.style.color = '#fff';
+                el.style.padding = '8px 12px';
+                el.style.borderRadius = '8px';
+                el.style.fontFamily = 'monospace';
+                el.style.fontSize = '14px';
+                el.style.zIndex = '9999';
+                document.body.appendChild(el);
+            }
+            el.innerHTML = `
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button id="spec-prev" style="background:#333;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;">◀</button>
+                    <div>SPECTATING: <span style="color:#fcbf2d;">${name}</span></div>
+                    <button id="spec-next" style="background:#333;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;">▶</button>
+                </div>
+            `;
+            const prev = document.getElementById('spec-prev');
+            const next = document.getElementById('spec-next');
+            if (prev && !refreshOnly) prev.addEventListener('click', () => this.cycleSpectate(-1));
+            if (next && !refreshOnly) next.addEventListener('click', () => this.cycleSpectate(1));
+        } catch(e) { /* no-op */ }
+    },
+
+    hideSpectateUI() {
+        try {
+            const el = document.getElementById('spectate-ui');
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+        } catch(e) { /* no-op */ }
+    },
+
     // Local revive logic (only runs on the revived client's machine)
     reviveLocal() {
         try {
@@ -1175,6 +1268,7 @@ const multiplayer = {
             if (typeof simulation !== 'undefined' && simulation.drawList) {
                 simulation.drawList.push({ x: m.pos.x, y: m.pos.y, radius: 60, color: 'rgba(255,230,0,0.4)', time: 14 });
             }
+            this.hideSpectateUI();
         } catch (e) { /* no-op */ }
     },
     
