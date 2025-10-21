@@ -1053,6 +1053,10 @@ const m = {
     drop() {
         if (m.onGround && !m.crouch) m.yOffGoal = m.yOffWhen.stand;
     },
+    definePlayerMass(mass = m.defaultMass) {
+        m.mass = mass;
+        Matter.Body.setMass(player, mass);
+    },
     drawHold(target, stroke = true) {
         if (target) {
             const eye = 15;
