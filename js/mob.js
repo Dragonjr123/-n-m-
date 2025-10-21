@@ -209,11 +209,8 @@ const mobs = {
     spawn(xPos, yPos, sides, radius, color) {
         let i = mob.length;
         
-        // AUTO-SYNC: If host in multiplayer, this mob will be synced automatically via physics sync
-        // But we need to assign netId immediately for proper tracking
-        const netId = (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) 
-            ? `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}` 
-            : null;
+        // DON'T assign netId here - it will be assigned later in the World.add section
+        // to avoid double assignment issues
         
         mob[i] = Matter.Bodies.polygon(xPos, yPos, sides, radius, {
             //inertia: Infinity, //prevents rotation
@@ -231,7 +228,7 @@ const mobs = {
             onHit: undefined,
             alive: true,
             index: i,
-            netId: netId, // Network ID for multiplayer sync
+            netId: null, // Will be set after World.add if host
             health: tech.mobSpawnWithHealth,
             showHealthBar: true,
             accelMag: 0.001 * simulation.accelScale,
@@ -1061,11 +1058,20 @@ const mobs = {
                 Matter.Body.setAngle(this, angle - Math.PI);
             },
             explode(mass = this.mass) {
-                if (m.immuneCycle < m.cycle) {
+                // MULTIPLAYER FIX: Check ALL players for damage, not just local player
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                    // Damage local player if in range
+                    const localDist2 = Vector.magnitudeSquared(Vector.sub(this.position, player.position));
+                    const explosionRadius = Math.min(Math.max(300 * Math.sqrt(mass) / 40, 100), 700);
+                    if (localDist2 < explosionRadius * explosionRadius && m.immuneCycle < m.cycle) {
+                        m.damage(Math.min(Math.max(0.02 * Math.sqrt(mass), 0.01), 0.35) * simulation.dmgScale);
+                    }
+                    // Note: Remote players handle their own explosion damage
+                } else if (m.immuneCycle < m.cycle) {
                     m.damage(Math.min(Math.max(0.02 * Math.sqrt(mass), 0.01), 0.35) * simulation.dmgScale);
-                    this.isDropPowerUp = false;
-                    this.death(); //death with no power up or body
                 }
+                this.isDropPowerUp = false;
+                this.death(); //death with no power up or body
             },
             timeLimit() {
                 if (!m.isBodiesAsleep) {
@@ -1133,6 +1139,14 @@ const mobs = {
                 this.onDeath(this); //custom death effects
                 this.removeConsBB();
                 this.alive = false; //triggers mob removal in mob[i].replace(i)
+                
+                // MULTIPLAYER FIX: Sync death event to all players
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
+                    const mobIndex = mob.indexOf(this);
+                    if (mobIndex !== -1) {
+                        multiplayer.syncMobAction(mobIndex, 'death', {});
+                    }
+                }
 
                 // Award polys in progressive mode
                 if (simulation.gameMode === 'progressive' && typeof polyTree !== 'undefined') {
@@ -1223,6 +1237,10 @@ const mobs = {
                 }
             },
             removeConsBB() {
+                // MULTIPLAYER FIX: Only manipulate constraints on the host
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+                    return; // Clients don't manage constraints directly
+                }
                 for (let i = 0, len = consBB.length; i < len; ++i) {
                     if (consBB[i].bodyA === this) {
                         if (consBB[i].bodyB.shield) {
@@ -1248,6 +1266,10 @@ const mobs = {
                 }
             },
             removeCons() {
+                // MULTIPLAYER FIX: Only manipulate constraints on the host
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+                    return; // Clients don't manage constraints directly
+                }
                 for (let i = 0, len = cons.length; i < len; ++i) {
                     if (cons[i].bodyA === this) {
                         cons[i].bodyA = cons[i].bodyB;
@@ -1315,10 +1337,8 @@ const mobs = {
         
         // INSTANT MULTIPLAYER SYNC: Assign netId immediately so shields/orbitals can reference it
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
-            // Assign netId RIGHT NOW before any shields/orbitals are spawned
-            if (!mob[i].netId) {
-                mob[i].netId = `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}`;
-            }
+            // Assign netId NOW (only once) before any shields/orbitals are spawned
+            mob[i].netId = `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}`;
             
             // Use setTimeout to sync after the spawn function completes (including shields/orbitals)
             setTimeout(() => {
