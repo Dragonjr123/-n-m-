@@ -454,6 +454,7 @@ const m = {
             }, 6 * swapPeriod);
         } else { //normal death code here
             if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                if (!m.alive) return; // Already dead, prevent spam
                 m.alive = false;
                 m.health = 0;
                 m.displayHealth();
@@ -464,6 +465,7 @@ const m = {
                 simulation.paused = false;
                 return;
             } else {
+                if (!m.alive) return; // Already dead, prevent spam
                 m.alive = false;
                 simulation.paused = true;
                 m.health = 0;

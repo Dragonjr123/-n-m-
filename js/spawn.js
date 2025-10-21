@@ -40,6 +40,13 @@ const spawn = {
         return Math.random() < chance + 0.07 * simulation.difficulty && mob.length < -1 + 16 * Math.log10(simulation.difficulty + 1)
     },
     randomMob(x, y, chance = 1) {
+        // In multiplayer, only the host spawns mobs AFTER level building
+        // During level building, all clients need to spawn the same mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            if (!simulation.isBuildingLevel) {
+                return; // Clients don't spawn mobs after level is built
+            }
+        }
         if (spawn.spawnChance(chance) || chance === Infinity) {
             const pick = this.pickList[Math.floor(Math.random() * this.pickList.length)];
             this[pick](x, y);
@@ -49,6 +56,12 @@ const spawn = {
         num = Math.max(Math.min(Math.round(Math.random() * simulation.difficulty * 0.2), 4), 0),
         size = 16 + Math.ceil(Math.random() * 15),
         chance = 1) {
+        // In multiplayer, only the host spawns mobs AFTER level building
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            if (!simulation.isBuildingLevel) {
+                return; // Clients don't spawn mobs after level is built
+            }
+        }
         if (spawn.spawnChance(chance)) {
             for (let i = 0; i < num; ++i) {
                 const pick = this.pickList[Math.floor(Math.random() * this.pickList.length)];
@@ -57,6 +70,12 @@ const spawn = {
         }
     },
     randomGroup(x, y, chance = 1) {
+        // In multiplayer, only the host spawns mobs AFTER level building
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            if (!simulation.isBuildingLevel) {
+                return; // Clients don't spawn mobs after level is built
+            }
+        }
         if (spawn.spawnChance(chance) && simulation.difficulty > 2 || chance == Infinity) {
             //choose from the possible picklist
             let pick = spawn.pickList[Math.floor(Math.random() * spawn.pickList.length)];
@@ -92,12 +111,22 @@ const spawn = {
         }
     },
     randomLevelBoss(x, y, options = ["shieldingBoss", "orbitalBoss", "historyBoss", "shooterBoss", "cellBossCulture", "bomberBoss", "spiderBoss", "launcherBoss", "laserTargetingBoss", "powerUpBoss", "snakeBoss", "streamBoss", "pulsarBoss", "spawnerBossCulture"]) {
+        // In multiplayer, only the host spawns mobs AFTER level building
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            if (!simulation.isBuildingLevel) {
+                return; // Clients don't spawn mobs after level is built
+            }
+        }
         // other bosses: suckerBoss, laserBoss, tetherBoss,    //these need a particular level to work so they are not included in the random pool
         spawn[options[Math.floor(Math.random() * options.length)]](x, y)
     },
     //mob templates *********************************************************************************************
     //***********************************************************************************************************
     MACHO(x = m.pos.x, y = m.pos.y) { //immortal mob that follows player         //if you have the tech it spawns at start of every level at the player
+        // In multiplayer, only the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients don't spawn mobs
+        }
         mobs.spawn(x, y, 3, 0.1, "transparent");
         let me = mob[mob.length - 1];
         me.stroke = "transparent"
