@@ -2350,6 +2350,9 @@ const multiplayer = {
             if (typeof m !== 'undefined' && m.holdingTarget) {
                 const heldIdx = body.indexOf(m.holdingTarget);
                 if (heldIdx !== -1 && !physicsData.blocks.some(b => b.index === heldIdx)) {
+                    if (Math.random() < 0.05) {
+                        console.log(`📦 Syncing held block index ${heldIdx} at (${body[heldIdx].position.x.toFixed(0)}, ${body[heldIdx].position.y.toFixed(0)})`);
+                    }
                     physicsData.blocks.unshift({
                         index: heldIdx,
                         x: body[heldIdx].position.x,
@@ -2395,6 +2398,14 @@ const multiplayer = {
                         angle: m.angle
                     });
                 }
+            }
+        }
+        
+        // Debug: Log what we're syncing occasionally
+        if (Math.random() < 0.02) {
+            console.log(`📤 Syncing physics: ${physicsData.mobs.length} mobs, ${physicsData.blocks.length} blocks, ${physicsData.powerups.length} powerups`);
+            if (physicsData.blocks.length > 0) {
+                console.log(`📤 Block indices being synced:`, physicsData.blocks.map(b => b.index));
             }
         }
         
@@ -2531,7 +2542,17 @@ const multiplayer = {
                             stroke: mobData.stroke || '#000000' // Use actual stroke or black
                         };
                         if (Array.isArray(mobData.verts) && mobData.verts.length >= 3) {
-                            ghost = Matter.Bodies.fromVertices(mobData.x || 0, mobData.y || 0, mobData.verts, baseOpts);
+                            try {
+                                ghost = Matter.Bodies.fromVertices(mobData.x || 0, mobData.y || 0, mobData.verts, baseOpts);
+                                // Validate: if body has no vertices or degenerate, fall back to polygon
+                                if (!ghost || !ghost.vertices || ghost.vertices.length < 3) {
+                                    console.warn('fromVertices created invalid body, falling back to polygon');
+                                    ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
+                                }
+                            } catch(e) {
+                                console.warn('fromVertices failed:', e, 'falling back to polygon');
+                                ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
+                            }
                         } else {
                             ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
                         }
@@ -2597,12 +2618,18 @@ const multiplayer = {
         
         // Update blocks (use interpolation to smooth the updates) - accept from any player
         if (physicsData.blocks && typeof body !== 'undefined') {
+            if (physicsData.blocks.length > 0 && Math.random() < 0.02) {
+                console.log(`📥 Applying ${physicsData.blocks.length} block updates from player ${fromPlayerId}`);
+            }
             for (const blockData of physicsData.blocks) {
                 if (body[blockData.index]) {
                     // Skip blocks under local authority
                     const authKey = `block_${blockData.index}`;
                     if (this.clientAuthority.has(authKey) && 
                         this.clientAuthority.get(authKey).playerId === this.playerId) {
+                        if (Math.random() < 0.01) {
+                            console.log(`⏭️ Skipping block ${blockData.index} - under my authority`);
+                        }
                         continue;
                     }
                     
@@ -2622,10 +2649,14 @@ const multiplayer = {
                         lerpFactor = 0.25;
                     }
                     
-                    Matter.Body.setPosition(body[blockData.index], {
-                        x: currentPos.x + dx * lerpFactor,
-                        y: currentPos.y + dy * lerpFactor
-                    });
+                    const newX = currentPos.x + dx * lerpFactor;
+                    const newY = currentPos.y + dy * lerpFactor;
+                    
+                    if (Math.random() < 0.01) {
+                        console.log(`✅ Applying block ${blockData.index} update: (${currentPos.x.toFixed(0)},${currentPos.y.toFixed(0)}) -> (${newX.toFixed(0)},${newY.toFixed(0)}) [dist: ${Math.sqrt(dist2).toFixed(0)}]`);
+                    }
+                    
+                    Matter.Body.setPosition(body[blockData.index], { x: newX, y: newY });
                     Matter.Body.setVelocity(body[blockData.index], { x: blockData.vx, y: blockData.vy });
                     
                     // Smooth angle interpolation
