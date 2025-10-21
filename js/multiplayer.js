@@ -394,6 +394,9 @@ const multiplayer = {
         
         this.lastUpdateTime = now;
         
+        // Auto-claim authority for objects player is physically interacting with
+        this.checkAndClaimCollisionAuthority();
+        
         const playerData = this.getPlayerData();
         
         // Debug: Log field state when active
@@ -1423,14 +1426,9 @@ const multiplayer = {
                 try {
                     const p = (this.players && this.players[event.playerId]) || {};
                     if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
-                        simulation.makeTextLog(`<span class='color-text'>${p.name || 'Player'}</span> has died`);
+                        simulation.makeTextLog(`<span class='color-text'>${p.name || 'Player'}</span> has died. Find an <span style='color:#FFD700'>ANGELIC-HEXIL</span> to revive them!`);
                     }
-                    // Host guarantees a revive spawn at/near death location
-                    if (this.isHost && typeof powerUps !== 'undefined') {
-                        const sx = isFinite(p.x) ? p.x : (typeof m !== 'undefined' ? m.pos.x : 0);
-                        const sy = isFinite(p.y) ? p.y : (typeof m !== 'undefined' ? m.pos.y : 0);
-                        powerUps.spawn(sx, sy, 'revive', false);
-                    }
+                    // NO automatic revive spawn - revives only come from ANGELIC-HEXIL mobs
                 } catch (e) { /* no-op */ }
                 break;
             }
@@ -1886,13 +1884,15 @@ const multiplayer = {
     },
     
     // Claim client authority over an object (prevents host from overwriting)
-    claimAuthority(objectType, objectIndex) {
+    claimAuthority(objectType, objectIndex, duration = 1000) {
         if (!this.enabled || !this.lobbyId) return;
         const key = `${objectType}_${objectIndex}`;
+        const timestamp = Date.now();
         this.clientAuthority.set(key, {
             playerId: this.playerId,
             type: objectType,
-            timestamp: Date.now()
+            timestamp: timestamp,
+            expiry: timestamp + duration
         });
         
         // Notify host
@@ -1901,7 +1901,8 @@ const multiplayer = {
             playerId: this.playerId,
             type: objectType,
             index: objectIndex,
-            timestamp: Date.now()
+            timestamp: timestamp,
+            expiry: timestamp + duration
         });
     },
     
@@ -1914,6 +1915,58 @@ const multiplayer = {
         // Notify host
         const authRef = database.ref(`lobbies/${this.lobbyId}/authority/${key}`);
         authRef.remove();
+    },
+    
+    // Auto-claim authority when player physically collides with objects
+    checkAndClaimCollisionAuthority() {
+        if (!this.enabled || !this.lobbyId || typeof player === 'undefined' || typeof body === 'undefined') return;
+        
+        const now = Date.now();
+        
+        // Check for collisions with blocks (physics bodies)
+        for (let i = 0; i < body.length; i++) {
+            if (!body[i] || !body[i].position) continue;
+            
+            // Calculate distance to player
+            const dx = body[i].position.x - player.position.x;
+            const dy = body[i].position.y - player.position.y;
+            const dist2 = dx * dx + dy * dy;
+            
+            // If player is touching this block (within 80 units)
+            if (dist2 < 6400) {
+                const authKey = `block_${i}`;
+                const existing = this.clientAuthority.get(authKey);
+                
+                // Only claim if not already claimed or if expired
+                if (!existing || now > existing.expiry) {
+                    this.claimAuthority('block', i, 500); // 500ms authority
+                }
+            }
+        }
+        
+        // Check for collisions with mobs (for pushing)
+        if (typeof mob !== 'undefined') {
+            for (let i = 0; i < mob.length; i++) {
+                if (!mob[i] || !mob[i].position || !mob[i].alive) continue;
+                
+                // Calculate distance to player
+                const dx = mob[i].position.x - player.position.x;
+                const dy = mob[i].position.y - player.position.y;
+                const dist2 = dx * dx + dy * dy;
+                const radius = mob[i].radius || 30;
+                
+                // If player is touching this mob (within mob radius + player radius)
+                if (dist2 < (radius + 40) * (radius + 40)) {
+                    const authKey = `mob_${i}`;
+                    const existing = this.clientAuthority.get(authKey);
+                    
+                    // Only claim if not already claimed or if expired
+                    if (!existing || now > existing.expiry) {
+                        this.claimAuthority('mob', i, 300); // 300ms authority for mobs
+                    }
+                }
+            }
+        }
     },
     
     // Listen for authority claims (host only)
@@ -2255,6 +2308,15 @@ const multiplayer = {
             for (let i = 0; i < mob.length; i++) {
                 const m = mob[i];
                 if (m && m.position && m.alive) { // Only sync alive mobs
+                    // Skip mobs under client authority (being pushed by client)
+                    const authKey = `mob_${i}`;
+                    if (this.clientAuthority.has(authKey)) {
+                        const auth = this.clientAuthority.get(authKey);
+                        if (auth.playerId !== this.playerId && now < auth.expiry) {
+                            continue; // Skip this mob, client has authority
+                        }
+                    }
+                    
                     // Assign persistent netId lazily on host
                     if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
                     physicsData.mobs.push({
@@ -2285,6 +2347,40 @@ const multiplayer = {
                 const mobsWithVerts = physicsData.mobs.filter(m => m.verts && m.verts.length > 0);
                 if (mobsWithVerts.length > 0) {
                     console.log(`📡 ${mobsWithVerts.length} mobs have vertex data, sample:`, mobsWithVerts[0].verts.length, 'vertices');
+                }
+            }
+        }
+        
+        // Clients also sync mobs they have authority over (e.g., pushing with body)
+        if (!this.isHost && typeof mob !== 'undefined' && mob.length) {
+            for (let i = 0; i < mob.length; i++) {
+                const m = mob[i];
+                if (m && m.position && m.alive) {
+                    const authKey = `mob_${i}`;
+                    const auth = this.clientAuthority.get(authKey);
+                    // Only sync if we have authority and it hasn't expired
+                    if (auth && auth.playerId === this.playerId && now < auth.expiry) {
+                        if (!m.netId) m.netId = `client_${this.playerId}_m${i}`;
+                        physicsData.mobs.push({
+                            index: i,
+                            netId: m.netId || null,
+                            x: m.position.x,
+                            y: m.position.y,
+                            vx: m.velocity.x,
+                            vy: m.velocity.y,
+                            angle: m.angle,
+                            health: m.health,
+                            alive: m.alive,
+                            radius: m.radius || 30,
+                            sides: m.vertices ? m.vertices.length : 6,
+                            fill: m.fill || '#735084',
+                            stroke: m.stroke || '#000000',
+                            seePlayerYes: m.seePlayer ? m.seePlayer.yes : false,
+                            targetX: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.x : null,
+                            targetY: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.y : null,
+                            verts: (m.vertices && m.vertices.length >= 3) ? m.vertices.map(v => ({ x: v.x, y: v.y })) : null
+                        });
+                    }
                 }
             }
         }
@@ -2451,8 +2547,8 @@ const multiplayer = {
     
     // Apply physics update from other players
     applyPhysicsUpdate(physicsData, fromPlayerId) {
-        // Update mobs (only from host)
-        if (physicsData.mobs && typeof mob !== 'undefined' && fromPlayerId === this.hostId) {
+        // Update mobs (from host OR from clients with authority)
+        if (physicsData.mobs && typeof mob !== 'undefined') {
             // Track which netIds were updated this cycle
             const updatedNetIds = new Set();
             
@@ -2541,9 +2637,9 @@ const multiplayer = {
                             mob[targetIndex].death();
                         }
                     }
-                } else if (!mobExists && mobData.netId && mobData.alive !== false && (typeof mob !== 'undefined') && !this.isHost) {
-                    // Create a simple ghost mob for clients when host reports a new mob
-                    // Only create if we don't have this mob yet, have a netId, and the mob is alive, and we're not the host
+                } else if (!mobExists && mobData.netId && mobData.alive !== false && (typeof mob !== 'undefined') && !this.isHost && fromPlayerId === this.hostId) {
+                    // Create a simple ghost mob for clients when HOST reports a new mob
+                    // Only create if we don't have this mob yet, have a netId, the mob is alive, we're not the host, and this update is from the host
                     console.log(`👻 Client creating ghost mob with netId: ${mobData.netId} at (${Math.round(mobData.x)}, ${Math.round(mobData.y)})`);
                     try {
                         const radius = mobData.radius || 30; // Use actual radius if available
