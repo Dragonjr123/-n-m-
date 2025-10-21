@@ -1501,8 +1501,16 @@ const multiplayer = {
                     console.log('👹 Instant mob spawn from host:', event.mobType, event.mobData.netId);
                     const mobData = event.mobData;
                     
-                    // Check if we already have this mob
-                    const exists = mob.some(m => m && m.netId === mobData.netId);
+                    // CRITICAL: Check if we already have this mob (prevent duplicates)
+                    let exists = false;
+                    for (let i = 0; i < mob.length; i++) {
+                        if (mob[i] && mob[i].netId === mobData.netId) {
+                            exists = true;
+                            console.log('⚠️ Mob already exists with netId:', mobData.netId);
+                            break;
+                        }
+                    }
+                    
                     if (!exists) {
                         // Create ghost mob immediately using the PROPER spawn function
                         try {
@@ -2719,12 +2727,26 @@ const multiplayer = {
                     }
                 }
                 
-                // If we don't have this mob tracked yet, try to find it by index
+                // If we don't have this mob tracked yet, search for it by netId in the mob array
+                if (!mobExists && mobData.netId) {
+                    // Linear search for mob with matching netId (more reliable than index)
+                    for (let i = 0; i < mob.length; i++) {
+                        if (mob[i] && mob[i].netId === mobData.netId) {
+                            targetIndex = i;
+                            mobExists = true;
+                            // Update the tracking map with correct index
+                            this.mobIndexByNetId.set(mobData.netId, i);
+                            break;
+                        }
+                    }
+                }
+                
+                // Last resort: try by index if no netId match found
                 if (!mobExists && isFinite(mobData.index) && mob[mobData.index]) {
                     targetIndex = mobData.index;
                     mobExists = true;
                     // Register the netId if we have one
-                    if (mobData.netId) {
+                    if (mobData.netId && !mob[mobData.index].netId) {
                         this.mobIndexByNetId.set(mobData.netId, mobData.index);
                         mob[mobData.index].netId = mobData.netId;
                     }
@@ -2784,123 +2806,26 @@ const multiplayer = {
                         }
                     }
                 } else if (!mobExists && mobData.netId && mobData.alive !== false && (typeof mob !== 'undefined') && !this.isHost && fromPlayerId === this.hostId) {
-                    // Create a simple ghost mob for clients when HOST reports a new mob
-                    // Only create if we don't have this mob yet, have a netId, the mob is alive, we're not the host, and this update is from the host
-                    console.log(`👻 Client creating ghost mob with netId: ${mobData.netId} at (${Math.round(mobData.x)}, ${Math.round(mobData.y)})`);
-                    try {
-                        const radius = mobData.radius || 30; // Use actual radius if available
-                        // Clamp sides to a reasonable small polygon to avoid near-circles from high vertex counts
-                        const sides = Math.max(3, Math.min(8, isFinite(mobData.sides) ? Math.floor(mobData.sides) : 6));
-                        let ghost;
-                        const baseOpts = {
-                            inertia: Infinity,
-                            frictionAir: 0.005,
-                            restitution: 0.5,
-                            density: 0.001,
-                            // Ensure ghost mobs behave like real mobs re: collisions
-                            collisionFilter: {
-                                group: 0,
-                                category: cat.mob,
-                                mask: cat.player | cat.map | cat.body | cat.bullet | cat.mob
-                            },
-                            classType: 'mob',
-                            mob: true,
-                            isGhost: true,
-                            alive: true,
-                            health: isFinite(mobData.health) ? mobData.health : 1,
-                            radius: radius,
-                            seePlayer: { recall: mobData.seePlayerYes || false, yes: mobData.seePlayerYes || false, position: { x: mobData.x || 0, y: mobData.y || 0 } },
-                            showHealthBar: true,
-                            fill: mobData.fill || '#735084', // Use actual fill or default purple
-                            stroke: mobData.stroke || '#000000' // Use actual stroke or black
-                        };
-                        if (Array.isArray(mobData.verts) && mobData.verts.length >= 3) {
-                            try {
-                                ghost = Matter.Bodies.fromVertices(mobData.x || 0, mobData.y || 0, mobData.verts, baseOpts);
-                                // Validate: if body has no vertices or degenerate, fall back to polygon
-                                if (!ghost || !ghost.vertices || ghost.vertices.length < 3) {
-                                    console.warn('fromVertices created invalid body, falling back to polygon');
-                                    ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
-                                }
-                            } catch(e) {
-                                console.warn('fromVertices failed:', e, 'falling back to polygon');
-                                ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
-                            }
-                        } else {
-                            ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
-                        }
-                        
-                        // Add minimal required methods
-                        ghost.damage = function() { /* no-op on clients */ };
-                        ghost.locatePlayer = function() { /* no-op on clients */ };
-                        ghost.foundPlayer = function() { /* no-op on clients */ };
-                        ghost.death = function() {
-                            this.alive = false;
-                            Matter.World.remove(engine.world, this);
-                            for (let i = 0; i < mob.length; i++) {
-                                if (mob[i] === this) { mob.splice(i, 1); break; }
-                            }
-                        };
-                        // Ensure mob loop can safely call replace(i) on ghost
-                        ghost.replace = function(i) {
-                            try {
-                                Matter.World.remove(engine.world, this);
-                            } catch(e) { /* no-op */ }
-                            if (isFinite(i) && i >= 0 && i < mob.length && mob[i] === this) {
-                                mob.splice(i, 1);
-                            } else {
-                                for (let j = 0; j < mob.length; j++) {
-                                    if (mob[j] === this) { mob.splice(j, 1); break; }
-                                }
-                            }
-                        };
-                        ghost.do = function() { /* no-op */ };
-                        ghost.onDeath = function() { /* no-op */ };
-                        ghost.onDamage = function() { /* no-op */ };
-                        ghost.checkStatus = function() { /* no-op */ };
-                        ghost.gravity = function() { this.force.y += this.mass * simulation.g; };
-                        ghost.distanceToPlayer = function() { 
-                            const dx = this.position.x - player.position.x;
-                            const dy = this.position.y - player.position.y;
-                            return Math.sqrt(dx * dx + dy * dy);
-                        };
-                        ghost.distanceToPlayer2 = function() {
-                            const dx = this.position.x - player.position.x;
-                            const dy = this.position.y - player.position.y;
-                            return dx * dx + dy * dy;
-                        };
-                        
-                        // Add to world and mob array
-                        World.add(engine.world, ghost);
-                        const newIndex = mob.length;
-                        mob[newIndex] = ghost;
-                        
-                        // Register netId mapping
-                        this.mobIndexByNetId.set(mobData.netId, newIndex);
-                        ghost.netId = mobData.netId;
-                        
-                        // Set initial physics
-                        Matter.Body.setVelocity(ghost, { x: mobData.vx || 0, y: mobData.vy || 0 });
-                        Matter.Body.setAngle(ghost, mobData.angle || 0);
-                    } catch (e) {
-                        console.warn('Failed to create ghost mob:', e);
-                    }
+                    console.log(`⚠️ Ignoring untracked mob ${mobData.netId} - should have been created by mob_spawn event`);
                 }
             }
             
-            // CLEANUP: Remove stale ghost mobs that host stopped syncing (off-screen or dead)
+            // DISABLED CLEANUP: This was removing valid mobs that just weren't in view
+            // The host already manages mob lifecycle, clients shouldn't remove mobs on their own
+            /*
             if (!this.isHost) {
                 for (let i = mob.length - 1; i >= 0; i--) {
                     if (mob[i] && mob[i].isGhost && mob[i].netId && !updatedNetIds.has(mob[i].netId)) {
                         console.log(`🗑️ Removing stale ghost mob ${i} with netId ${mob[i].netId} - no longer synced by host`);
                         try {
                             Matter.World.remove(engine.world, mob[i]);
-                        } catch(e) { /* ignore */ }
+                        } catch(e) { }
                         this.mobIndexByNetId.delete(mob[i].netId);
                         mob.splice(i, 1);
                     }
                 }
             }
+            */
         }
         
         // Update blocks (use interpolation to smooth the updates) - accept from any player
