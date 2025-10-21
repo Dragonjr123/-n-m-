@@ -1097,7 +1097,7 @@ const multiplayer = {
     },
     
     // INSTANT mob spawn notification (called immediately when mob spawns)
-    syncMobSpawn(mobIndex, mobType = 'generic') {
+    syncMobSpawn(mobIndex, mobType = null, spawnParams = {}) {
         if (!this.enabled || !this.lobbyId || !this.isHost) return;
         if (typeof mob === 'undefined' || mobIndex >= mob.length) return;
         
@@ -1107,16 +1107,14 @@ const multiplayer = {
         // Assign netId if not already assigned
         if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
         
-        // Store mob type on the mob itself
-        if (!m.mobType) m.mobType = mobType;
-        
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
         eventRef.set({
             type: 'mob_spawn',
             playerId: this.playerId,
+            mobType: mobType, // e.g., "hopper", "shooter", "pulsar"
+            spawnParams: spawnParams, // e.g., { radius: 50 }
             mobData: {
                 netId: m.netId,
-                mobType: m.mobType || 'generic',
                 x: m.position.x,
                 y: m.position.y,
                 vx: m.velocity?.x || 0,
@@ -1500,53 +1498,46 @@ const multiplayer = {
             case 'mob_spawn':
                 if (event.playerId !== this.playerId && event.mobData && typeof mob !== 'undefined') {
                     // INSTANT mob spawn from host - create ghost mob immediately
-                    console.log('👹 Instant mob spawn from host:', event.mobData.netId, 'type:', event.mobData.mobType);
+                    console.log('👹 Instant mob spawn from host:', event.mobType, event.mobData.netId);
                     const mobData = event.mobData;
                     
                     // Check if we already have this mob
                     const exists = mob.some(m => m && m.netId === mobData.netId);
-                    if (!exists && typeof spawn !== 'undefined') {
-                        // Create ghost mob using the proper spawn function
+                    if (!exists) {
+                        // Create ghost mob immediately using the PROPER spawn function
                         try {
-                            const mobType = mobData.mobType || 'generic';
+                            const beforeCount = mob.length;
                             
-                            // BYPASS client spawn restrictions temporarily
-                            this.isSpawningGhostMob = true;
-                            
-                            // Call the appropriate spawn function if it exists
-                            if (typeof spawn[mobType] === 'function') {
-                                spawn[mobType](mobData.x, mobData.y, mobData.radius);
-                                const newMob = mob[mob.length - 1];
-                                if (newMob) {
-                                    newMob.netId = mobData.netId;
-                                    newMob.mobType = mobType;
-                                    // Match velocity and angle
-                                    Matter.Body.setVelocity(newMob, { x: mobData.vx || 0, y: mobData.vy || 0 });
-                                    Matter.Body.setAngle(newMob, mobData.angle || 0);
-                                    console.log('✅ Created proper ghost mob:', mobType, mobData.netId);
-                                }
+                            // Call the proper spawn function if mobType is provided
+                            if (event.mobType && typeof spawn !== 'undefined' && typeof spawn[event.mobType] === 'function') {
+                                // Call the specific spawn function (e.g., spawn.hopper, spawn.shooter)
+                                const params = event.spawnParams || {};
+                                spawn[event.mobType](mobData.x, mobData.y, params.radius);
+                                console.log(`✅ Created ${event.mobType} with full behaviors`);
                             } else {
-                                // Fallback to generic mob
+                                // Fallback to basic spawn
+                                const radius = mobData.radius || 30;
                                 const sides = Math.max(3, Math.min(8, Math.floor(mobData.sides) || 6));
+                                
                                 if (typeof mobs !== 'undefined' && typeof mobs.spawn === 'function') {
-                                    mobs.spawn(mobData.x, mobData.y, sides, mobData.radius, mobData.fill);
-                                    const newMob = mob[mob.length - 1];
-                                    if (newMob) {
-                                        newMob.netId = mobData.netId;
-                                        newMob.mobType = 'generic';
-                                        newMob.stroke = mobData.stroke || '#000000';
-                                        Matter.Body.setVelocity(newMob, { x: mobData.vx || 0, y: mobData.vy || 0 });
-                                        Matter.Body.setAngle(newMob, mobData.angle || 0);
-                                        console.log('✅ Created generic ghost mob:', mobData.netId);
-                                    }
+                                    mobs.spawn(mobData.x, mobData.y, sides, radius, mobData.fill || '#735084');
                                 }
                             }
                             
-                            // Re-enable spawn restrictions
-                            this.isSpawningGhostMob = false;
+                            // Assign netId to the newly created mob
+                            if (mob.length > beforeCount) {
+                                const newMob = mob[mob.length - 1];
+                                if (newMob) {
+                                    newMob.netId = mobData.netId;
+                                    // Sync position/velocity in case spawn function placed it differently
+                                    Matter.Body.setPosition(newMob, { x: mobData.x, y: mobData.y });
+                                    Matter.Body.setVelocity(newMob, { x: mobData.vx || 0, y: mobData.vy || 0 });
+                                    Matter.Body.setAngle(newMob, mobData.angle || 0);
+                                    console.log('✅ Assigned netId:', mobData.netId);
+                                }
+                            }
                         } catch (e) {
-                            console.error('❌ Failed to create ghost mob:', e);
-                            this.isSpawningGhostMob = false;
+                            console.error('❌ Failed to create instant ghost mob:', e);
                         }
                     }
                 }

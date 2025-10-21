@@ -1314,12 +1314,17 @@ const mobs = {
         World.add(engine.world, mob[i]); //add to world
         
         // INSTANT MULTIPLAYER SYNC: Notify clients immediately when host spawns a mob
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost && !multiplayer.isSpawningGhostMob) {
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
             // Use setTimeout to ensure the mob is fully initialized before syncing
             setTimeout(() => {
                 if (mob[i] && mob[i].alive) {
-                    // Pass mob type if it was set during spawn
-                    multiplayer.syncMobSpawn(i, mob[i].mobType || 'generic');
+                    // Get mob type from global tracker (set by spawn functions)
+                    const mobType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
+                    const spawnParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
+                    multiplayer.syncMobSpawn(i, mobType, spawnParams);
+                    // Reset tracker
+                    if (typeof currentSpawnFunction !== 'undefined') currentSpawnFunction = null;
+                    if (typeof currentSpawnParams !== 'undefined') currentSpawnParams = {};
                 }
             }, 0);
         }

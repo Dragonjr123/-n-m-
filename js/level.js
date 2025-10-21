@@ -1666,13 +1666,12 @@ const level = {
             }
             door.openClose();
 
-            // Safety check for portals in multiplayer
-            if (portal && portal[2]) portal[2].query()
-            if (portal && portal[3]) portal[3].query()
-            if (portal2 && portal2[2]) portal2[2].query()
-            if (portal2 && portal2[3]) portal2[3].query()
-            if (portal3 && portal3[2]) portal3[2].query()
-            if (portal3 && portal3[3]) portal3[3].query()
+            portal[2].query()
+            portal[3].query()
+            portal2[2].query()
+            portal2[3].query()
+            portal3[2].query()
+            portal3[3].query()
             hazard.opticalQuery();
             hazard2.opticalQuery();
             if (button.isUp) {
@@ -1695,19 +1694,18 @@ const level = {
             door.draw();
             hazard.draw();
             hazard2.draw();
-            // Safety check for portals in multiplayer
-            if (portal && portal[0]) portal[0].draw();
-            if (portal && portal[1]) portal[1].draw();
-            if (portal && portal[2]) portal[2].draw();
-            if (portal && portal[3]) portal[3].draw();
-            if (portal2 && portal2[0]) portal2[0].draw();
-            if (portal2 && portal2[1]) portal2[1].draw();
-            if (portal2 && portal2[2]) portal2[2].draw();
-            if (portal2 && portal2[3]) portal2[3].draw();
-            if (portal3 && portal3[0]) portal3[0].draw();
-            if (portal3 && portal3[1]) portal3[1].draw();
-            if (portal3 && portal3[2]) portal3[2].draw();
-            if (portal3 && portal3[3]) portal3[3].draw();
+            portal[0].draw();
+            portal[1].draw();
+            portal[2].draw();
+            portal[3].draw();
+            portal2[0].draw();
+            portal2[1].draw();
+            portal2[2].draw();
+            portal2[3].draw();
+            portal3[0].draw();
+            portal3[1].draw();
+            portal3[2].draw();
+            portal3[3].draw();
         };
         powerUps.spawnStartingPowerUps(1875, -3075);
 
