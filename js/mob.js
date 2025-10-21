@@ -259,13 +259,19 @@ const mobs = {
             isStunned: false,
             seeAtDistance2: Infinity, //sqrt(4000000) = 2000 = max seeing range
             distanceToPlayer() {
-                const dx = this.position.x - player.position.x;
-                const dy = this.position.y - player.position.y;
+                // Use the remembered player position if available
+                const targetX = (this.seePlayer.position && this.seePlayer.position.x) || player.position.x;
+                const targetY = (this.seePlayer.position && this.seePlayer.position.y) || player.position.y;
+                const dx = this.position.x - targetX;
+                const dy = this.position.y - targetY;
                 return Math.sqrt(dx * dx + dy * dy);
             },
             distanceToPlayer2() {
-                const dx = this.position.x - player.position.x;
-                const dy = this.position.y - player.position.y;
+                // Use the remembered player position if available
+                const targetX = (this.seePlayer.position && this.seePlayer.position.x) || player.position.x;
+                const targetY = (this.seePlayer.position && this.seePlayer.position.y) || player.position.y;
+                const dx = this.position.x - targetX;
+                const dy = this.position.y - targetY;
                 return dx * dx + dy * dy;
             },
             gravity() {
@@ -287,8 +293,41 @@ const mobs = {
             memory: 120, //default time to remember player's location
             locatePlayer() { // updates mob's memory of player location
                 this.seePlayer.recall = this.memory + Math.round(this.memory * Math.random()); //seconds before mob falls a sleep
-                this.seePlayer.position.x = player.position.x;
-                this.seePlayer.position.y = player.position.y;
+                
+                // In multiplayer, target the closest alive player
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                    let closestDist = Infinity;
+                    let closestX = player.position.x;
+                    let closestY = player.position.y;
+                    
+                    // Check local player
+                    if (m.alive) {
+                        const dx = player.position.x - this.position.x;
+                        const dy = player.position.y - this.position.y;
+                        closestDist = dx * dx + dy * dy;
+                    }
+                    
+                    // Check remote players
+                    for (const [id, p] of Object.entries(multiplayer.players || {})) {
+                        if (p.alive !== false && p.x !== undefined && p.y !== undefined) {
+                            const dx = p.x - this.position.x;
+                            const dy = p.y - this.position.y;
+                            const dist = dx * dx + dy * dy;
+                            if (dist < closestDist) {
+                                closestDist = dist;
+                                closestX = p.x;
+                                closestY = p.y;
+                            }
+                        }
+                    }
+                    
+                    this.seePlayer.position.x = closestX;
+                    this.seePlayer.position.y = closestY;
+                } else {
+                    // Single player - use original logic
+                    this.seePlayer.position.x = player.position.x;
+                    this.seePlayer.position.y = player.position.y;
+                }
             },
             alertNearByMobs() {
                 //this.alertRange2 is set at the very bottom of this mobs, after mob is made
@@ -301,8 +340,7 @@ const mobs = {
             alwaysSeePlayer() {
                 if (!m.isCloak) {
                     this.seePlayer.recall = true;
-                    this.seePlayer.position.x = player.position.x;
-                    this.seePlayer.position.y = player.position.y;
+                    this.locatePlayer(); // Use locatePlayer which handles multiplayer
                 }
             },
             // alwaysSeePlayerIfRemember() {
@@ -419,18 +457,24 @@ const mobs = {
                     ctx.setLineDash([125 * Math.random(), 125 * Math.random()]);
                     // ctx.lineDashOffset = 6*(simulation.cycle % 215);
                     if (this.distanceToPlayer() < this.laserRange) {
-                        if (m.immuneCycle < m.cycle) m.damage(0.0003 * simulation.dmgScale);
-                        if (m.energy > 0.1) m.energy -= 0.003
+                        // Use remembered target position
+                        const targetX = this.seePlayer.position.x;
+                        const targetY = this.seePlayer.position.y;
+                        // Check if targeting local player
+                        if (Math.abs(targetX - m.pos.x) < 50 && Math.abs(targetY - m.pos.y) < 50) {
+                            if (m.immuneCycle < m.cycle) m.damage(0.0003 * simulation.dmgScale);
+                            if (m.energy > 0.1) m.energy -= 0.003
+                        }
                         ctx.beginPath();
                         ctx.moveTo(this.position.x, this.position.y);
-                        ctx.lineTo(m.pos.x, m.pos.y);
-                        ctx.lineTo(m.pos.x + (Math.random() - 0.5) * 3000, m.pos.y + (Math.random() - 0.5) * 3000);
+                        ctx.lineTo(targetX, targetY);
+                        ctx.lineTo(targetX + (Math.random() - 0.5) * 3000, targetY + (Math.random() - 0.5) * 3000);
                         ctx.lineWidth = 2;
                         ctx.strokeStyle = "rgb(255,0,170)";
                         ctx.stroke();
 
                         ctx.beginPath();
-                        ctx.arc(m.pos.x, m.pos.y, 40, 0, 2 * Math.PI);
+                        ctx.arc(targetX, targetY, 40, 0, 2 * Math.PI);
                         ctx.fillStyle = "rgba(255,0,170,0.15)";
                         ctx.fill();
 
@@ -692,21 +736,32 @@ const mobs = {
                 // ctx.fill();
             },
             pullPlayer() {
-                if (this.seePlayer.yes && Vector.magnitudeSquared(Vector.sub(this.position, player.position)) < 1000000) {
-                    const angle = Math.atan2(player.position.y - this.position.y, player.position.x - this.position.x);
-                    player.force.x -= simulation.accelScale * 0.00113 * player.mass * Math.cos(angle) * (m.onGround ? 2 : 1);
-                    player.force.y -= simulation.accelScale * 0.00084 * player.mass * Math.sin(angle);
-
-                    ctx.beginPath();
-                    ctx.moveTo(this.position.x, this.position.y);
-                    ctx.lineTo(m.pos.x, m.pos.y);
-                    ctx.lineWidth = Math.min(60, this.radius * 2);
-                    ctx.strokeStyle = "rgba(0,0,0,0.5)";
-                    ctx.stroke();
-                    ctx.beginPath();
-                    ctx.arc(m.pos.x, m.pos.y, 40, 0, 2 * Math.PI);
-                    ctx.fillStyle = "rgba(0,0,0,0.3)";
-                    ctx.fill();
+                if (this.seePlayer.yes) {
+                    const targetX = this.seePlayer.position.x;
+                    const targetY = this.seePlayer.position.y;
+                    const dx = targetX - this.position.x;
+                    const dy = targetY - this.position.y;
+                    const dist2 = dx * dx + dy * dy;
+                    
+                    if (dist2 < 1000000) {
+                        // Only apply force to local player if they're the target
+                        if (Math.abs(targetX - m.pos.x) < 50 && Math.abs(targetY - m.pos.y) < 50) {
+                            const angle = Math.atan2(dy, dx);
+                            player.force.x -= simulation.accelScale * 0.00113 * player.mass * Math.cos(angle) * (m.onGround ? 2 : 1);
+                            player.force.y -= simulation.accelScale * 0.00084 * player.mass * Math.sin(angle);
+                        }
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(this.position.x, this.position.y);
+                        ctx.lineTo(targetX, targetY);
+                        ctx.lineWidth = Math.min(60, this.radius * 2);
+                        ctx.strokeStyle = "rgba(0,0,0,0.5)";
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.arc(targetX, targetY, 40, 0, 2 * Math.PI);
+                        ctx.fillStyle = "rgba(0,0,0,0.3)";
+                        ctx.fill();
+                    }
                 }
             },
             repelBullets() {

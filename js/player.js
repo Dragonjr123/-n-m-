@@ -452,7 +452,7 @@ const m = {
                 simulation.isTextLogOpen = true;
                 simulation.makeTextLog("simulation.amplitude <span class='color-symbol'>=</span> null");
             }, 6 * swapPeriod);
-        } else if (m.alive) { //normal death code here
+        } else { //normal death code here
             if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
                 m.alive = false;
                 m.health = 0;

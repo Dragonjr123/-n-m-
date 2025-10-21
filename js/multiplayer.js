@@ -2144,14 +2144,17 @@ const multiplayer = {
                     if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
                     physicsData.mobs.push({
                         index: i,
-                        netId: m.netId,
+                        netId: m.netId || null,
                         x: m.position.x,
                         y: m.position.y,
                         vx: m.velocity.x,
                         vy: m.velocity.y,
                         angle: m.angle,
-                        health: m.health || 1,
-                        alive: m.alive
+                        health: m.health,
+                        alive: m.alive,
+                        seePlayerYes: m.seePlayer ? m.seePlayer.yes : false,
+                        targetX: (m.seePlayer && m.seePlayer.yes && m.targetPos) ? m.targetPos.x : null,
+                        targetY: (m.seePlayer && m.seePlayer.yes && m.targetPos) ? m.targetPos.y : null
                     });
                 }
                 i = (i + 1) % mob.length;
@@ -2301,6 +2304,13 @@ const multiplayer = {
                         Matter.Body.setAngle(bodyRef, ca + da * alpha);
                     }
                     if (mobData.health !== undefined) mob[targetIndex].health = mobData.health;
+                    // Sync targeting data
+                    if (mob[targetIndex].seePlayer) {
+                        mob[targetIndex].seePlayer.yes = mobData.seePlayerYes || false;
+                        if (mobData.targetX !== null && mobData.targetY !== null) {
+                            mob[targetIndex].targetPos = { x: mobData.targetX, y: mobData.targetY };
+                        }
+                    }
                     // If host reports dead, trigger local death transition once
                     if (mobData.alive !== undefined) {
                         const wasAlive = mob[targetIndex].alive;
@@ -2329,16 +2339,81 @@ const multiplayer = {
                                 seePlayer: { recall: false },
                                 showHealthBar: false
                             });
-                            // Safe no-op methods to avoid crashes in client loops
+                            // Functional methods for ghost mobs to track players
                             ghost.damage = function(amount) {
+                                this.health -= amount;
+                                if (this.health <= 0) {
+                                    this.alive = false;
+                                    if (typeof this.death === 'function') this.death();
+                                }
                                 if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                                    multiplayer.syncMobDamage(targetIndex, amount, (this.health || 1) - amount, this.alive);
+                                    multiplayer.syncMobDamage(targetIndex, amount, this.health, this.alive);
                                 }
                             };
-                            ghost.locatePlayer = function(){};
-                            ghost.foundPlayer = function(){};
+                            ghost.seePlayer = {
+                                recall: false,
+                                yes: false
+                            };
+                            ghost.locatePlayer = function() {
+                                // Find closest player (including local player)
+                                let closestDist = Infinity;
+                                let closestPlayer = null;
+                                
+                                // Check local player
+                                if (typeof m !== 'undefined' && m.alive) {
+                                    const dx = m.pos.x - this.position.x;
+                                    const dy = m.pos.y - this.position.y;
+                                    const dist = Math.sqrt(dx * dx + dy * dy);
+                                    if (dist < closestDist) {
+                                        closestDist = dist;
+                                        closestPlayer = { x: m.pos.x, y: m.pos.y, isLocal: true };
+                                    }
+                                }
+                                
+                                // Check remote players
+                                for (const [id, player] of Object.entries(multiplayer.players || {})) {
+                                    if (player.alive !== false) {
+                                        const dx = player.x - this.position.x;
+                                        const dy = player.y - this.position.y;
+                                        const dist = Math.sqrt(dx * dx + dy * dy);
+                                        if (dist < closestDist) {
+                                            closestDist = dist;
+                                            closestPlayer = { x: player.x, y: player.y, isLocal: false };
+                                        }
+                                    }
+                                }
+                                
+                                // Set seePlayer based on distance
+                                if (closestPlayer && closestDist < 500) {
+                                    this.seePlayer.yes = true;
+                                    this.targetPos = closestPlayer;
+                                } else {
+                                    this.seePlayer.yes = false;
+                                    this.targetPos = null;
+                                }
+                            };
+                            ghost.foundPlayer = function() {
+                                return this.seePlayer.yes;
+                            };
+                            ghost.death = function() {
+                                this.alive = false;
+                                // Remove from world
+                                Matter.World.remove(engine.world, this);
+                                // Find and remove from mob array
+                                for (let i = 0; i < mob.length; i++) {
+                                    if (mob[i] === this) {
+                                        mob.splice(i, 1);
+                                        break;
+                                    }
+                                }
+                            };
                             ghost.onDeath = function(){};
-                            ghost.do = function(){}; // No-op do() method for ghost mobs (synced by physics)
+                            ghost.do = function() {
+                                // Update targeting periodically
+                                if (simulation.cycle % 30 === 0) {
+                                    this.locatePlayer();
+                                }
+                            };
                             // Insert and tag
                             World.add(engine.world, ghost);
                             mob[targetIndex] = ghost;
