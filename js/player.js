@@ -146,8 +146,11 @@ const m = {
         }
     },
     move() {
-        m.pos.x = player.position.x;
-        m.pos.y = playerBody.position.y - m.yOff;
+        // Don't update position if dead and spectating
+        if (m.alive || typeof multiplayer === 'undefined' || !multiplayer.enabled) {
+            m.pos.x = player.position.x;
+            m.pos.y = playerBody.position.y - m.yOff;
+        }
         m.Vx = player.velocity.x;
         m.Vy = player.velocity.y;
 
@@ -197,8 +200,10 @@ const m = {
         m.transSmoothX = canvas.width2 - camX - (simulation.mouse.x - canvas.width2) * scale;
         m.transSmoothY = canvas.height2 - camY - (simulation.mouse.y - canvas.height2) * scale;
 
-        m.transX += (m.transSmoothX - m.transX) * 0.07;
-        m.transY += (m.transSmoothY - m.transY) * 0.07;
+        // Faster camera follow when spectating
+        const lerpSpeed = (m.alive === false && typeof multiplayer !== 'undefined' && multiplayer.enabled) ? 0.2 : 0.07;
+        m.transX += (m.transSmoothX - m.transX) * lerpSpeed;
+        m.transY += (m.transSmoothY - m.transY) * lerpSpeed;
     },
     lookDefault() {
         //always on mouse look

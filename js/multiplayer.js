@@ -1608,25 +1608,8 @@ const multiplayer = {
         // Ignore our own event (the local picker already applied the tech)
         if (event.playerId === this.playerId) return;
 
-        // Apply the tech so that all clients share the same abilities/flags
-        if (typeof tech !== 'undefined' && tech.giveTech && Array.isArray(tech.tech)) {
-            try {
-                let idx = -1;
-                if (Number.isInteger(event.techIndex) && tech.tech[event.techIndex]) {
-                    idx = event.techIndex;
-                } else if (typeof event.techName === 'string') {
-                    idx = tech.tech.findIndex(t => t && t.name === event.techName);
-                }
-                if (idx >= 0) {
-                    tech.giveTech(idx);
-                    if (typeof simulation !== 'undefined' && simulation.updateTechHUD) simulation.updateTechHUD();
-                }
-            } catch (e) {
-                console.warn('Failed to apply remote tech selection:', e);
-            }
-        }
-
-        // Show notification
+        // Don't give tech to other players - each player has their own tech
+        // Just show notification that someone picked up tech
         if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
             const playerName = this.otherPlayers.get(event.playerId)?.name || 'Player';
             simulation.makeTextLog(`<span style='color:#0cf'>${playerName}</span> selected <span class='color-m'>${event.techName}</span>`);
@@ -2251,6 +2234,10 @@ const multiplayer = {
                         angle: m.angle,
                         health: m.health,
                         alive: m.alive,
+                        radius: m.radius || 30,
+                        sides: m.vertices ? m.vertices.length : 6,
+                        fill: m.fill || '#735084',
+                        stroke: m.stroke || '#000000',
                         seePlayerYes: m.seePlayer ? m.seePlayer.yes : false,
                         targetX: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.x : null,
                         targetY: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.y : null
@@ -2434,9 +2421,14 @@ const multiplayer = {
                         Matter.Body.setAngle(bodyRef, ca + da * alpha);
                     }
                     if (mobData.health !== undefined) mob[targetIndex].health = mobData.health;
+                    // Update visual properties
+                    if (mobData.fill) mob[targetIndex].fill = mobData.fill;
+                    if (mobData.stroke) mob[targetIndex].stroke = mobData.stroke;
+                    if (mobData.radius) mob[targetIndex].radius = mobData.radius;
                     // Sync targeting data
                     if (mob[targetIndex].seePlayer) {
                         mob[targetIndex].seePlayer.yes = mobData.seePlayerYes || false;
+                        mob[targetIndex].seePlayer.recall = mobData.seePlayerYes || false;
                         if (mobData.targetX !== null && mobData.targetY !== null) {
                             mob[targetIndex].targetPos = { x: mobData.targetX, y: mobData.targetY };
                         }
@@ -2454,8 +2446,9 @@ const multiplayer = {
                     // Only create if we have a netId and the mob is alive
                     console.log(`👻 Creating ghost mob with netId: ${mobData.netId} at (${mobData.x}, ${mobData.y})`);
                     try {
-                        const radius = 30; // generic fallback
-                        const ghost = Bodies.polygon(mobData.x || 0, mobData.y || 0, 6, radius, {
+                        const radius = mobData.radius || 30; // Use actual radius if available
+                        const sides = mobData.sides || 6; // Use actual sides if available
+                        const ghost = Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, {
                             inertia: Infinity,
                             frictionAir: 0.02,
                             restitution: 0.2,
@@ -2466,10 +2459,10 @@ const multiplayer = {
                             alive: true,
                             health: isFinite(mobData.health) ? mobData.health : 1,
                             radius: radius,
-                            seePlayer: { recall: false, yes: false, position: { x: mobData.x || 0, y: mobData.y || 0 } },
+                            seePlayer: { recall: mobData.seePlayerYes || false, yes: mobData.seePlayerYes || false, position: { x: mobData.x || 0, y: mobData.y || 0 } },
                             showHealthBar: true,
-                            fill: 'rgba(150,150,150,0.9)', // Gray color for ghost mobs
-                            stroke: 'rgba(100,100,100,1)'
+                            fill: mobData.fill || '#735084', // Use actual fill or default purple
+                            stroke: mobData.stroke || '#000000' // Use actual stroke or black
                         });
                         
                         // Add minimal required methods
