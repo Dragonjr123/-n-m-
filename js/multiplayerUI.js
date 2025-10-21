@@ -91,6 +91,14 @@ const multiplayerUI = {
                     </div>
                     
                     <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 10px;">
+                            <input type="checkbox" id="mp-friendly-fire" style="width: 20px; height: 20px; vertical-align: middle;">
+                            <span style="font-weight: bold; margin-left: 5px;">Friendly Fire</span>
+                        </label>
+                        <p style="margin: 5px 0 0 25px; font-size: 12px; color: #666;">Players can damage each other</p>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
                         <label style="display: block; margin-bottom: 5px; font-weight: bold;">Game Mode:</label>
                         <select id="mp-gamemode" style="width: 100%; padding: 8px; font-size: 16px;">
                             <option value="adventure">Adventure</option>
@@ -169,6 +177,7 @@ const multiplayerUI = {
         const password = isPrivate ? document.getElementById('mp-password').value : null;
         const gameMode = document.getElementById('mp-gamemode').value;
         const hostOnlyExit = document.getElementById('mp-host-only-exit').checked;
+        const friendlyFire = document.getElementById('mp-friendly-fire').checked;
         
         if (isPrivate && !password) {
             alert('Please enter a password for private lobby');
@@ -186,6 +195,9 @@ const multiplayerUI = {
             if (hostOnlyExit) {
                 await multiplayer.setHostOnlyLevelExit(true);
             }
+            
+            // Set friendly fire setting
+            await multiplayer.setFriendlyFire(friendlyFire);
             
             // Show lobby waiting room
             this.showLobbyRoom(lobbyId, isPrivate, password, gameMode);

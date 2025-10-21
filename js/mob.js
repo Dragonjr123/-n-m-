@@ -1222,6 +1222,13 @@ const mobs = {
                     Matter.World.remove(engine.world, this);
                     mob.splice(i, 1);
                 }
+            },
+            //default AI behavior - can be overridden by specific mob types
+            do() {
+                this.gravity();
+                this.seePlayerCheck();
+                this.attraction();
+                this.checkStatus();
             }
         });
         mob[i].alertRange2 = Math.pow(mob[i].radius * 3 + 550, 2);

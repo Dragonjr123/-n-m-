@@ -71,6 +71,7 @@ const multiplayer = {
     
     // Lobby settings
     hostOnlyLevelExit: false, // Only host can trigger level exits
+    friendlyFire: false, // Players can damage each other
     
     // Player settings
     settings: {
@@ -109,6 +110,7 @@ const multiplayer = {
             createdAt: Date.now(),
             gameStarted: false,
             hostOnlyLevelExit: false,
+            friendlyFire: false,
             persistEmptyLobby: true,
             players: {}
         };
@@ -1085,6 +1087,52 @@ const multiplayer = {
         });
     },
     
+    // Sync laser weapon
+    syncLaser(where, whereEnd, dmg, reflections) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'laser',
+            playerId: this.playerId,
+            where: { x: where.x, y: where.y },
+            whereEnd: { x: whereEnd.x, y: whereEnd.y },
+            dmg: dmg,
+            reflections: reflections,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync foam weapon
+    syncFoam(position, velocity, radius) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'foam',
+            playerId: this.playerId,
+            position: { x: position.x, y: position.y },
+            velocity: { x: velocity.x, y: velocity.y },
+            radius: radius,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync railgun weapon
+    syncRailgun(position, angle, velocity) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'railgun',
+            playerId: this.playerId,
+            position: { x: position.x, y: position.y },
+            angle: angle,
+            velocity: { x: velocity.x, y: velocity.y },
+            timestamp: Date.now()
+        });
+    },
+    
     // Sync tech selection
     syncTechSelection(techName, techIndex) {
         if (!this.enabled || !this.lobbyId) return;
@@ -1219,6 +1267,15 @@ const multiplayer = {
                 break;
             case 'visual_effect':
                 this.handleRemoteVisualEffect(event);
+                break;
+            case 'laser':
+                this.handleRemoteLaser(event);
+                break;
+            case 'foam':
+                this.handleRemoteFoam(event);
+                break;
+            case 'railgun':
+                this.handleRemoteRailgun(event);
                 break;
             case 'tech_selection':
                 this.handleRemoteTechSelection(event);
@@ -1382,8 +1439,93 @@ const multiplayer = {
             console.log('❌ Could not trigger explosion - b.explosion not available');
         }
     },
-
     
+    // Handle remote laser
+    handleRemoteLaser(event) {
+        console.log('⚡ Remote laser from player:', event.playerId);
+        
+        if (typeof b !== 'undefined' && b.laser) {
+            // Tag this as a remote player's laser
+            const wasRemote = this.isSpawningRemote;
+            const wasOwnerId = this.spawningRemoteOwnerId;
+            this.isSpawningRemote = true;
+            this.spawningRemoteOwnerId = event.playerId;
+            
+            try {
+                b.laser(event.where, event.whereEnd, event.dmg, event.reflections, false);
+            } finally {
+                this.isSpawningRemote = wasRemote;
+                this.spawningRemoteOwnerId = wasOwnerId;
+            }
+        }
+    },
+    
+    // Handle remote foam
+    handleRemoteFoam(event) {
+        console.log('🫧 Remote foam from player:', event.playerId);
+        
+        if (typeof b !== 'undefined' && b.foam) {
+            // Tag this as a remote player's foam
+            const wasRemote = this.isSpawningRemote;
+            const wasOwnerId = this.spawningRemoteOwnerId;
+            this.isSpawningRemote = true;
+            this.spawningRemoteOwnerId = event.playerId;
+            
+            try {
+                b.foam(event.position, event.velocity, event.radius);
+            } finally {
+                this.isSpawningRemote = wasRemote;
+                this.spawningRemoteOwnerId = wasOwnerId;
+            }
+        }
+    },
+    
+    // Handle remote railgun
+    handleRemoteRailgun(event) {
+        console.log('🔫 Remote railgun from player:', event.playerId);
+        
+        if (typeof bullet !== 'undefined' && typeof Bodies !== 'undefined') {
+            // Create the railgun projectile
+            const wasRemote = this.isSpawningRemote;
+            const wasOwnerId = this.spawningRemoteOwnerId;
+            this.isSpawningRemote = true;
+            this.spawningRemoteOwnerId = event.playerId;
+            
+            try {
+                const me = bullet.length;
+                bullet[me] = Bodies.rectangle(
+                    event.position.x,
+                    event.position.y,
+                    60, 14, {
+                        density: 0.005,
+                        restitution: 0,
+                        frictionAir: 0,
+                        angle: event.angle,
+                        dmg: 0,
+                        classType: "bullet",
+                        collisionFilter: {
+                            category: cat.bullet,
+                            mask: cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield
+                        },
+                        minDmgSpeed: 5,
+                        endCycle: simulation.cycle + 140,
+                        ownerId: event.playerId,
+                        do() {
+                            this.force.y += this.mass * 0.0003;
+                        },
+                        onEnd() {},
+                        beforeDmg() {}
+                    }
+                );
+                
+                Matter.Body.setVelocity(bullet[me], event.velocity);
+                Matter.World.add(engine.world, bullet[me]);
+            } finally {
+                this.isSpawningRemote = wasRemote;
+                this.spawningRemoteOwnerId = wasOwnerId;
+            }
+        }
+    },
     
     // Handle remote visual effect
     handleRemoteVisualEffect(event) {
@@ -1607,12 +1749,20 @@ const multiplayer = {
         await playerRef.remove();
     },
     
-    // Set host-only level exit (host only)
+    // Set host-only level exit setting
     async setHostOnlyLevelExit(enabled) {
-        if (!this.isHost || !this.lobbyId) return;
+        if (!this.enabled || !this.lobbyId || !this.isHost) return;
+        
         this.hostOnlyLevelExit = enabled;
-        const lobbyRef = database.ref(`lobbies/${this.lobbyId}`);
-        await lobbyRef.update({ hostOnlyLevelExit: enabled });
+        await database.ref(`lobbies/${this.lobbyId}/hostOnlyLevelExit`).set(enabled);
+    },
+    
+    // Set friendly fire setting
+    async setFriendlyFire(enabled) {
+        if (!this.enabled || !this.lobbyId || !this.isHost) return;
+        
+        this.friendlyFire = enabled;
+        await database.ref(`lobbies/${this.lobbyId}/friendlyFire`).set(enabled);
     },
     
     // Start game (host only)
