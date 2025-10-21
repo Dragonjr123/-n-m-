@@ -2529,6 +2529,11 @@ const b = {
         }
     },
     randomBot(where = player.position, isKeep = true, isAll = true) {
+        // AUTO-SYNC: In multiplayer, sync bot spawns
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            multiplayer.syncBotSpawn('random', where, { isKeep, isAll });
+        }
+        
         if (Math.random() < 0.167 && isAll) {
             b.dynamoBot(where)
             if (isKeep) tech.dynamoBotCount++;

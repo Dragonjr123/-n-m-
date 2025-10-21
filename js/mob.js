@@ -208,6 +208,13 @@ const mobs = {
     //**********************************************************************************************
     spawn(xPos, yPos, sides, radius, color) {
         let i = mob.length;
+        
+        // AUTO-SYNC: If host in multiplayer, this mob will be synced automatically via physics sync
+        // But we need to assign netId immediately for proper tracking
+        const netId = (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) 
+            ? `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}` 
+            : null;
+        
         mob[i] = Matter.Bodies.polygon(xPos, yPos, sides, radius, {
             //inertia: Infinity, //prevents rotation
             mob: true,
@@ -224,6 +231,7 @@ const mobs = {
             onHit: undefined,
             alive: true,
             index: i,
+            netId: netId, // Network ID for multiplayer sync
             health: tech.mobSpawnWithHealth,
             showHealthBar: true,
             accelMag: 0.001 * simulation.accelScale,

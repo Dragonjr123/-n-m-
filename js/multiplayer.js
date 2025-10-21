@@ -1096,6 +1096,36 @@ const multiplayer = {
         });
     },
     
+    // Sync mob action (for special mob behaviors)
+    syncMobAction(actionType, mobIndex, data) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'mob_action',
+            playerId: this.playerId,
+            actionType: actionType,
+            mobIndex: mobIndex,
+            data: data,
+            timestamp: Date.now()
+        });
+    },
+    
+    // UNIVERSAL BOT SYNC - automatically syncs all bot spawns
+    syncBotSpawn(botType, position, params = {}) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'bot_spawn',
+            playerId: this.playerId,
+            botType: botType,
+            position: { x: position.x, y: position.y },
+            params: params,
+            timestamp: Date.now()
+        });
+    },
+    
     // Sync tech selection
     syncTechSelection(techName, techIndex) {
         if (!this.enabled || !this.lobbyId) return;
@@ -1420,6 +1450,17 @@ const multiplayer = {
                 break;
             case 'mob_action':
                 this.handleRemoteMobAction(event);
+                break;
+            case 'bot_spawn':
+                if (event.playerId !== this.playerId && typeof b !== 'undefined') {
+                    // Handle remote bot spawn
+                    console.log('🤖 Remote bot spawn:', event.botType, 'from', event.playerId);
+                    // Call the appropriate bot spawn function
+                    if (event.botType === 'random' && typeof b.randomBot === 'function') {
+                        b.randomBot(event.position, event.params.isKeep, event.params.isAll);
+                    }
+                    // Add more bot types as needed
+                }
                 break;
             case 'player_died': {
                 // Show notification that a player died
