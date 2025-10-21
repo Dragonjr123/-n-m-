@@ -2200,8 +2200,8 @@ const multiplayer = {
     
     // Sync physics state to Firebase
     syncPhysics() {
-        // Only host should publish physics for authoritative state
-        if (!this.enabled || !this.lobbyId || !this.isHost) return;
+        // Both host and clients can sync physics
+        if (!this.enabled || !this.lobbyId) return;
         
         const now = Date.now();
         if (now - this.lastPhysicsSyncTime < this.physicsSyncInterval) return;
@@ -2253,7 +2253,7 @@ const multiplayer = {
         // Sync blocks (physics bodies) - sync ALL blocks for consistency
         if (typeof body !== 'undefined') {
             // On first sync or periodically, sync ALL blocks
-            const syncAllBlocks = !this.hasInitialBlockSync || Math.random() < 0.01; // 1% chance to resync all
+            const syncAllBlocks = this.isHost && (!this.hasInitialBlockSync || Math.random() < 0.01); // 1% chance to resync all
             if (syncAllBlocks) {
                 this.hasInitialBlockSync = true;
                 // Sync ALL blocks
@@ -2277,9 +2277,23 @@ const multiplayer = {
                 let count = 0;
                 for (let i = 0; i < body.length && count < maxBlocks; i++) {
                     if (body[i] && body[i].position) {
-                        // Skip if under client authority
-                        const authKey = `block_${i}`;
-                        if (this.clientAuthority.has(authKey)) continue;
+                        // For clients, only sync blocks they have authority over or are pushing
+                        if (!this.isHost) {
+                            const authKey = `block_${i}`;
+                            const hasAuth = this.clientAuthority.has(authKey);
+                            const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
+                            const isMoving = speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001;
+                            
+                            // Check if player is near the block (likely pushing it)
+                            const distToPlayer = Math.pow(body[i].position.x - m.pos.x, 2) + Math.pow(body[i].position.y - m.pos.y, 2);
+                            const isNearby = distToPlayer < 10000; // within 100 units
+                            
+                            if (!hasAuth && !(isMoving && isNearby)) continue;
+                        } else {
+                            // Host: skip blocks under client authority
+                            const authKey = `block_${i}`;
+                            if (this.clientAuthority.has(authKey)) continue;
+                        }
                         
                         // Only sync if block has moved significantly
                         const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
@@ -2366,8 +2380,6 @@ const multiplayer = {
             
             // Apply physics updates from all other players
             for (const [playerId, physicsData] of Object.entries(allPhysicsData)) {
-                // Only consume host's physics for authoritative state
-                if (!this.hostId || playerId !== this.hostId) continue;
                 if (playerId === this.playerId) continue; // Skip own physics
                 this.applyPhysicsUpdate(physicsData);
             }
@@ -2501,21 +2513,26 @@ const multiplayer = {
         // Update blocks (use interpolation to smooth the updates)
         if (physicsData.blocks && typeof body !== 'undefined') {
             for (const blockData of physicsData.blocks) {
-                // Skip blocks under local authority
-                const authKey = `block_${blockData.index}`;
-                if (this.clientAuthority.has(authKey) && 
-                    this.clientAuthority.get(authKey).playerId === this.playerId) {
-                    continue;
-                }
-                
                 if (body[blockData.index]) {
-                    // Smoothly interpolate to new position
+                    // More aggressive sync for blocks that are moving
                     const currentPos = body[blockData.index].position;
-                    const lerpFactor = 0.3;
+                    const currentVel = body[blockData.index].velocity;
+                    
+                    // Calculate distance and speed
+                    const dx = blockData.x - currentPos.x;
+                    const dy = blockData.y - currentPos.y;
+                    const dist2 = dx*dx + dy*dy;
+                    const speed2 = blockData.vx*blockData.vx + blockData.vy*blockData.vy;
+                    
+                    // Use stronger lerp for moving blocks or blocks far from expected position
+                    let lerpFactor = 0.3;
+                    if (speed2 > 1 || dist2 > 100) {
+                        lerpFactor = 0.6; // Stronger sync for moving/displaced blocks
+                    }
                     
                     Matter.Body.setPosition(body[blockData.index], {
-                        x: currentPos.x + (blockData.x - currentPos.x) * lerpFactor,
-                        y: currentPos.y + (blockData.y - currentPos.y) * lerpFactor
+                        x: currentPos.x + dx * lerpFactor,
+                        y: currentPos.y + dy * lerpFactor
                     });
                     Matter.Body.setVelocity(body[blockData.index], { x: blockData.vx, y: blockData.vy });
                     Matter.Body.setAngle(body[blockData.index], blockData.angle);

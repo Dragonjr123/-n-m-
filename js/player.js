@@ -185,9 +185,6 @@ const m = {
             if (t && isFinite(t.x) && isFinite(t.y)) { 
                 camX = t.x; 
                 camY = t.y;
-                // Update m.pos for spectator mode so camera follows properly
-                m.pos.x = t.x;
-                m.pos.y = t.y;
             }
         }
         //always on mouse look
@@ -201,7 +198,7 @@ const m = {
         m.transSmoothY = canvas.height2 - camY - (simulation.mouse.y - canvas.height2) * scale;
 
         // Faster camera follow when spectating
-        const lerpSpeed = (m.alive === false && typeof multiplayer !== 'undefined' && multiplayer.enabled) ? 0.2 : 0.07;
+        const lerpSpeed = (m.alive === false && typeof multiplayer !== 'undefined' && multiplayer.enabled) ? 0.3 : 0.07;
         m.transX += (m.transSmoothX - m.transX) * lerpSpeed;
         m.transY += (m.transSmoothY - m.transY) * lerpSpeed;
     },
