@@ -2203,6 +2203,7 @@ const multiplayer = {
                         ghost.locatePlayer = function(){};
                         ghost.foundPlayer = function(){};
                         ghost.onDeath = function(){};
+                        ghost.do = function(){}; // No-op do() method for ghost mobs (synced by physics)
                         // Insert and tag
                         World.add(engine.world, ghost);
                         mob[targetIndex] = ghost;
