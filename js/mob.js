@@ -1314,11 +1314,12 @@ const mobs = {
         World.add(engine.world, mob[i]); //add to world
         
         // INSTANT MULTIPLAYER SYNC: Notify clients immediately when host spawns a mob
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost && !multiplayer.isSpawningGhostMob) {
             // Use setTimeout to ensure the mob is fully initialized before syncing
             setTimeout(() => {
                 if (mob[i] && mob[i].alive) {
-                    multiplayer.syncMobSpawn(i);
+                    // Pass mob type if it was set during spawn
+                    multiplayer.syncMobSpawn(i, mob[i].mobType || 'generic');
                 }
             }, 0);
         }
