@@ -179,7 +179,13 @@ const m = {
         let camX = m.pos.x, camY = m.pos.y;
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && m.alive === false && typeof multiplayer.getSpectateTargetPos === 'function') {
             const t = multiplayer.getSpectateTargetPos();
-            if (t && isFinite(t.x) && isFinite(t.y)) { camX = t.x; camY = t.y; }
+            if (t && isFinite(t.x) && isFinite(t.y)) { 
+                camX = t.x; 
+                camY = t.y;
+                // Update m.pos for spectator mode so camera follows properly
+                m.pos.x = t.x;
+                m.pos.y = t.y;
+            }
         }
         //always on mouse look
         m.angle = Math.atan2(

@@ -61,7 +61,7 @@ const multiplayer = {
     hostId: null,
     // Pagination for mob sync so large counts eventually update
     mobSyncCursor: 0,
-    maxMobsPerSync: 50, // Increase limit for better sync coverage
+    maxMobsPerSync: 100, // Increase limit for better sync coverage
     // Stable mob identifiers
     mobNetIdCounter: 0,
     mobIndexByNetId: new Map(), // netId -> index
@@ -2236,7 +2236,7 @@ const multiplayer = {
             let i = this.mobSyncCursor % mob.length;
             while (sent < limit) {
                 const m = mob[i];
-                if (m && m.position) {
+                if (m && m.position && m.alive) { // Only sync alive mobs
                     // Assign persistent netId lazily on host
                     if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
                     physicsData.mobs.push({
@@ -2258,6 +2258,10 @@ const multiplayer = {
                 sent++;
             }
             this.mobSyncCursor = i;
+            // Debug: log mob sync count occasionally
+            if (physicsData.mobs.length > 0 && Math.random() < 0.1) {
+                console.log(`📡 Host syncing ${physicsData.mobs.length} mobs out of ${mob.length} total`);
+            }
         }
         
         // Sync blocks (physics bodies) - skip blocks under client authority
@@ -2364,6 +2368,10 @@ const multiplayer = {
     applyPhysicsUpdate(physicsData) {
         // Update mobs (use interpolation to smooth the updates)
         if (physicsData.mobs && typeof mob !== 'undefined') {
+            // Debug: log received mob data occasionally
+            if (physicsData.mobs.length > 0 && Math.random() < 0.1) {
+                console.log(`📥 Client received ${physicsData.mobs.length} mob updates, local mob count: ${mob.length}`);
+            }
             for (const mobData of physicsData.mobs) {
                 // Resolve by netId first for stability
                 let targetIndex = null;
@@ -2416,10 +2424,55 @@ const multiplayer = {
                             mob[targetIndex].death();
                         }
                     }
-                } else if (targetIndex !== null && (typeof mob !== 'undefined')) {
-                    // NEVER create ghost mobs on clients - only host has authority
-                    // Clients should only update existing mobs that the host tells them about
-                    // This prevents duplicate mobs and colored circles
+                } else if (mobData.netId && mobData.alive !== false && (typeof mob !== 'undefined')) {
+                    // Create a simple ghost mob for clients when host reports a new mob
+                    // Only create if we have a netId and the mob is alive
+                    console.log(`👻 Creating ghost mob with netId: ${mobData.netId} at (${mobData.x}, ${mobData.y})`);
+                    try {
+                        const radius = 30; // generic fallback
+                        const ghost = Bodies.circle(mobData.x || 0, mobData.y || 0, radius, {
+                            inertia: Infinity,
+                            frictionAir: 0.02,
+                            restitution: 0.2,
+                            classType: 'mob',
+                            mob: true,
+                            isGhost: true,
+                            alive: true,
+                            health: isFinite(mobData.health) ? mobData.health : 1,
+                            radius: radius,
+                            seePlayer: { recall: false, yes: false, position: { x: mobData.x || 0, y: mobData.y || 0 } },
+                            showHealthBar: true,
+                            fill: '#666', // Gray color for ghost mobs
+                            stroke: '#333'
+                        });
+                        
+                        // Add minimal required methods
+                        ghost.damage = function() { /* no-op on clients */ };
+                        ghost.death = function() {
+                            this.alive = false;
+                            Matter.World.remove(engine.world, this);
+                            for (let i = 0; i < mob.length; i++) {
+                                if (mob[i] === this) { mob.splice(i, 1); break; }
+                            }
+                        };
+                        ghost.do = function() { /* no-op */ };
+                        ghost.onDeath = function() { /* no-op */ };
+                        
+                        // Add to world and mob array
+                        World.add(engine.world, ghost);
+                        const newIndex = mob.length;
+                        mob[newIndex] = ghost;
+                        
+                        // Register netId mapping
+                        this.mobIndexByNetId.set(mobData.netId, newIndex);
+                        ghost.netId = mobData.netId;
+                        
+                        // Set initial physics
+                        Matter.Body.setVelocity(ghost, { x: mobData.vx || 0, y: mobData.vy || 0 });
+                        Matter.Body.setAngle(ghost, mobData.angle || 0);
+                    } catch (e) {
+                        console.warn('Failed to create ghost mob:', e);
+                    }
                 }
             }
         }
