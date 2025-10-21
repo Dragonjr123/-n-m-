@@ -2389,13 +2389,14 @@ const multiplayer = {
             }
         }
         
-        // Sync mob bullets (projectiles from mobs)
+        // Sync mob bullets (projectiles from mobs) - sync ALL without culling
         if (typeof mob !== 'undefined') {
             for (let i = 0; i < mob.length; i++) {
                 const m = mob[i];
                 if (m && m.position && m.collisionFilter && m.collisionFilter.category === cat.mobBullet) {
                     physicsData.mobBullets.push({
                         index: i,
+                        netId: m.netId || `${this.playerId}_bullet${i}`, // Track bullets by ID
                         x: m.position.x,
                         y: m.position.y,
                         vx: m.velocity.x,
@@ -2404,13 +2405,23 @@ const multiplayer = {
                     });
                 }
             }
+            
+            // Log if bullets were synced
+            if (physicsData.mobBullets.length > 0 && Math.random() < 0.1) {
+                console.log(`🚀 HOST syncing ${physicsData.mobBullets.length} bullets from mob array size ${mob.length}`);
+            }
         }
         
         // Debug: Log what we're syncing occasionally
         if (Math.random() < 0.02) {
-            console.log(`📤 Syncing physics: ${physicsData.mobs.length} mobs, ${physicsData.blocks.length} blocks, ${physicsData.powerups.length} powerups`);
+            console.log(`📤 Syncing physics: ${physicsData.mobs.length} mobs, ${physicsData.blocks.length} blocks, ${physicsData.powerups.length} powerups, ${physicsData.mobBullets.length} bullets`);
             if (physicsData.blocks.length > 0) {
                 console.log(`📤 Block indices being synced:`, physicsData.blocks.map(b => b.index));
+            }
+            if (typeof mob !== 'undefined') {
+                const totalMobsInArray = mob.length;
+                const totalBulletsInArray = mob.filter(m => m && m.collisionFilter && m.collisionFilter.category === cat.mobBullet).length;
+                console.log(`📤 Total in arrays: ${totalMobsInArray} mob array size, ${totalBulletsInArray} bullets in mob array`);
             }
         }
         
@@ -2442,6 +2453,9 @@ const multiplayer = {
     applyPhysicsUpdate(physicsData, fromPlayerId) {
         // Update mobs (only from host)
         if (physicsData.mobs && typeof mob !== 'undefined' && fromPlayerId === this.hostId) {
+            // Track which netIds were updated this cycle
+            const updatedNetIds = new Set();
+            
             // Debug: log received mob data
             if (physicsData.mobs.length > 0) {
                 console.log(`📥 Client received ${physicsData.mobs.length} mob updates from host, local mob count: ${mob.length}`);
@@ -2451,6 +2465,7 @@ const multiplayer = {
                 }
             }
             for (const mobData of physicsData.mobs) {
+                if (mobData.netId) updatedNetIds.add(mobData.netId);
                 // Resolve by netId first for stability
                 let targetIndex = null;
                 let mobExists = false;
@@ -2630,6 +2645,20 @@ const multiplayer = {
                     }
                 }
             }
+            
+            // CLEANUP: Remove stale ghost mobs that host stopped syncing (off-screen or dead)
+            if (!this.isHost) {
+                for (let i = mob.length - 1; i >= 0; i--) {
+                    if (mob[i] && mob[i].isGhost && mob[i].netId && !updatedNetIds.has(mob[i].netId)) {
+                        console.log(`🗑️ Removing stale ghost mob ${i} with netId ${mob[i].netId} - no longer synced by host`);
+                        try {
+                            Matter.World.remove(engine.world, mob[i]);
+                        } catch(e) { /* ignore */ }
+                        this.mobIndexByNetId.delete(mob[i].netId);
+                        mob.splice(i, 1);
+                    }
+                }
+            }
         }
         
         // Update blocks (use interpolation to smooth the updates) - accept from any player
@@ -2704,6 +2733,9 @@ const multiplayer = {
         
         // Update mob bullets (use interpolation)
         if (physicsData.mobBullets && typeof mob !== 'undefined') {
+            if (physicsData.mobBullets.length > 0 && Math.random() < 0.1) {
+                console.log(`🚀 CLIENT received ${physicsData.mobBullets.length} bullet updates, local mob array size: ${mob.length}`);
+            }
             for (const bulletData of physicsData.mobBullets) {
                 if (mob[bulletData.index] && mob[bulletData.index].collisionFilter && 
                     mob[bulletData.index].collisionFilter.category === cat.mobBullet) {
