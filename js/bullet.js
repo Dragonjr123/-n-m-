@@ -1585,48 +1585,10 @@ const b = {
         }
     },
     laserMine(position, velocity = { x: 0, y: -8 }) {
-    const bIndex = bullet.length;
-    bullet[bIndex] = Bodies.rectangle(where.x, where.y, 45, 16, {
-        angle: angle,
-        friction: 1,
-        frictionStatic: 1,
-        frictionAir: 0,
-        restitution: 0,
-        dmg: 0, //damage done in addition to the damage from momentum
-        classType: "bullet",
-        bulletType: "mine",
-        collisionFilter: {
-            category: cat.bullet,
-            mask: cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield //  | cat.bullet   //doesn't collide with other bullets until it lands  (was crashing into bots)
-        },
-        minDmgSpeed: 5,
-        stillCount: 0,
-        isArmed: false,
-        endCycle: Infinity,
-        lookFrequency: 0,
-        range: 700,
-        beforeDmg() {},
-        do() {
-            this.force.y += this.mass * 0.002; //extra gravity
-            let collide = Matter.Query.collides(this, map) //check if collides with map
-            if (collide.length > 0) {
-                for (let i = 0; i < collide.length; i++) {
-                    if (collide[i].bodyA.collisionFilter.category === cat.map) { // || collide[i].bodyB.collisionFilter.category === cat.map) {
-                        const angle = Vector.angle(collide[i].normal, {
-                            x: 1,
-                            y: 0
-                        })
-                        Matter.Body.setAngle(this, Math.atan2(collide[i].tangent.y, collide[i].tangent.x))
-                        //move until touching map again after rotation
-                        for (let j = 0; j < 10; j++) {
-                            if (Matter.Query.collides(this, map).length > 0) { //touching map
-                                if (angle > -0.2 || angle < -1.5) { //don't stick to level ground
-                                    Matter.Body.setStatic(this, true) //don't set to static if not touching map
-                                    this.collisionFilter.mask = cat.map | cat.bullet
-                                } else {
-                                    Matter.Body.setVelocity(this, {
-                                        x: 0,
-                                        y: 0
+        const me = bullet.length;
+        bullet[me] = Bodies.polygon(position.x, position.y, 3, 25, {
+            bulletType: "mine",
+            angle: m.angle,
             friction: 0,
             frictionAir: 0.05,
             restitution: 0.5,
@@ -2437,6 +2399,11 @@ const b = {
         });
         World.add(engine.world, bullet[me]); //add bullet to world
         Matter.Body.setVelocity(bullet[me], velocity);
+        
+        // Sync foam to multiplayer if not a remote player's foam
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isSpawningRemote) {
+            multiplayer.syncFoam(position, velocity, radius);
+        }
     },
     targetedBlock(who, isSpin = false, speed = 50 - Math.min(20, who.mass * 2), range = 1600) {
         let closestMob, dist
@@ -4389,22 +4356,6 @@ const b = {
                         World.add(engine.world, bullet[me]); //add bullet to world
 
                         const speed = 67
-                        Matter.Body.setVelocity(bullet[me], {
-                            x: m.Vx / 2 + speed * Math.cos(m.angle),
-                            y: m.Vy / 2 + speed * Math.sin(m.angle)
-                        });
-
-                        //knock back
-                        const KNOCK = m.crouch ? 0.08 : 0.34
-                        player.force.x -= KNOCK * Math.cos(m.angle)
-                        player.force.y -= KNOCK * Math.sin(m.angle) * 0.35 //reduce knock back in vertical direction to stop super jumps
-
-                        pushAway(800)
-                    } else {
-                        m.fireCDcycle = m.cycle + Math.floor(120);
-                    }
-                } else {
-                    const me = bullet.length;
                     bullet[me] = Bodies.rectangle(0, 0, 0.015, 0.0015, {
                         density: 0.008, //0.001 is normal
                         //frictionAir: 0.01,			//restitution: 0,
