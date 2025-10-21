@@ -709,7 +709,10 @@ const m = {
             dmg *= m.harmReduction()
             m.health -= dmg;
             if (m.health < 0 || isNaN(m.health)) {
-                if (tech.isDeathAvoid && powerUps.research.count > 0 && !tech.isDeathAvoidedThisLevel) { //&& Math.random() < 0.5
+                // In multiplayer, disable death avoid to ensure consistent death across clients
+                const canAvoidDeath = tech.isDeathAvoid && powerUps.research.count > 0 && !tech.isDeathAvoidedThisLevel;
+                const shouldAvoidDeath = canAvoidDeath && (typeof multiplayer === 'undefined' || !multiplayer.enabled);
+                if (shouldAvoidDeath) { //&& Math.random() < 0.5
                     tech.isDeathAvoidedThisLevel = true
                     m.health = 0.05
                     powerUps.research.changeRerolls(-1)

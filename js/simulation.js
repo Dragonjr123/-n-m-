@@ -32,8 +32,10 @@ const simulation = {
             multiplayer.render();
         }
         
-        m.draw();
-        if (m.alive) m.hold();
+        if (m.alive) {
+            m.draw();
+            m.hold();
+        }
         // v.draw(); //working on visibility work in progress
         level.customTopLayer();
         simulation.draw.drawMapPath();
@@ -63,7 +65,7 @@ const simulation = {
         ctx.save();
         simulation.camera();
         level.custom();
-        m.draw();
+        if (m.alive) m.draw();
         level.customTopLayer();
         simulation.draw.wireFrame();
         simulation.draw.cons();

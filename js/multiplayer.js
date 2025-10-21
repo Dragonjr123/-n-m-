@@ -1229,10 +1229,11 @@ const multiplayer = {
                     <button id="spec-next" style="background:#333;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;">▶</button>
                 </div>
             `;
+            // Always re-attach event listeners after innerHTML update
             const prev = document.getElementById('spec-prev');
             const next = document.getElementById('spec-next');
-            if (prev && !refreshOnly) prev.addEventListener('click', () => this.cycleSpectate(-1));
-            if (next && !refreshOnly) next.addEventListener('click', () => this.cycleSpectate(1));
+            if (prev) prev.onclick = () => this.cycleSpectate(-1);
+            if (next) next.onclick = () => this.cycleSpectate(1);
         } catch(e) { /* no-op */ }
     },
 
@@ -1696,12 +1697,14 @@ const multiplayer = {
         if (typeof mob !== 'undefined' && mob[event.mobIndex]) {
             const targetMob = mob[event.mobIndex];
             if (targetMob && targetMob.alive) {
-                // Sync health state
-                targetMob.health = event.health;
+                // Only sync if health is valid (prevent negative health)
+                if (isFinite(event.health) && event.health >= 0) {
+                    targetMob.health = event.health;
+                }
                 targetMob.alive = event.alive;
                 
                 // Show damage indicator
-                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                if (typeof simulation !== 'undefined' && simulation.drawList && event.damage > 0) {
                     simulation.drawList.push({
                         x: targetMob.position.x,
                         y: targetMob.position.y,
