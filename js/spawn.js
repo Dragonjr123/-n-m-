@@ -40,12 +40,9 @@ const spawn = {
         return Math.random() < chance + 0.07 * simulation.difficulty && mob.length < -1 + 16 * Math.log10(simulation.difficulty + 1)
     },
     randomMob(x, y, chance = 1) {
-        // In multiplayer, only the host spawns mobs AFTER level building
-        // During level building, all clients need to spawn the same mobs
+        // In multiplayer, ONLY the host spawns mobs, period
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            if (!simulation.isBuildingLevel) {
-                return; // Clients don't spawn mobs after level is built
-            }
+            return; // Clients never spawn mobs
         }
         if (spawn.spawnChance(chance) || chance === Infinity) {
             const pick = this.pickList[Math.floor(Math.random() * this.pickList.length)];
@@ -56,11 +53,9 @@ const spawn = {
         num = Math.max(Math.min(Math.round(Math.random() * simulation.difficulty * 0.2), 4), 0),
         size = 16 + Math.ceil(Math.random() * 15),
         chance = 1) {
-        // In multiplayer, only the host spawns mobs AFTER level building
+        // In multiplayer, ONLY the host spawns mobs
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            if (!simulation.isBuildingLevel) {
-                return; // Clients don't spawn mobs after level is built
-            }
+            return; // Clients never spawn mobs
         }
         if (spawn.spawnChance(chance)) {
             for (let i = 0; i < num; ++i) {
@@ -70,11 +65,9 @@ const spawn = {
         }
     },
     randomGroup(x, y, chance = 1) {
-        // In multiplayer, only the host spawns mobs AFTER level building
+        // In multiplayer, ONLY the host spawns mobs
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            if (!simulation.isBuildingLevel) {
-                return; // Clients don't spawn mobs after level is built
-            }
+            return; // Clients never spawn mobs
         }
         if (spawn.spawnChance(chance) && simulation.difficulty > 2 || chance == Infinity) {
             //choose from the possible picklist
@@ -111,11 +104,9 @@ const spawn = {
         }
     },
     randomLevelBoss(x, y, options = ["shieldingBoss", "orbitalBoss", "historyBoss", "shooterBoss", "cellBossCulture", "bomberBoss", "spiderBoss", "launcherBoss", "laserTargetingBoss", "powerUpBoss", "snakeBoss", "streamBoss", "pulsarBoss", "spawnerBossCulture"]) {
-        // In multiplayer, only the host spawns mobs AFTER level building
+        // In multiplayer, ONLY the host spawns mobs
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            if (!simulation.isBuildingLevel) {
-                return; // Clients don't spawn mobs after level is built
-            }
+            return; // Clients never spawn mobs
         }
         // other bosses: suckerBoss, laserBoss, tetherBoss,    //these need a particular level to work so they are not included in the random pool
         spawn[options[Math.floor(Math.random() * options.length)]](x, y)

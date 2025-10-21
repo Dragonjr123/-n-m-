@@ -1278,6 +1278,8 @@ const multiplayer = {
         if (!this.enabled || !this.lobbyId) return;
         
         console.log('📤 Syncing level change:', levelName);
+        // Reset block sync flag for new level
+        this.hasInitialBlockSync = false;
         // generate and store a seed to be used by all clients during level build
         const rngSeed = Date.now() ^ Math.floor(Math.random() * 1e9);
         this.pendingRngSeed = rngSeed;
@@ -1640,6 +1642,9 @@ const multiplayer = {
             console.log('⚠️ Ignoring level change - game not started yet');
             return;
         }
+        
+        // Reset block sync flag for new level
+        this.hasInitialBlockSync = false;
         
         // Follow the same transition path as local nextLevel, without rebroadcasting
         if (typeof level !== 'undefined' && typeof level.nextLevel === 'function') {
@@ -2229,12 +2234,9 @@ const multiplayer = {
             mobBullets: []
         };
         
-        // Sync mobs (enemies)
+        // Sync mobs (enemies) - sync ALL mobs every time
         if (typeof mob !== 'undefined' && mob.length) {
-            const limit = Math.min(this.maxMobsPerSync, mob.length);
-            let sent = 0;
-            let i = this.mobSyncCursor % mob.length;
-            while (sent < limit) {
+            for (let i = 0; i < mob.length; i++) {
                 const m = mob[i];
                 if (m && m.position && m.alive) { // Only sync alive mobs
                     // Assign persistent netId lazily on host
@@ -2254,36 +2256,59 @@ const multiplayer = {
                         targetY: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.y : null
                     });
                 }
-                i = (i + 1) % mob.length;
-                sent++;
             }
-            this.mobSyncCursor = i;
             // Debug: log mob sync count occasionally
-            if (physicsData.mobs.length > 0 && Math.random() < 0.1) {
-                console.log(`📡 Host syncing ${physicsData.mobs.length} mobs out of ${mob.length} total`);
+            if (physicsData.mobs.length > 0 && Math.random() < 0.05) {
+                console.log(`📡 Host syncing ${physicsData.mobs.length} alive mobs out of ${mob.length} total`);
             }
         }
         
-        // Sync blocks (physics bodies) - skip blocks under client authority
+        // Sync blocks (physics bodies) - sync ALL blocks for consistency
         if (typeof body !== 'undefined') {
-            const maxBlocks = 30;
-            let count = 0;
-            for (let i = 0; i < body.length && count < maxBlocks; i++) {
-                if (body[i] && body[i].position) {
-                    // Skip if under client authority
-                    const authKey = `block_${i}`;
-                    if (this.clientAuthority.has(authKey)) continue;
-                    
-                    physicsData.blocks.push({
-                        index: i,
-                        x: body[i].position.x,
-                        y: body[i].position.y,
-                        vx: body[i].velocity.x,
-                        vy: body[i].velocity.y,
-                        angle: body[i].angle,
-                        angularVelocity: body[i].angularVelocity
-                    });
-                    count++;
+            // On first sync or periodically, sync ALL blocks
+            const syncAllBlocks = !this.hasInitialBlockSync || Math.random() < 0.01; // 1% chance to resync all
+            if (syncAllBlocks) {
+                this.hasInitialBlockSync = true;
+                // Sync ALL blocks
+                for (let i = 0; i < body.length; i++) {
+                    if (body[i] && body[i].position) {
+                        physicsData.blocks.push({
+                            index: i,
+                            x: body[i].position.x,
+                            y: body[i].position.y,
+                            vx: body[i].velocity.x,
+                            vy: body[i].velocity.y,
+                            angle: body[i].angle,
+                            angularVelocity: body[i].angularVelocity
+                        });
+                    }
+                }
+                console.log(`📦 Syncing ALL ${physicsData.blocks.length} blocks`);
+            } else {
+                // Normal sync: only moving blocks
+                const maxBlocks = 50;
+                let count = 0;
+                for (let i = 0; i < body.length && count < maxBlocks; i++) {
+                    if (body[i] && body[i].position) {
+                        // Skip if under client authority
+                        const authKey = `block_${i}`;
+                        if (this.clientAuthority.has(authKey)) continue;
+                        
+                        // Only sync if block has moved significantly
+                        const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
+                        if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001) {
+                            physicsData.blocks.push({
+                                index: i,
+                                x: body[i].position.x,
+                                y: body[i].position.y,
+                                vx: body[i].velocity.x,
+                                vy: body[i].velocity.y,
+                                angle: body[i].angle,
+                                angularVelocity: body[i].angularVelocity
+                            });
+                            count++;
+                        }
+                    }
                 }
             }
             // Always include currently held block if any (prioritize for visibility)
@@ -2430,10 +2455,11 @@ const multiplayer = {
                     console.log(`👻 Creating ghost mob with netId: ${mobData.netId} at (${mobData.x}, ${mobData.y})`);
                     try {
                         const radius = 30; // generic fallback
-                        const ghost = Bodies.circle(mobData.x || 0, mobData.y || 0, radius, {
+                        const ghost = Bodies.polygon(mobData.x || 0, mobData.y || 0, 6, radius, {
                             inertia: Infinity,
                             frictionAir: 0.02,
                             restitution: 0.2,
+                            density: 0.001,
                             classType: 'mob',
                             mob: true,
                             isGhost: true,
@@ -2442,8 +2468,8 @@ const multiplayer = {
                             radius: radius,
                             seePlayer: { recall: false, yes: false, position: { x: mobData.x || 0, y: mobData.y || 0 } },
                             showHealthBar: true,
-                            fill: '#666', // Gray color for ghost mobs
-                            stroke: '#333'
+                            fill: 'rgba(150,150,150,0.9)', // Gray color for ghost mobs
+                            stroke: 'rgba(100,100,100,1)'
                         });
                         
                         // Add minimal required methods
