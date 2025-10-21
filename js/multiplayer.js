@@ -1509,11 +1509,33 @@ const multiplayer = {
                             const beforeCount = mob.length;
                             
                             // Call the proper spawn function if mobType is provided
-                            if (event.mobType && typeof spawn !== 'undefined' && typeof spawn[event.mobType] === 'function') {
-                                // Call the specific spawn function (e.g., spawn.hopper, spawn.shooter)
+                            if (event.mobType && typeof spawn !== 'undefined') {
                                 const params = event.spawnParams || {};
-                                spawn[event.mobType](mobData.x, mobData.y, params.radius);
-                                console.log(`✅ Created ${event.mobType} with full behaviors`);
+                                
+                                // Special handling for shields and orbitals (need to find target mob)
+                                if (event.mobType === 'shield' && params.targetNetId) {
+                                    // Find the target mob by netId
+                                    const targetMob = mob.find(m => m && m.netId === params.targetNetId);
+                                    if (targetMob && typeof spawn.shield === 'function') {
+                                        spawn.shield(targetMob, mobData.x, mobData.y, 1); // Force spawn with chance=1
+                                        console.log(`✅ Created shield for mob ${params.targetNetId}`);
+                                    } else {
+                                        console.warn(`⚠️ Could not find target mob ${params.targetNetId} for shield`);
+                                    }
+                                } else if (event.mobType === 'orbital' && params.targetNetId) {
+                                    // Find the target mob by netId
+                                    const targetMob = mob.find(m => m && m.netId === params.targetNetId);
+                                    if (targetMob && typeof spawn.orbital === 'function') {
+                                        spawn.orbital(targetMob, params.radius, params.phase, params.speed);
+                                        console.log(`✅ Created orbital for mob ${params.targetNetId}`);
+                                    } else {
+                                        console.warn(`⚠️ Could not find target mob ${params.targetNetId} for orbital`);
+                                    }
+                                } else if (typeof spawn[event.mobType] === 'function') {
+                                    // Call the specific spawn function (e.g., spawn.hopper, spawn.shooter)
+                                    spawn[event.mobType](mobData.x, mobData.y, params.radius);
+                                    console.log(`✅ Created ${event.mobType} with full behaviors`);
+                                }
                             } else {
                                 // Fallback to basic spawn
                                 const radius = mobData.radius || 30;
@@ -1529,11 +1551,14 @@ const multiplayer = {
                                 const newMob = mob[mob.length - 1];
                                 if (newMob) {
                                     newMob.netId = mobData.netId;
+                                    // CRITICAL: Register in tracking map to prevent duplicate ghost mob creation
+                                    const newIndex = mob.length - 1;
+                                    this.mobIndexByNetId.set(mobData.netId, newIndex);
                                     // Sync position/velocity in case spawn function placed it differently
                                     Matter.Body.setPosition(newMob, { x: mobData.x, y: mobData.y });
                                     Matter.Body.setVelocity(newMob, { x: mobData.vx || 0, y: mobData.vy || 0 });
                                     Matter.Body.setAngle(newMob, mobData.angle || 0);
-                                    console.log('✅ Assigned netId:', mobData.netId);
+                                    console.log('✅ Created mob with netId:', mobData.netId, 'at index', newIndex);
                                 }
                             }
                         } catch (e) {

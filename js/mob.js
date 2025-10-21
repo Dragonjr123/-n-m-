@@ -1313,9 +1313,14 @@ const mobs = {
         mob[i].alertRange2 = Math.pow(mob[i].radius * 3 + 550, 2);
         World.add(engine.world, mob[i]); //add to world
         
-        // INSTANT MULTIPLAYER SYNC: Notify clients immediately when host spawns a mob
+        // INSTANT MULTIPLAYER SYNC: Assign netId immediately so shields/orbitals can reference it
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
-            // Use setTimeout to ensure the mob is fully initialized before syncing
+            // Assign netId RIGHT NOW before any shields/orbitals are spawned
+            if (!mob[i].netId) {
+                mob[i].netId = `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}`;
+            }
+            
+            // Use setTimeout to sync after the spawn function completes (including shields/orbitals)
             setTimeout(() => {
                 if (mob[i] && mob[i].alive) {
                     // Get mob type from global tracker (set by spawn functions)

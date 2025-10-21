@@ -3473,6 +3473,9 @@ const spawn = {
     },
     shield(target, x, y, chance = Math.min(0.02 + simulation.difficulty * 0.005, 0.2), isExtraShield = false) {
         if (this.allowShields && Math.random() < chance) {
+            // Set spawn tracking for shield
+            currentSpawnFunction = "shield";
+            currentSpawnParams = { targetNetId: target.netId, radius: target.radius + 30 };
             mobs.spawn(x, y, 9, target.radius + 30, "rgba(220,220,255,0.9)");
             let me = mob[mob.length - 1];
             me.stroke = "rgb(220,220,255)";
@@ -3569,6 +3572,8 @@ const spawn = {
     },
     orbital(who, radius, phase, speed) {
         // for (let i = 0, len = 7; i < len; i++) spawn.orbital(me, radius + 250, 2 * Math.PI / len * i)
+        currentSpawnFunction = "orbital";
+        currentSpawnParams = { targetNetId: who.netId, radius, phase, speed };
         mobs.spawn(who.position.x, who.position.y, 8, 12, "rgb(255,0,150)");
         let me = mob[mob.length - 1];
         me.stroke = "transparent";
