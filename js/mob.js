@@ -207,6 +207,12 @@ const mobs = {
     //**********************************************************************************************
     //**********************************************************************************************
     spawn(xPos, yPos, sides, radius, color) {
+        // CRITICAL: In multiplayer, ONLY the host can spawn mobs!
+        // Clients receive mob data via network sync
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Silently exit - clients never create mobs locally
+        }
+        
         let i = mob.length;
         
         // DON'T assign netId here - it will be assigned later in the World.add section
