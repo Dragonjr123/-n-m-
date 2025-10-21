@@ -1132,6 +1132,18 @@ const multiplayer = {
         });
     },
 
+    // Host requests damage be applied to a specific player client-side
+    syncPlayerDamage(targetPlayerId, damage, meta = {}) {
+        if (!this.enabled || !this.lobbyId || !this.isHost || !targetPlayerId || !(damage > 0)) return;
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'player_damage',
+            playerId: this.playerId,
+            data: { targetId: targetPlayerId, damage, meta },
+            timestamp: Date.now()
+        });
+    },
+
     // List of dead players (by latest known state)
     getDeadPlayers() {
         const list = [];
@@ -1431,6 +1443,21 @@ const multiplayer = {
                         }
                     }
                 } catch (e) { /* no-op */ }
+                break;
+            }
+            case 'player_damage': {
+                // Only the targeted client applies damage locally
+                try {
+                    const data = event.data || {};
+                    if (data.targetId === this.playerId && typeof m !== 'undefined' && typeof m.damage === 'function') {
+                        const dmg = Math.max(0, Number(data.damage) || 0);
+                        if (dmg > 0) m.damage(dmg);
+                        // If death just occurred, show spectate UI
+                        if (m.alive === false && typeof this.showSpectateUI === 'function') {
+                            this.showSpectateUI();
+                        }
+                    }
+                } catch(e) { /* no-op */ }
                 break;
             }
         }
@@ -2461,9 +2488,15 @@ const multiplayer = {
                         const sides = mobData.sides || 6; // Use actual sides if available
                         const ghost = Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, {
                             inertia: Infinity,
-                            frictionAir: 0.02,
-                            restitution: 0.2,
+                            frictionAir: 0.005,
+                            restitution: 0.5,
                             density: 0.001,
+                            // Ensure ghost mobs behave like real mobs re: collisions
+                            collisionFilter: {
+                                group: 0,
+                                category: cat.mob,
+                                mask: cat.player | cat.map | cat.body | cat.bullet | cat.mob
+                            },
                             classType: 'mob',
                             mob: true,
                             isGhost: true,
