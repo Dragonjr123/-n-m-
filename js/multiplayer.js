@@ -2467,6 +2467,8 @@ const multiplayer = {
                         
                         // Add minimal required methods
                         ghost.damage = function() { /* no-op on clients */ };
+                        ghost.locatePlayer = function() { /* no-op on clients */ };
+                        ghost.foundPlayer = function() { /* no-op on clients */ };
                         ghost.death = function() {
                             this.alive = false;
                             Matter.World.remove(engine.world, this);

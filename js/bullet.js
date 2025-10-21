@@ -345,7 +345,7 @@ const b = {
             //mob damage and knock back with alert
             let damageScale = 1.5; // reduce dmg for each new target to limit total AOE damage
             for (let i = 0, len = mob.length; i < len; ++i) {
-                if (mob[i].alive && !mob[i].isShielded) {
+                if (mob[i] && mob[i].alive && !mob[i].isShielded) {
                     sub = Vector.sub(where, mob[i].position);
                     dist = Vector.magnitude(sub) - mob[i].radius;
                     if (dist < radius) {
@@ -353,7 +353,7 @@ const b = {
                         if (Matter.Query.ray(map, mob[i].position, where).length > 0) dmg *= 0.5 //reduce damage if a wall is in the way
                         mobs.statusDoT(mob[i], dmg * damageScale * 0.25, 240) //apply radiation damage status effect on direct hits
                         if (tech.isExplosionStun) mobs.statusStun(mob[i], 60)
-                        mob[i].locatePlayer();
+                        if (mob[i].locatePlayer) mob[i].locatePlayer();
                         damageScale *= 0.87 //reduced damage for each additional explosion target
                     }
                 }
@@ -431,22 +431,22 @@ const b = {
             //mob damage and knock back with alert
             let damageScale = 1.5; // reduce dmg for each new target to limit total AOE damage
             for (let i = 0, len = mob.length; i < len; ++i) {
-                if (mob[i].alive && !mob[i].isShielded) {
+                if (mob[i] && mob[i].alive && !mob[i].isShielded) {
                     sub = Vector.sub(where, mob[i].position);
                     dist = Vector.magnitude(sub) - mob[i].radius;
                     if (dist < radius) {
                         if (mob[i].shield) dmg *= 2.5 //balancing explosion dmg to shields
                         if (Matter.Query.ray(map, mob[i].position, where).length > 0) dmg *= 0.5 //reduce damage if a wall is in the way
                         mob[i].damage(dmg * damageScale * b.dmgScale);
-                        mob[i].locatePlayer();
+                        if (mob[i].locatePlayer) mob[i].locatePlayer();
                         knock = Vector.mult(Vector.normalise(sub), (-Math.sqrt(dmg * damageScale) * mob[i].mass) * 0.01);
                         mob[i].force.x += knock.x;
                         mob[i].force.y += knock.y;
                         if (tech.isExplosionStun) mobs.statusStun(mob[i], 120)
                         radius *= 0.95 //reduced range for each additional explosion target
                         damageScale *= 0.87 //reduced damage for each additional explosion target
-                    } else if (!mob[i].seePlayer.recall && dist < alertRange) {
-                        mob[i].locatePlayer();
+                    } else if (mob[i].seePlayer && !mob[i].seePlayer.recall && dist < alertRange) {
+                        if (mob[i].locatePlayer) mob[i].locatePlayer();
                         knock = Vector.mult(Vector.normalise(sub), (-Math.sqrt(dmg * damageScale) * mob[i].mass) * 0.006);
                         mob[i].force.x += knock.x;
                         mob[i].force.y += knock.y;
@@ -706,9 +706,10 @@ const b = {
             bullet[me] = Bodies.circle(where.x, where.y, 15, b.fireAttributes(angle, false));
             Matter.Body.setDensity(bullet[me], 0.0005);
             bullet[me].explodeRad = 275;
+            bullet[me].isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
             bullet[me].onEnd = function() {
-                b.explosion(this.position, this.explodeRad); //makes bullet do explosive damage at end
-                if (tech.fragments) b.targetedNail(this.position, tech.fragments * 5)
+                if (!this.isRemote) b.explosion(this.position, this.explodeRad); //makes bullet do explosive damage at end
+                if (tech.fragments && !this.isRemote) b.targetedNail(this.position, tech.fragments * 5)
             }
             bullet[me].minDmgSpeed = 1;
             bullet[me].beforeDmg = function() {
@@ -731,9 +732,10 @@ const b = {
             bullet[me] = Bodies.circle(where.x, where.y, 15, b.fireAttributes(angle, false));
             Matter.Body.setDensity(bullet[me], 0.0005);
             bullet[me].explodeRad = 300;
+            bullet[me].isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
             bullet[me].onEnd = function() {
-                b.explosion(this.position, this.explodeRad); //makes bullet do explosive damage at end
-                if (tech.fragments) b.targetedNail(this.position, tech.fragments * 5)
+                if (!this.isRemote) b.explosion(this.position, this.explodeRad); //makes bullet do explosive damage at end
+                if (tech.fragments && !this.isRemote) b.targetedNail(this.position, tech.fragments * 5)
             }
             bullet[me].minDmgSpeed = 1;
             bullet[me].beforeDmg = function() {
@@ -766,9 +768,10 @@ const b = {
             bullet[me] = Bodies.circle(where.x, where.y, 15, b.fireAttributes(angle, false));
             Matter.Body.setDensity(bullet[me], 0.0005);
             bullet[me].explodeRad = 350 + Math.floor(Math.random() * 50);;
+            bullet[me].isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
             bullet[me].onEnd = function() {
-                b.explosion(this.position, this.explodeRad); //makes bullet do explosive damage at end
-                if (tech.fragments) b.targetedNail(this.position, tech.fragments * 5)
+                if (!this.isRemote) b.explosion(this.position, this.explodeRad); //makes bullet do explosive damage at end
+                if (tech.fragments && !this.isRemote) b.targetedNail(this.position, tech.fragments * 5)
             }
             bullet[me].minDmgSpeed = 1;
             bullet[me].beforeDmg = function() {
@@ -842,9 +845,10 @@ const b = {
             bullet[me] = Bodies.circle(where.x, where.y, 20, b.fireAttributes(angle, false));
             Matter.Body.setDensity(bullet[me], 0.0003);
             bullet[me].explodeRad = 325 + Math.floor(Math.random() * 50);;
+            bullet[me].isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
             bullet[me].onEnd = function() {
-                b.explosion(this.position, this.explodeRad); //makes bullet do explosive damage at end
-                if (tech.fragments) b.targetedNail(this.position, tech.fragments * 7)
+                if (!this.isRemote) b.explosion(this.position, this.explodeRad); //makes bullet do explosive damage at end
+                if (tech.fragments && !this.isRemote) b.targetedNail(this.position, tech.fragments * 7)
             }
             bullet[me].beforeDmg = function() {};
             bullet[me].restitution = 0.4;
@@ -1119,9 +1123,10 @@ const b = {
                 this.tryToLockOn();
                 this.endCycle = 0; //bullet ends cycle after doing damage  // also triggers explosion
             },
+            isRemote: (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote),
             onEnd() {
-                b.explosion(this.position, this.explodeRad * size); //makes bullet do explosive damage at end
-                if (tech.fragments) b.targetedNail(this.position, tech.fragments * 5)
+                if (!this.isRemote) b.explosion(this.position, this.explodeRad * size); //makes bullet do explosive damage at end
+                if (tech.fragments && !this.isRemote) b.targetedNail(this.position, tech.fragments * 5)
             },
             lockedOn: null,
             tryToLockOn() {
@@ -1503,9 +1508,9 @@ const b = {
             vertexCollision(path[path.length - 2], path[path.length - 1], body);
         };
         const laserHitMob = function() {
-            if (best.who.alive) {
+            if (best.who && best.who.alive) {
                 best.who.damage(damage);
-                best.who.locatePlayer();
+                if (best.who.locatePlayer) best.who.locatePlayer();
                 simulation.drawList.push({ //add dmg to draw queue
                     x: path[path.length - 1].x,
                     y: path[path.length - 1].y,
@@ -4229,6 +4234,9 @@ const b = {
             have: false,
             do() {},
             fire() {
+                // Check if this is a remote player firing
+                const isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
+                
                 function pushAway(range) { //push away blocks when firing
                     for (let i = 0, len = mob.length; i < len; ++i) {
                         const SUB = Vector.sub(mob[i].position, m.pos)
@@ -4243,7 +4251,7 @@ const b = {
                                 mob[i].force.y += 2 * FORCE.y;
                                 const damage = b.dmgScale * 0.16 * Math.sqrt(DEPTH)
                                 mob[i].damage(damage);
-                                mob[i].locatePlayer();
+                                if (mob[i].locatePlayer) mob[i].locatePlayer();
                                 simulation.drawList.push({ //add dmg to draw queue
                                     x: mob[i].position.x,
                                     y: mob[i].position.y,
@@ -4253,15 +4261,6 @@ const b = {
                                 });
                             }
                         }
-                    }
-                    if (tech.isRailAreaDamage) {
-                        simulation.drawList.push({ //add dmg to draw queue
-                            x: m.pos.x,
-                            y: m.pos.y,
-                            radius: range,
-                            color: "rgba(100,0,200,0.04)",
-                            time: simulation.drawTime
-                        });
                     }
                     for (let i = 0, len = body.length; i < len; ++i) {
                         const SUB = Vector.sub(body[i].position, m.pos)
@@ -4276,8 +4275,8 @@ const b = {
                 }
 
                 if (tech.isCapacitor) {
-                    if ((m.energy > 0.16 || tech.isRailEnergyGain)) { //&& m.immuneCycle < m.cycle
-                        m.energy += 0.16 * (tech.isRailEnergyGain ? 6 : -1)
+                    if (isRemote || (m.energy > 0.16 || tech.isRailEnergyGain)) { //&& m.immuneCycle < m.cycle
+                        if (!isRemote) m.energy += 0.16 * (tech.isRailEnergyGain ? 6 : -1)
                         m.fireCDcycle = m.cycle + Math.floor(30 * b.fireCD);
                         const me = bullet.length;
                         bullet[me] = Bodies.rectangle(m.pos.x + 50 * Math.cos(m.angle), m.pos.y + 50 * Math.sin(m.angle), 60, 14, {
@@ -4365,6 +4364,34 @@ const b = {
                     } else {
                         m.fireCDcycle = m.cycle + Math.floor(120);
                     }
+                } else if (isRemote) {
+                    // Simple projectile for remote players
+                    const me = bullet.length;
+                    bullet[me] = Bodies.rectangle(m.pos.x + 50 * Math.cos(m.angle), m.pos.y + 50 * Math.sin(m.angle), 60, 14, {
+                        density: 0.005,
+                        restitution: 0,
+                        frictionAir: 0,
+                        angle: m.angle,
+                        dmg: 0,
+                        classType: "bullet",
+                        collisionFilter: {
+                            category: cat.bullet,
+                            mask: cat.map | cat.body | cat.mob | cat.mobBullet | cat.mobShield
+                        },
+                        minDmgSpeed: 5,
+                        endCycle: simulation.cycle + 140,
+                        beforeDmg() {},
+                        onEnd() {},
+                        do() {
+                            this.force.y += this.mass * 0.0003;
+                        }
+                    });
+                    World.add(engine.world, bullet[me]);
+                    const speed = 70;
+                    Matter.Body.setVelocity(bullet[me], {
+                        x: m.Vx / 2 + speed * Math.cos(m.angle),
+                        y: m.Vy / 2 + speed * Math.sin(m.angle)
+                    });
                 } else {
                     const me = bullet.length;
                     bullet[me] = Bodies.rectangle(0, 0, 0.015, 0.0015, {
@@ -4407,7 +4434,8 @@ const b = {
                     bullet[me].endCycle = Infinity
                     bullet[me].charge = 0;
                     bullet[me].do = function() {
-                        if (m.energy < 0.005 && !tech.isRailEnergyGain) {
+                        const isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
+                        if (!isRemote && m.energy < 0.005 && !tech.isRailEnergyGain) {
                             m.energy += 0.05 + this.charge * 0.3
                             m.fireCDcycle = m.cycle + 120; // cool down if out of energy
                             this.endCycle = 0;
@@ -4456,10 +4484,12 @@ const b = {
                             const previousCharge = this.charge
                             let smoothRate = 0.98 * (m.crouch ? 0.99 : 1) * (0.98 + 0.02 * b.fireCD) //small b.fireCD = faster shots, b.fireCD=1 = normal shot,  big b.fireCD = slower chot
                             this.charge = this.charge * smoothRate + 1 * (1 - smoothRate)
-                            if (tech.isRailEnergyGain) {
-                                if (m.immuneCycle < m.cycle) m.energy += (this.charge - previousCharge) * 2 //energy drain is proportional to charge gained, but doesn't stop normal m.fieldRegen
-                            } else {
-                                m.energy -= (this.charge - previousCharge) * 0.33 //energy drain is proportional to charge gained, but doesn't stop normal m.fieldRegen
+                            if (!isRemote) {
+                                if (tech.isRailEnergyGain) {
+                                    if (m.immuneCycle < m.cycle) m.energy += (this.charge - previousCharge) * 2 //energy drain is proportional to charge gained, but doesn't stop normal m.fieldRegen
+                                } else {
+                                    m.energy -= (this.charge - previousCharge) * 0.33 //energy drain is proportional to charge gained, but doesn't stop normal m.fieldRegen
+                                }
                             }
                             //draw targeting
                             let best;
@@ -4670,11 +4700,17 @@ const b = {
             //     b.photon({ x: m.pos.x + 23 * Math.cos(m.angle), y: m.pos.y + 23 * Math.sin(m.angle) }, m.angle)
             // },
             fireLaser() {
-                if (m.energy < tech.laserFieldDrain) {
-                    m.fireCDcycle = m.cycle + 100; // cool down if out of energy
+                const isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
+                
+                if (!isRemote) {
+                    if (m.energy < tech.laserFieldDrain) {
+                        m.fireCDcycle = m.cycle + 100; // cool down if out of energy
+                    } else {
+                        m.fireCDcycle = m.cycle
+                        m.energy -= m.fieldRegen + tech.laserFieldDrain * tech.isLaserDiode
+                        b.laser();
+                    }
                 } else {
-                    m.fireCDcycle = m.cycle
-                    m.energy -= m.fieldRegen + tech.laserFieldDrain * tech.isLaserDiode
                     b.laser();
                 }
             },
@@ -4682,105 +4718,125 @@ const b = {
 
             },
             fireSplit() {
-                if (m.energy < tech.laserFieldDrain) {
-                    m.fireCDcycle = m.cycle + 100; // cool down if out of energy
-                } else {
+                const isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
+                
+                if (!isRemote) {
+                    if (m.energy < tech.laserFieldDrain) {
+                        m.fireCDcycle = m.cycle + 100; // cool down if out of energy
+                        return;
+                    }
                     m.fireCDcycle = m.cycle
                     m.energy -= m.fieldRegen + tech.laserFieldDrain * tech.isLaserDiode
-                    // const divergence = m.crouch ? 0.15 : 0.2
-                    // const scale = Math.pow(0.9, tech.beamSplitter)
-                    // const pushScale = scale * scale
-                    let dmg = tech.laserDamage // * scale //Math.pow(0.9, tech.laserDamage)
-                    const where = {
-                        x: m.pos.x + 20 * Math.cos(m.angle),
-                        y: m.pos.y + 20 * Math.sin(m.angle)
-                    }
-                    const divergence = m.crouch ? 0.2 : 0.5
-                    const angle = m.angle - tech.beamSplitter * divergence / 2
-                    for (let i = 0; i < 1 + tech.beamSplitter; i++) {
-                        b.laser(where, {
-                            x: where.x + 3000 * Math.cos(angle + i * divergence),
-                            y: where.y + 3000 * Math.sin(angle + i * divergence)
-                        }, dmg, tech.laserReflections, false)
-                    }
+                }
+                let dmg = tech.laserDamage // * scale //Math.pow(0.9, tech.laserDamage)
+                const where = {
+                    x: m.pos.x + 20 * Math.cos(m.angle),
+                    y: m.pos.y + 20 * Math.sin(m.angle)
+                }
+                const divergence = m.crouch ? 0.2 : 0.5
+                const angle = m.angle - tech.beamSplitter * divergence / 2
+                for (let i = 0; i < 1 + tech.beamSplitter; i++) {
+                    b.laser(where, {
+                        x: where.x + 3000 * Math.cos(angle + i * divergence),
+                        y: where.y + 3000 * Math.sin(angle + i * divergence)
+                    }, dmg, tech.laserReflections, false)
                 }
             },
             fireWideBeam() {
-                if (m.energy < tech.laserFieldDrain) {
-                    m.fireCDcycle = m.cycle + 100; // cool down if out of energy
-                } else {
+                const isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
+                
+                if (!isRemote) {
+                    if (m.energy < tech.laserFieldDrain) {
+                        m.fireCDcycle = m.cycle + 100; // cool down if out of energy
+                        return;
+                    }
                     m.fireCDcycle = m.cycle
                     m.energy -= m.fieldRegen + tech.laserFieldDrain * tech.isLaserDiode
-                    const range = {
-                        x: 5000 * Math.cos(m.angle),
-                        y: 5000 * Math.sin(m.angle)
-                    }
-                    const rangeOffPlus = {
-                        x: 7.5 * Math.cos(m.angle + Math.PI / 2),
-                        y: 7.5 * Math.sin(m.angle + Math.PI / 2)
-                    }
-                    const rangeOffMinus = {
-                        x: 7.5 * Math.cos(m.angle - Math.PI / 2),
-                        y: 7.5 * Math.sin(m.angle - Math.PI / 2)
-                    }
-                    const dmg = 0.7 * tech.laserDamage //  3.5 * 0.55 = 200% more damage
-                    const where = { x: m.pos.x + 30 * Math.cos(m.angle), y: m.pos.y + 30 * Math.sin(m.angle) }
-                    const eye = {
-                        x: m.pos.x + 15 * Math.cos(m.angle),
-                        y: m.pos.y + 15 * Math.sin(m.angle)
-                    }
-                    ctx.strokeStyle = "#f00";
-                    ctx.lineWidth = 8
-                    ctx.globalAlpha = 0.5;
-                    ctx.beginPath();
-                    if (Matter.Query.ray(map, eye, where).length === 0 && Matter.Query.ray(body, eye, where).length === 0) {
-                        b.laser(eye, {
-                            x: eye.x + range.x,
-                            y: eye.y + range.y
+                }
+                const range = {
+                    x: 5000 * Math.cos(m.angle),
+                    y: 5000 * Math.sin(m.angle)
+                }
+                const rangeOffPlus = {
+                    x: 7.5 * Math.cos(m.angle + Math.PI / 2),
+                    y: 7.5 * Math.sin(m.angle + Math.PI / 2)
+                }
+                const rangeOffMinus = {
+                    x: 7.5 * Math.cos(m.angle - Math.PI / 2),
+                    y: 7.5 * Math.sin(m.angle - Math.PI / 2)
+                }
+                const dmg = 0.7 * tech.laserDamage //  3.5 * 0.55 = 200% more damage
+                const where = { x: m.pos.x + 30 * Math.cos(m.angle), y: m.pos.y + 30 * Math.sin(m.angle) }
+                const eye = {
+                    x: m.pos.x + 15 * Math.cos(m.angle),
+                    y: m.pos.y + 15 * Math.sin(m.angle)
+                }
+                ctx.strokeStyle = "#f00";
+                ctx.lineWidth = 8
+                ctx.globalAlpha = 0.5;
+                ctx.beginPath();
+                if (Matter.Query.ray(map, eye, where).length === 0 && Matter.Query.ray(body, eye, where).length === 0) {
+                    b.laser(eye, {
+                        x: eye.x + range.x,
+                        y: eye.y + range.y
+                    }, dmg, 0, true, 0.3)
+                }
+                for (let i = 1; i < tech.wideLaser; i++) {
+                    let whereOff = Vector.add(where, {
+                        x: i * rangeOffPlus.x,
+                        y: i * rangeOffPlus.y
+                    })
+                    if (Matter.Query.ray(map, eye, whereOff).length === 0 && Matter.Query.ray(body, eye, whereOff).length === 0) {
+                        ctx.moveTo(eye.x, eye.y)
+                        ctx.lineTo(whereOff.x, whereOff.y)
+                        b.laser(whereOff, {
+                            x: whereOff.x + range.x,
+                            y: whereOff.y + range.y
                         }, dmg, 0, true, 0.3)
                     }
-                    for (let i = 1; i < tech.wideLaser; i++) {
-                        let whereOff = Vector.add(where, {
-                            x: i * rangeOffPlus.x,
-                            y: i * rangeOffPlus.y
-                        })
-                        if (Matter.Query.ray(map, eye, whereOff).length === 0 && Matter.Query.ray(body, eye, whereOff).length === 0) {
-                            ctx.moveTo(eye.x, eye.y)
-                            ctx.lineTo(whereOff.x, whereOff.y)
-                            b.laser(whereOff, {
-                                x: whereOff.x + range.x,
-                                y: whereOff.y + range.y
-                            }, dmg, 0, true, 0.3)
-                        }
-                        whereOff = Vector.add(where, {
-                            x: i * rangeOffMinus.x,
-                            y: i * rangeOffMinus.y
-                        })
-                        if (Matter.Query.ray(map, eye, whereOff).length === 0 && Matter.Query.ray(body, eye, whereOff).length === 0) {
-                            ctx.moveTo(eye.x, eye.y)
-                            ctx.lineTo(whereOff.x, whereOff.y)
-                            b.laser(whereOff, {
-                                x: whereOff.x + range.x,
-                                y: whereOff.y + range.y
-                            }, dmg, 0, true, 0.3)
-                        }
+                    whereOff = Vector.add(where, {
+                        x: i * rangeOffMinus.x,
+                        y: i * rangeOffMinus.y
+                    })
+                    if (Matter.Query.ray(map, eye, whereOff).length === 0 && Matter.Query.ray(body, eye, whereOff).length === 0) {
+                        ctx.moveTo(eye.x, eye.y)
+                        ctx.lineTo(whereOff.x, whereOff.y)
+                        b.laser(whereOff, {
+                            x: whereOff.x + range.x,
+                            y: whereOff.y + range.y
+                        }, dmg, 0, true, 0.3)
                     }
-                    ctx.stroke();
-                    ctx.globalAlpha = 1;
                 }
+                ctx.stroke();
+                ctx.globalAlpha = 1;
             },
             fireHistory() {
-                if (m.energy < tech.laserFieldDrain) {
-                    m.fireCDcycle = m.cycle + 100; // cool down if out of energy
-                } else {
+                const isRemote = (typeof multiplayer !== 'undefined' && multiplayer.isSpawningRemote);
+                
+                if (!isRemote) {
+                    if (m.energy < tech.laserFieldDrain) {
+                        m.fireCDcycle = m.cycle + 100; // cool down if out of energy
+                        return;
+                    }
                     m.fireCDcycle = m.cycle
                     m.energy -= m.fieldRegen + tech.laserFieldDrain * tech.isLaserDiode
-                    const dmg = 0.4 * tech.laserDamage //  3.5 * 0.55 = 200% more damage
-                    const spacing = Math.ceil(5.2 - 0.2 * tech.historyLaser)
-                    ctx.beginPath();
+                }
+                const dmg = 0.4 * tech.laserDamage //  3.5 * 0.55 = 200% more damage
+                const spacing = Math.ceil(5.2 - 0.2 * tech.historyLaser)
+                ctx.beginPath();
+                b.laser({
+                    x: m.pos.x + 20 * Math.cos(m.angle),
+                    y: m.pos.y + 20 * Math.sin(m.angle)
+                }, {
+                    x: m.pos.x + 3000 * Math.cos(m.angle),
+                    y: m.pos.y + 3000 * Math.sin(m.angle)
+                }, dmg, 0, true, 0.2);
+                for (let i = 1, len = 5 + tech.historyLaser * 5; i < len; i++) {
+                    const history = m.history[(m.cycle - i * spacing) % 600]
+                    const off = history.yOff - 24.2859
                     b.laser({
-                        x: m.pos.x + 20 * Math.cos(m.angle),
-                        y: m.pos.y + 20 * Math.sin(m.angle)
+                        x: history.position.x + 20 * Math.cos(history.angle),
+                        y: history.position.y + 20 * Math.sin(history.angle) - off
                     }, {
                         x: m.pos.x + 3000 * Math.cos(m.angle),
                         y: m.pos.y + 3000 * Math.sin(m.angle)
