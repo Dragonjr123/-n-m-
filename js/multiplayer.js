@@ -2200,7 +2200,7 @@ const multiplayer = {
     
     // Sync physics state to Firebase
     syncPhysics() {
-        // Both host and clients can sync physics
+        // Only host syncs mobs and most physics; clients only sync blocks they're pushing
         if (!this.enabled || !this.lobbyId) return;
         
         const now = Date.now();
@@ -2217,8 +2217,8 @@ const multiplayer = {
             mobBullets: []
         };
         
-        // Sync mobs (enemies) - sync ALL mobs every time
-        if (typeof mob !== 'undefined' && mob.length) {
+        // Sync mobs (enemies) - only host manages and syncs mobs
+        if (this.isHost && typeof mob !== 'undefined' && mob.length) {
             for (let i = 0; i < mob.length; i++) {
                 const m = mob[i];
                 if (m && m.position && m.alive) { // Only sync alive mobs
@@ -2246,7 +2246,7 @@ const multiplayer = {
             }
             // Debug: log mob sync count occasionally
             if (physicsData.mobs.length > 0 && Math.random() < 0.05) {
-                console.log(`📡 Host syncing ${physicsData.mobs.length} alive mobs out of ${mob.length} total`);
+                console.log(`📡 Syncing ${physicsData.mobs.length} alive mobs out of ${mob.length} total`);
             }
         }
         
@@ -2277,22 +2277,13 @@ const multiplayer = {
                 let count = 0;
                 for (let i = 0; i < body.length && count < maxBlocks; i++) {
                     if (body[i] && body[i].position) {
-                        // For clients, only sync blocks they have authority over or are pushing
-                        if (!this.isHost) {
-                            const authKey = `block_${i}`;
-                            const hasAuth = this.clientAuthority.has(authKey);
-                            const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
-                            const isMoving = speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001;
-                            
-                            // Check if player is near the block (likely pushing it)
-                            const distToPlayer = Math.pow(body[i].position.x - m.pos.x, 2) + Math.pow(body[i].position.y - m.pos.y, 2);
-                            const isNearby = distToPlayer < 10000; // within 100 units
-                            
-                            if (!hasAuth && !(isMoving && isNearby)) continue;
-                        } else {
-                            // Host: skip blocks under client authority
+                        // Host syncs all moving blocks not under client authority
+                        if (this.isHost) {
                             const authKey = `block_${i}`;
                             if (this.clientAuthority.has(authKey)) continue;
+                        } else {
+                            // Clients don't sync blocks in normal update (only when holding)
+                            continue;
                         }
                         
                         // Only sync if block has moved significantly
@@ -2381,37 +2372,45 @@ const multiplayer = {
             // Apply physics updates from all other players
             for (const [playerId, physicsData] of Object.entries(allPhysicsData)) {
                 if (playerId === this.playerId) continue; // Skip own physics
-                this.applyPhysicsUpdate(physicsData);
+                this.applyPhysicsUpdate(physicsData, playerId);
             }
         });
         
         console.log('Listening for physics updates from all players');
     },
     
-    // Apply physics update from host
-    applyPhysicsUpdate(physicsData) {
-        // Update mobs (use interpolation to smooth the updates)
-        if (physicsData.mobs && typeof mob !== 'undefined') {
-            // Debug: log received mob data occasionally
-            if (physicsData.mobs.length > 0 && Math.random() < 0.1) {
-                console.log(`📥 Client received ${physicsData.mobs.length} mob updates, local mob count: ${mob.length}`);
+    // Apply physics update from other players
+    applyPhysicsUpdate(physicsData, fromPlayerId) {
+        // Update mobs (only from host)
+        if (physicsData.mobs && typeof mob !== 'undefined' && fromPlayerId === this.hostId) {
+            // Debug: log received mob data
+            if (physicsData.mobs.length > 0) {
+                console.log(`📥 Client received ${physicsData.mobs.length} mob updates from host, local mob count: ${mob.length}`);
             }
             for (const mobData of physicsData.mobs) {
                 // Resolve by netId first for stability
                 let targetIndex = null;
+                let mobExists = false;
+                
                 if (mobData.netId) {
                     if (this.mobIndexByNetId.has(mobData.netId)) {
                         targetIndex = this.mobIndexByNetId.get(mobData.netId);
-                    } else if (isFinite(mobData.index) && mob[mobData.index]) {
-                        // First time seeing this netId: bind to current index
+                        mobExists = mob[targetIndex] !== undefined;
+                    }
+                }
+                
+                // If we don't have this mob tracked yet, try to find it by index
+                if (!mobExists && isFinite(mobData.index) && mob[mobData.index]) {
+                    targetIndex = mobData.index;
+                    mobExists = true;
+                    // Register the netId if we have one
+                    if (mobData.netId) {
                         this.mobIndexByNetId.set(mobData.netId, mobData.index);
                         mob[mobData.index].netId = mobData.netId;
-                        targetIndex = mobData.index;
                     }
-                } else if (isFinite(mobData.index)) {
-                    targetIndex = mobData.index;
                 }
-                if (targetIndex !== null && mob[targetIndex]) {
+                
+                if (mobExists && targetIndex !== null && mob[targetIndex]) {
                     const bodyRef = mob[targetIndex];
                     const now = physicsData.timestamp || Date.now();
                     const target = { x: mobData.x, y: mobData.y, angle: mobData.angle, t: now };
@@ -2419,12 +2418,12 @@ const multiplayer = {
                     const dx = target.x - cur.x, dy = target.y - cur.y;
                     const dist2 = dx*dx + dy*dy;
                     // Snap if way off; otherwise smooth
-                    if (dist2 > 300*300) {
+                    if (dist2 > 500*500) {
                         Matter.Body.setPosition(bodyRef, { x: target.x, y: target.y });
                         Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
                         Matter.Body.setAngle(bodyRef, target.angle);
                     } else {
-                        const alpha = 0.7; // Even stronger interpolation for better sync
+                        const alpha = 0.3; // Gentle interpolation to avoid jitter
                         Matter.Body.setPosition(bodyRef, { x: cur.x + dx * alpha, y: cur.y + dy * alpha });
                         Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
                         // Angle wrap smoothing
@@ -2453,10 +2452,10 @@ const multiplayer = {
                             mob[targetIndex].death();
                         }
                     }
-                } else if (mobData.netId && mobData.alive !== false && (typeof mob !== 'undefined')) {
+                } else if (!mobExists && mobData.netId && mobData.alive !== false && (typeof mob !== 'undefined') && !this.isHost) {
                     // Create a simple ghost mob for clients when host reports a new mob
-                    // Only create if we have a netId and the mob is alive
-                    console.log(`👻 Creating ghost mob with netId: ${mobData.netId} at (${mobData.x}, ${mobData.y})`);
+                    // Only create if we don't have this mob yet, have a netId, and the mob is alive, and we're not the host
+                    console.log(`👻 Client creating ghost mob with netId: ${mobData.netId} at (${Math.round(mobData.x)}, ${Math.round(mobData.y)})`);
                     try {
                         const radius = mobData.radius || 30; // Use actual radius if available
                         const sides = mobData.sides || 6; // Use actual sides if available
@@ -2490,6 +2489,19 @@ const multiplayer = {
                         };
                         ghost.do = function() { /* no-op */ };
                         ghost.onDeath = function() { /* no-op */ };
+                        ghost.onDamage = function() { /* no-op */ };
+                        ghost.checkStatus = function() { /* no-op */ };
+                        ghost.gravity = function() { this.force.y += this.mass * simulation.g; };
+                        ghost.distanceToPlayer = function() { 
+                            const dx = this.position.x - player.position.x;
+                            const dy = this.position.y - player.position.y;
+                            return Math.sqrt(dx * dx + dy * dy);
+                        };
+                        ghost.distanceToPlayer2 = function() {
+                            const dx = this.position.x - player.position.x;
+                            const dy = this.position.y - player.position.y;
+                            return dx * dx + dy * dy;
+                        };
                         
                         // Add to world and mob array
                         World.add(engine.world, ghost);
@@ -2510,24 +2522,31 @@ const multiplayer = {
             }
         }
         
-        // Update blocks (use interpolation to smooth the updates)
+        // Update blocks (use interpolation to smooth the updates) - accept from any player
         if (physicsData.blocks && typeof body !== 'undefined') {
             for (const blockData of physicsData.blocks) {
                 if (body[blockData.index]) {
-                    // More aggressive sync for blocks that are moving
-                    const currentPos = body[blockData.index].position;
-                    const currentVel = body[blockData.index].velocity;
+                    // Skip blocks under local authority
+                    const authKey = `block_${blockData.index}`;
+                    if (this.clientAuthority.has(authKey) && 
+                        this.clientAuthority.get(authKey).playerId === this.playerId) {
+                        continue;
+                    }
                     
-                    // Calculate distance and speed
+                    const currentPos = body[blockData.index].position;
                     const dx = blockData.x - currentPos.x;
                     const dy = blockData.y - currentPos.y;
                     const dist2 = dx*dx + dy*dy;
-                    const speed2 = blockData.vx*blockData.vx + blockData.vy*blockData.vy;
                     
-                    // Use stronger lerp for moving blocks or blocks far from expected position
-                    let lerpFactor = 0.3;
-                    if (speed2 > 1 || dist2 > 100) {
-                        lerpFactor = 0.6; // Stronger sync for moving/displaced blocks
+                    // Always update, but vary the lerp factor based on distance
+                    let lerpFactor = 0.15; // Very gentle interpolation to avoid jitter
+                    
+                    if (dist2 > 40000) { // More than 200 units away - snap to position
+                        lerpFactor = 1.0;
+                    } else if (dist2 > 10000) { // More than 100 units away - moderate catch up
+                        lerpFactor = 0.4;
+                    } else if (dist2 > 2500) { // More than 50 units away - gentle catch up
+                        lerpFactor = 0.25;
                     }
                     
                     Matter.Body.setPosition(body[blockData.index], {
@@ -2535,7 +2554,12 @@ const multiplayer = {
                         y: currentPos.y + dy * lerpFactor
                     });
                     Matter.Body.setVelocity(body[blockData.index], { x: blockData.vx, y: blockData.vy });
-                    Matter.Body.setAngle(body[blockData.index], blockData.angle);
+                    
+                    // Smooth angle interpolation
+                    const currentAngle = body[blockData.index].angle;
+                    const targetAngle = blockData.angle;
+                    const angleDiff = ((targetAngle - currentAngle + Math.PI) % (2*Math.PI)) - Math.PI;
+                    Matter.Body.setAngle(body[blockData.index], currentAngle + angleDiff * lerpFactor);
                     Matter.Body.setAngularVelocity(body[blockData.index], blockData.angularVelocity);
                 }
             }
