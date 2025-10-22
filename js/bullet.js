@@ -1587,6 +1587,11 @@ const b = {
             ctx.setLineDash([0, 0]);
             ctx.globalAlpha = 1;
         }
+        
+        // Sync laser effect to multiplayer
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            multiplayer.syncLaser(where, whereEnd, dmg, reflections);
+        }
     },
     laserMine(position, velocity = { x: 0, y: -8 }) {
         const me = bullet.length;
@@ -2404,6 +2409,11 @@ const b = {
         });
         World.add(engine.world, bullet[me]); //add bullet to world
         Matter.Body.setVelocity(bullet[me], velocity);
+        
+        // Sync foam bullet to multiplayer
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            multiplayer.syncFoam(position, velocity, radius);
+        }
     },
     targetedBlock(who, isSpin = false, speed = 50 - Math.min(20, who.mass * 2), range = 1600) {
         let closestMob, dist

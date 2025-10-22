@@ -1066,6 +1066,37 @@ const multiplayer = {
         });
     },
     
+    // Sync laser effect
+    syncLaser(where, whereEnd, dmg, reflections) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'laser',
+            playerId: this.playerId,
+            where: { x: where.x, y: where.y },
+            whereEnd: { x: whereEnd.x, y: whereEnd.y },
+            dmg: dmg,
+            reflections: reflections,
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync foam bullet spawn
+    syncFoam(position, velocity, radius) {
+        if (!this.enabled || !this.lobbyId) return;
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'foam',
+            playerId: this.playerId,
+            position: { x: position.x, y: position.y },
+            velocity: { x: velocity.x, y: velocity.y },
+            radius: radius,
+            timestamp: Date.now()
+        });
+    },
+    
     // Sync explosion effect
     syncExplosion(position, radius) {
         if (!this.enabled || !this.lobbyId) return;
@@ -1518,6 +1549,12 @@ const multiplayer = {
             case 'bullet_spawn':
                 this.handleRemoteBulletSpawn(event);
                 break;
+            case 'laser':
+                this.handleRemoteLaser(event);
+                break;
+            case 'foam':
+                this.handleRemoteFoam(event);
+                break;
             case 'explosion':
                 this.handleRemoteExplosion(event);
                 break;
@@ -1805,6 +1842,26 @@ const multiplayer = {
         console.log('🎯 Remote bullet spawn');
         // This can be used for very precise bullet syncing if needed
         // For now, gun fire handles it
+    },
+    
+    // Handle remote laser
+    handleRemoteLaser(event) {
+        if (event.playerId === this.playerId) return; // Don't replay own lasers
+        
+        if (typeof b !== 'undefined' && b.laser && event.where && event.whereEnd) {
+            // Draw the laser effect on this client without applying damage (damage is host-authoritative)
+            b.laser(event.where, event.whereEnd, event.dmg || 0.16, event.reflections || 0, false, 1);
+        }
+    },
+    
+    // Handle remote foam
+    handleRemoteFoam(event) {
+        if (event.playerId === this.playerId) return; // Don't spawn our own foam
+        
+        if (typeof b !== 'undefined' && b.foam && event.position && event.velocity) {
+            // Spawn the foam bullet on this client
+            b.foam(event.position, event.velocity, event.radius || 10);
+        }
     },
     
     // Handle remote explosion
@@ -3200,11 +3257,13 @@ const multiplayer = {
                 const targetBody = body.find(b => b && b.id === blockData.bodyId);
                 if (targetBody) {
                     // If update is from host, always accept (host has final authority)
-                    // If from client, only skip if we're currently touching it
+                    // If from client, accept if we're NOT touching it (or if we're the host accepting client authority)
                     const authKey = `block_${blockData.bodyId}`;
                     const isFromHost = this.players[fromPlayerId] && this.players[fromPlayerId].isHost;
                     
-                    if (!isFromHost && this.clientAuthority.has(authKey) && 
+                    // Skip only if: update is from ANOTHER client AND we have our own authority
+                    // Host should ALWAYS accept client updates (to rebroadcast them)
+                    if (!isFromHost && !this.isHost && this.clientAuthority.has(authKey) && 
                         this.clientAuthority.get(authKey).playerId === this.playerId) {
                         if (Math.random() < 0.01) {
                             console.log(`⏭️ Skipping block ${blockData.bodyId} - under my authority (from client)`);
