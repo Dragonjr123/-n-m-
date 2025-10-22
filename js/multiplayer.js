@@ -1021,7 +1021,6 @@ const multiplayer = {
     
     // Sync block pickup/throw
     syncBlockInteraction(type, blockData) {
-        console.log('syncBlockInteraction called:', type, blockData, 'enabled:', this.enabled, 'lobbyId:', this.lobbyId);
         if (!this.enabled || !this.lobbyId) return;
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
@@ -1031,7 +1030,6 @@ const multiplayer = {
             blockData: blockData,
             timestamp: Date.now()
         });
-        console.log('Block interaction synced to Firebase');
     },
     
     // Sync gun fire - call this from each gun's fire() function
@@ -1527,7 +1525,6 @@ const multiplayer = {
     
     // Handle incoming field events from other players
     handleFieldEvent(event) {
-        console.log('handleFieldEvent called with:', event);
         switch (event.type) {
             case 'field_powerup_grab':
                 this.handleRemotePowerupGrab(event.data);
@@ -2209,68 +2206,6 @@ const multiplayer = {
         }
     },
     
-    // Handle remote block pickup
-    handleRemoteBlockPickup(blockData) {
-        // Visual effect for remote block pickup
-        if (blockData.position) {
-            simulation.drawList.push({
-                x: blockData.position.x,
-                y: blockData.position.y,
-                radius: 25,
-                color: "rgba(255,255,0,0.4)",
-                time: 20
-            });
-        }
-    },
-    
-    // Handle remote block throw
-    handleRemoteBlockThrow(blockData) {
-        if (!blockData.position || !blockData.velocity) return;
-        
-        console.log('Remote block throw:', blockData);
-        
-        // Find the closest block to the thrown position (within reasonable distance)
-        if (typeof body !== 'undefined') {
-            let closestBlock = null;
-            let closestDist = 100; // Max 100 pixels away
-            
-            for (let i = 0; i < body.length; i++) {
-                if (body[i] && body[i].position) {
-                    const dx = body[i].position.x - blockData.position.x;
-                    const dy = body[i].position.y - blockData.position.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (dist < closestDist) {
-                        closestDist = dist;
-                        closestBlock = body[i];
-                    }
-                }
-            }
-            
-            // Apply the throw velocity to the closest block
-            if (closestBlock) {
-                Matter.Body.setVelocity(closestBlock, blockData.velocity);
-                Matter.Body.setPosition(closestBlock, blockData.position);
-                console.log('Applied remote throw to block');
-            }
-        }
-        
-        // Visual effect for remote block throw
-        for (let i = 0; i < 5; i++) {
-            setTimeout(() => {
-                if (typeof simulation !== 'undefined' && simulation.drawList) {
-                    simulation.drawList.push({
-                        x: blockData.position.x + blockData.velocity.x * i * 0.1,
-                        y: blockData.position.y + blockData.velocity.y * i * 0.1,
-                        radius: 15 - i * 2,
-                        color: `rgba(255,100,0,${0.6 - i * 0.1})`,
-                        time: 10 - i
-                    });
-                }
-            }, i * 50);
-        }
-    },
-    
     // Kick player (host only)
     async kickPlayer(playerId) {
         if (!this.isHost || !this.lobbyId) return;
@@ -2570,23 +2505,28 @@ const multiplayer = {
     },
 
     handleRemoteBlockPickup(event) {
-        if (!this.isHost) return; // host authoritative
         if (!event || !event.blockData) return;
-        const idx = event.blockData.index;
-        if (!isFinite(idx) || typeof body === 'undefined' || !body[idx]) return;
-        const blk = body[idx];
-        // Make non-colliding while held
+        const data = event.blockData;
+        const bodyId = data.bodyId;
+        if (!bodyId || typeof body === 'undefined') return;
+        
+        // Find body by ID instead of index
+        const blk = body.find(b => b && b.id === bodyId);
+        if (!blk) return;
+        // Non-colliding while picked up
         blk.collisionFilter.category = 0;
         blk.collisionFilter.mask = 0;
     },
 
     handleRemoteBlockThrow(event) {
-        if (!this.isHost) return; // host authoritative
         if (!event || !event.blockData) return;
         const data = event.blockData;
-        const idx = data.index;
-        if (!isFinite(idx) || typeof body === 'undefined' || !body[idx]) return;
-        const blk = body[idx];
+        const bodyId = data.bodyId;
+        if (!bodyId || typeof body === 'undefined') return;
+        
+        // Find body by ID instead of index
+        const blk = body.find(b => b && b.id === bodyId);
+        if (!blk) return;
         // Reposition near throw origin and apply throw velocity
         if (data.position && isFinite(data.position.x) && isFinite(data.position.y)) {
             Matter.Body.setPosition(blk, { x: data.position.x, y: data.position.y });
@@ -2600,12 +2540,22 @@ const multiplayer = {
     },
 
     handleRemoteBlockHold(event) {
-        if (!this.isHost) return; // host authoritative
         if (!event || !event.blockData) return;
         const data = event.blockData;
-        const idx = data.index;
-        if (!isFinite(idx) || typeof body === 'undefined' || !body[idx]) return;
-        const blk = body[idx];
+        const bodyId = data.bodyId;
+        if (!bodyId || typeof body === 'undefined') return;
+        
+        // Find body by ID instead of index
+        const blk = body.find(b => b && b.id === bodyId);
+        if (!blk) return;
+        
+        // Only apply if we don't have authority over this block
+        const authKey = `block_${bodyId}`;
+        const auth = this.clientAuthority.get(authKey);
+        if (auth && auth.playerId === this.playerId) {
+            return; // We're controlling this block, ignore remote updates
+        }
+        
         if (data.position && isFinite(data.position.x) && isFinite(data.position.y)) {
             Matter.Body.setPosition(blk, { x: data.position.x, y: data.position.y });
         }
