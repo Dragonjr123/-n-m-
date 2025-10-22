@@ -1010,8 +1010,11 @@ const simulation = {
         bodyFill: "rgba(140,140,140,0.85)", //"#999",
         bodyStroke: "#222",
         drawMapPath() {
-            ctx.fillStyle = simulation.draw.mapFill;
-            ctx.fill(simulation.draw.mapPath);
+            // MULTIPLAYER FIX: mapPath may not be initialized on clients yet
+            if (simulation.draw.mapPath) {
+                ctx.fillStyle = simulation.draw.mapFill;
+                ctx.fill(simulation.draw.mapPath);
+            }
         },
         body() {
             ctx.beginPath();

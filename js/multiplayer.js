@@ -1869,6 +1869,14 @@ const multiplayer = {
             }
             // Advance without syncing
             level.nextLevel(true);
+            
+            // Initialize map path for rendering after level loads
+            if (typeof simulation !== 'undefined' && typeof simulation.draw !== 'undefined' && typeof simulation.draw.setPaths === 'function') {
+                setTimeout(() => {
+                    simulation.draw.setPaths();
+                    console.log('✅ Initialized map rendering path for client');
+                }, 100); // Small delay to ensure map is fully loaded
+            }
         }
     },
     
