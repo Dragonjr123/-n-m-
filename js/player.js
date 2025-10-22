@@ -1144,10 +1144,10 @@ const m = {
             if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
                 // Throttle to ~20 Hz assuming m.cycle ~60 fps
                 if (!(m.cycle % 3)) {
-                    const bodyId = m.holdingTarget.id;
-                    if (bodyId) {
+                    const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
+                    if (idx !== -1) {
                         multiplayer.syncBlockInteraction('hold', {
-                            bodyId: bodyId,
+                            index: idx,
                             position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
                             velocity: { x: m.holdingTarget.velocity.x, y: m.holdingTarget.velocity.y },
                             mass: m.holdingTarget.mass
@@ -1230,16 +1230,16 @@ const m = {
                 
                 // Sync block throw to multiplayer
                 if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-                    const bodyId = m.holdingTarget.id;
+                    const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
                     multiplayer.syncBlockInteraction('throw', {
-                        bodyId: bodyId,
+                        index: idx,
                         position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
                         velocity: throwVelocity,
                         mass: m.holdingTarget.mass,
                         charge: charge
                     });
-                    // Release authority after throw using body.id
-                    multiplayer.releaseAuthority('block', bodyId);
+                    // Release authority after throw
+                    multiplayer.releaseAuthority('block', idx);
                 }
                 
                 Matter.Body.setVelocity(m.holdingTarget, throwVelocity);
@@ -1540,11 +1540,11 @@ const m = {
 
         // Sync block pickup to multiplayer
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-            const bodyId = m.holdingTarget.id;
-            // Claim authority over this block using body.id
-            multiplayer.claimAuthority('block', bodyId);
+            const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
+            // Claim authority over this block
+            multiplayer.claimAuthority('block', idx);
             multiplayer.syncBlockInteraction('pickup', {
-                bodyId: bodyId,
+                index: idx,
                 position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
                 velocity: { x: m.holdingTarget.velocity.x, y: m.holdingTarget.velocity.y },
                 mass: m.holdingTarget.mass

@@ -61,8 +61,6 @@ const multiplayer = {
     hostId: null,
     // Pagination for mob sync so large counts eventually update
     mobSyncCursor: 0,
-    // Track level changes for increased resync frequency
-    lastLevelChangeTime: 0,
     maxMobsPerSync: 100, // Increase limit for better sync coverage
     // Stable mob identifiers
     mobNetIdCounter: 0,
@@ -1021,6 +1019,7 @@ const multiplayer = {
     
     // Sync block pickup/throw
     syncBlockInteraction(type, blockData) {
+        console.log('syncBlockInteraction called:', type, blockData, 'enabled:', this.enabled, 'lobbyId:', this.lobbyId);
         if (!this.enabled || !this.lobbyId) return;
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
@@ -1030,6 +1029,7 @@ const multiplayer = {
             blockData: blockData,
             timestamp: Date.now()
         });
+        console.log('Block interaction synced to Firebase');
     },
     
     // Sync gun fire - call this from each gun's fire() function
@@ -1407,8 +1407,6 @@ const multiplayer = {
         console.log('📤 Syncing level change:', levelName);
         // Reset block sync flag for new level
         this.hasInitialBlockSync = false;
-        // Track level change time for increased resync frequency
-        this.lastLevelChangeTime = Date.now();
         // generate and store a seed to be used by all clients during level build
         const rngSeed = Date.now() ^ Math.floor(Math.random() * 1e9);
         this.pendingRngSeed = rngSeed;
@@ -1525,6 +1523,7 @@ const multiplayer = {
     
     // Handle incoming field events from other players
     handleFieldEvent(event) {
+        console.log('handleFieldEvent called with:', event);
         switch (event.type) {
             case 'field_powerup_grab':
                 this.handleRemotePowerupGrab(event.data);
@@ -2005,9 +2004,6 @@ const multiplayer = {
     handleRemoteLevelChange(event) {
         console.log('🗺️ Remote level change:', event.levelName, 'by player:', event.playerId);
         
-        // Track level change time for increased resync frequency
-        this.lastLevelChangeTime = Date.now();
-        
         // ONLY sync if game is actually running (not in lobby/menu)
         if (typeof simulation === 'undefined' || simulation.paused || !level || level.onLevel === -1) {
             console.log('⚠️ Ignoring level change - game not started yet');
@@ -2203,6 +2199,68 @@ const multiplayer = {
                 color: "rgba(0,200,255,0.3)",
                 time: 15
             });
+        }
+    },
+    
+    // Handle remote block pickup
+    handleRemoteBlockPickup(blockData) {
+        // Visual effect for remote block pickup
+        if (blockData.position) {
+            simulation.drawList.push({
+                x: blockData.position.x,
+                y: blockData.position.y,
+                radius: 25,
+                color: "rgba(255,255,0,0.4)",
+                time: 20
+            });
+        }
+    },
+    
+    // Handle remote block throw
+    handleRemoteBlockThrow(blockData) {
+        if (!blockData.position || !blockData.velocity) return;
+        
+        console.log('Remote block throw:', blockData);
+        
+        // Find the closest block to the thrown position (within reasonable distance)
+        if (typeof body !== 'undefined') {
+            let closestBlock = null;
+            let closestDist = 100; // Max 100 pixels away
+            
+            for (let i = 0; i < body.length; i++) {
+                if (body[i] && body[i].position) {
+                    const dx = body[i].position.x - blockData.position.x;
+                    const dy = body[i].position.y - blockData.position.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closestBlock = body[i];
+                    }
+                }
+            }
+            
+            // Apply the throw velocity to the closest block
+            if (closestBlock) {
+                Matter.Body.setVelocity(closestBlock, blockData.velocity);
+                Matter.Body.setPosition(closestBlock, blockData.position);
+                console.log('Applied remote throw to block');
+            }
+        }
+        
+        // Visual effect for remote block throw
+        for (let i = 0; i < 5; i++) {
+            setTimeout(() => {
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    simulation.drawList.push({
+                        x: blockData.position.x + blockData.velocity.x * i * 0.1,
+                        y: blockData.position.y + blockData.velocity.y * i * 0.1,
+                        radius: 15 - i * 2,
+                        color: `rgba(255,100,0,${0.6 - i * 0.1})`,
+                        time: 10 - i
+                    });
+                }
+            }, i * 50);
         }
     },
     
@@ -2505,28 +2563,23 @@ const multiplayer = {
     },
 
     handleRemoteBlockPickup(event) {
+        if (!this.isHost) return; // host authoritative
         if (!event || !event.blockData) return;
-        const data = event.blockData;
-        const bodyId = data.bodyId;
-        if (!bodyId || typeof body === 'undefined') return;
-        
-        // Find body by ID instead of index
-        const blk = body.find(b => b && b.id === bodyId);
-        if (!blk) return;
-        // Non-colliding while picked up
+        const idx = event.blockData.index;
+        if (!isFinite(idx) || typeof body === 'undefined' || !body[idx]) return;
+        const blk = body[idx];
+        // Make non-colliding while held
         blk.collisionFilter.category = 0;
         blk.collisionFilter.mask = 0;
     },
 
     handleRemoteBlockThrow(event) {
+        if (!this.isHost) return; // host authoritative
         if (!event || !event.blockData) return;
         const data = event.blockData;
-        const bodyId = data.bodyId;
-        if (!bodyId || typeof body === 'undefined') return;
-        
-        // Find body by ID instead of index
-        const blk = body.find(b => b && b.id === bodyId);
-        if (!blk) return;
+        const idx = data.index;
+        if (!isFinite(idx) || typeof body === 'undefined' || !body[idx]) return;
+        const blk = body[idx];
         // Reposition near throw origin and apply throw velocity
         if (data.position && isFinite(data.position.x) && isFinite(data.position.y)) {
             Matter.Body.setPosition(blk, { x: data.position.x, y: data.position.y });
@@ -2540,22 +2593,12 @@ const multiplayer = {
     },
 
     handleRemoteBlockHold(event) {
+        if (!this.isHost) return; // host authoritative
         if (!event || !event.blockData) return;
         const data = event.blockData;
-        const bodyId = data.bodyId;
-        if (!bodyId || typeof body === 'undefined') return;
-        
-        // Find body by ID instead of index
-        const blk = body.find(b => b && b.id === bodyId);
-        if (!blk) return;
-        
-        // Only apply if we don't have authority over this block
-        const authKey = `block_${bodyId}`;
-        const auth = this.clientAuthority.get(authKey);
-        if (auth && auth.playerId === this.playerId) {
-            return; // We're controlling this block, ignore remote updates
-        }
-        
+        const idx = data.index;
+        if (!isFinite(idx) || typeof body === 'undefined' || !body[idx]) return;
+        const blk = body[idx];
         if (data.position && isFinite(data.position.x) && isFinite(data.position.y)) {
             Matter.Body.setPosition(blk, { x: data.position.x, y: data.position.y });
         }
@@ -2778,13 +2821,10 @@ const multiplayer = {
         // Sync blocks (physics bodies) - sync ALL blocks for consistency
         if (typeof body !== 'undefined') {
             // On first sync or periodically, sync ALL blocks
-            // Increase resync frequency for 10 seconds after level change (20% chance vs 1%)
-            const timeSinceLevelChange = now - this.lastLevelChangeTime;
-            const resyncChance = (timeSinceLevelChange < 10000) ? 0.20 : 0.01;
-            const syncAllBlocks = this.isHost && (!this.hasInitialBlockSync || Math.random() < resyncChance);
+            const syncAllBlocks = this.isHost && (!this.hasInitialBlockSync || Math.random() < 0.01); // 1% chance to resync all
             if (syncAllBlocks) {
-                this.hasInitialBlockSync = true;
                 // Sync ALL blocks
+                const initialBlockCount = physicsData.blocks.length;
                 for (let i = 0; i < body.length; i++) {
                     if (body[i] && body[i].position && body[i].id) {
                         physicsData.blocks.push({
@@ -2803,7 +2843,14 @@ const multiplayer = {
                         });
                     }
                 }
-                console.log(`📦 Syncing ALL ${physicsData.blocks.length} blocks`);
+                // Only mark as synced if we actually synced blocks (prevents timing issues during level transitions)
+                const blocksSynced = physicsData.blocks.length - initialBlockCount;
+                if (blocksSynced > 0) {
+                    this.hasInitialBlockSync = true;
+                    console.log(`📦 Initial block sync complete: ${blocksSynced} blocks`);
+                } else {
+                    console.log(`⚠️ Attempted initial block sync but no blocks found yet (body.length=${body.length})`);
+                }
             } else {
                 // Normal sync
                 const maxBlocks = 50;
@@ -2816,9 +2863,7 @@ const multiplayer = {
                     if (this.isHost) {
                         // Host syncs ALL moving blocks (host has final authority)
                         const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
-                        const isHeld = (typeof m !== 'undefined' && m.holdingTarget && m.holdingTarget.id === bodyId);
-                        // Sync if moving OR being held by host
-                        if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001 || isHeld) {
+                        if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001) {
                             physicsData.blocks.push({
                                 bodyId: bodyId,
                                 x: body[i].position.x,
@@ -2826,12 +2871,7 @@ const multiplayer = {
                                 vx: body[i].velocity.x,
                                 vy: body[i].velocity.y,
                                 angle: body[i].angle,
-                                angularVelocity: body[i].angularVelocity,
-                                // Include vertices for held blocks so clients can render correct shape
-                                vertices: isHeld && body[i].vertices ? body[i].vertices.map(v => ({ x: v.x, y: v.y })) : null,
-                                mass: isHeld ? body[i].mass : undefined,
-                                friction: isHeld ? body[i].friction : undefined,
-                                restitution: isHeld ? body[i].restitution : undefined
+                                angularVelocity: body[i].angularVelocity
                             });
                             count++;
                         }
