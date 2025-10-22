@@ -124,6 +124,9 @@ const multiplayer = {
         
         // Initialize local start state for host
         this.gameStarted = false;
+        
+        // Track level change time for physics sync
+        this.lastLevelChangeTime = Date.now();
 
         // Setup disconnect handler
         const playerRef = database.ref(`lobbies/${this.lobbyId}/players/${this.playerId}`);
@@ -198,6 +201,9 @@ const multiplayer = {
         this.gameStarted = !!lobbyData.gameStarted;
         // If host hasn't started the game yet, pause until start signal
         if (!this.gameStarted && typeof simulation !== 'undefined') simulation.paused = true;
+        
+        // Track level change time for physics sync
+        this.lastLevelChangeTime = Date.now();
 
         // Listen to other players
         this.listenToPlayers();
@@ -2429,6 +2435,9 @@ const multiplayer = {
     clearLevelData() {
         console.log('🧹 Clearing multiplayer tracking data for level transition');
         
+        // Track when level changed for vertex sync logic
+        this.lastLevelChangeTime = Date.now();
+        
         // Clear mob tracking
         this.mobIndexByNetId.clear();
         this.mobNetIdCounter = 0; // Reset counter for new level
@@ -2853,7 +2862,9 @@ const multiplayer = {
                 }
             } else {
                 // Normal sync
-                const maxBlocks = 50;
+                const timeSinceLevelChange = Date.now() - (this.lastLevelChangeTime || 0);
+                // Increase max blocks for first 5 seconds after level change to ensure all get synced
+                const maxBlocks = timeSinceLevelChange < 5000 ? 200 : 50;
                 let count = 0;
                 for (let i = 0; i < body.length && count < maxBlocks; i++) {
                     if (!body[i] || !body[i].position || !body[i].id) continue;
@@ -2863,8 +2874,13 @@ const multiplayer = {
                     if (this.isHost) {
                         // Host syncs ALL moving blocks (host has final authority)
                         const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
-                        if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001) {
-                            physicsData.blocks.push({
+                        const timeSinceLevelChange = Date.now() - (this.lastLevelChangeTime || 0);
+                        const isRecentLevelChange = timeSinceLevelChange < 5000; // 5 seconds after level change
+                        
+                        // After level transitions, sync ALL blocks (even stationary) for 5 seconds
+                        // Otherwise only sync moving blocks
+                        if (isRecentLevelChange || speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001) {
+                            const blockSyncData = {
                                 bodyId: bodyId,
                                 x: body[i].position.x,
                                 y: body[i].position.y,
@@ -2872,7 +2888,18 @@ const multiplayer = {
                                 vy: body[i].velocity.y,
                                 angle: body[i].angle,
                                 angularVelocity: body[i].angularVelocity
-                            });
+                            };
+                            
+                            // CRITICAL: Include vertices for first few seconds after level transition
+                            // so clients can create missing bodies
+                            if (isRecentLevelChange) {
+                                blockSyncData.vertices = body[i].vertices ? body[i].vertices.map(v => ({ x: v.x, y: v.y })) : null;
+                                blockSyncData.mass = body[i].mass;
+                                blockSyncData.friction = body[i].friction;
+                                blockSyncData.restitution = body[i].restitution;
+                            }
+                            
+                            physicsData.blocks.push(blockSyncData);
                             count++;
                         }
                     } else {
@@ -2956,9 +2983,14 @@ const multiplayer = {
         
         // Debug: Log what we're syncing occasionally
         if (Math.random() < 0.02) {
+            const timeSinceLevelChange = Date.now() - (this.lastLevelChangeTime || 0);
             console.log(`📤 Syncing physics: ${physicsData.mobs.length} mobs, ${physicsData.blocks.length} blocks, ${physicsData.powerups.length} powerups, ${physicsData.mobBullets.length} bullets`);
             if (physicsData.blocks.length > 0) {
                 console.log(`📤 Block indices being synced:`, physicsData.blocks.map(b => b.index));
+            }
+            if (timeSinceLevelChange < 5000) {
+                const blocksWithVerts = physicsData.blocks.filter(b => b.vertices).length;
+                console.log(`🆕 Level transition mode: ${timeSinceLevelChange}ms since change, ${blocksWithVerts}/${physicsData.blocks.length} blocks have vertices`);
             }
             if (typeof mob !== 'undefined') {
                 const totalMobsInArray = mob.length;
