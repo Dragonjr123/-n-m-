@@ -3358,6 +3358,23 @@ const spawn = {
             };
 
             mob.unshift(me); //move shield to the front of the array, so that mob is behind shield graphically
+            
+            // CRITICAL: Update ALL indices in tracking map after unshift
+            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                // Rebuild entire tracking map since ALL indices shifted by +1
+                const oldMap = new Map(multiplayer.mobIndexByNetId);
+                multiplayer.mobIndexByNetId.clear();
+                
+                // The shield is now at index 0
+                if (me.netId) {
+                    multiplayer.mobIndexByNetId.set(me.netId, 0);
+                }
+                
+                // All other mobs shifted by +1
+                for (const [netId, oldIndex] of oldMap.entries()) {
+                    multiplayer.mobIndexByNetId.set(netId, oldIndex + 1);
+                }
+            }
 
             //swap order of shield and mob, so that mob is behind shield graphically
             // mob[mob.length - 1] = mob[mob.length - 2];
@@ -3401,8 +3418,27 @@ const spawn = {
         me.leaveBody = false;
         me.isDropPowerUp = false;
         me.showHealthBar = false;
-        mob[mob.length - 1] = mob[mob.length - 1 - nodes];
-        mob[mob.length - 1 - nodes] = me;
+        
+        // Store references before swap
+        const shieldIndex = mob.length - 1;
+        const targetIndex = mob.length - 1 - nodes;
+        const shieldMob = mob[shieldIndex];
+        const targetMob = mob[targetIndex];
+        
+        // Swap array positions
+        mob[shieldIndex] = targetMob;
+        mob[targetIndex] = shieldMob;
+        
+        // CRITICAL: Update tracking map after swap
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            if (shieldMob.netId) {
+                multiplayer.mobIndexByNetId.set(shieldMob.netId, targetIndex);
+            }
+            if (targetMob.netId) {
+                multiplayer.mobIndexByNetId.set(targetMob.netId, shieldIndex);
+            }
+        }
+        
         me.do = function() {
             this.checkStatus();
         };
