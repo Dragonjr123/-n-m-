@@ -1144,7 +1144,7 @@ const mobs = {
                 if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
                     const mobIndex = mob.indexOf(this);
                     if (mobIndex !== -1) {
-                        multiplayer.syncMobAction('death', mobIndex, {});
+                        multiplayer.syncMobAction(mobIndex, 'death', {});
                     }
                 }
 
@@ -1335,21 +1335,23 @@ const mobs = {
         mob[i].alertRange2 = Math.pow(mob[i].radius * 3 + 550, 2);
         World.add(engine.world, mob[i]); //add to world
         
-        // MULTIPLAYER: Assign a stable network ID and announce new mob spawn to other players
+        // INSTANT MULTIPLAYER SYNC: Assign netId immediately so shields/orbitals can reference it
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
-            // Assign netId immediately
+            // Assign netId NOW (only once) before any shields/orbitals are spawned
             mob[i].netId = `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}`;
-            // Register in tracking map immediately
-            multiplayer.mobIndexByNetId.set(mob[i].netId, i);
             
-            // Sync spawn immediately with current mob data
-            const mobType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
-            const spawnParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
-            multiplayer.syncMobSpawn(i, mobType, spawnParams);
-            
-            // Reset tracker
-            if (typeof currentSpawnFunction !== 'undefined') currentSpawnFunction = null;
-            if (typeof currentSpawnParams !== 'undefined') currentSpawnParams = {};
+            // Use setTimeout to sync after the spawn function completes (including shields/orbitals)
+            setTimeout(() => {
+                if (mob[i] && mob[i].alive) {
+                    // Get mob type from global tracker (set by spawn functions)
+                    const mobType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
+                    const spawnParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
+                    multiplayer.syncMobSpawn(i, mobType, spawnParams);
+                    // Reset tracker
+                    if (typeof currentSpawnFunction !== 'undefined') currentSpawnFunction = null;
+                    if (typeof currentSpawnParams !== 'undefined') currentSpawnParams = {};
+                }
+            }, 0);
         }
     }
 };

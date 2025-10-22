@@ -61,24 +61,10 @@ const multiplayer = {
     hostId: null,
     // Pagination for mob sync so large counts eventually update
     mobSyncCursor: 0,
-    maxMobsPerSync: 200, // Increased for better coverage
+    maxMobsPerSync: 100, // Increase limit for better sync coverage
     // Stable mob identifiers
     mobNetIdCounter: 0,
     mobIndexByNetId: new Map(), // netId -> index
-    lastSeenMobs: new Map(), // Track last seen mobs for cleanup
-    mobCleanupInterval: 2000, // Cleanup phantom mobs every 2 seconds
-    
-    // Rebuild mob index mapping after any mob removal
-    rebuildMobIndexMap() {
-        this.mobIndexByNetId.clear();
-        if (typeof mob !== 'undefined') {
-            for (let i = 0; i < mob.length; i++) {
-                if (mob[i] && mob[i].netId) {
-                    this.mobIndexByNetId.set(mob[i].netId, i);
-                }
-            }
-        }
-    },
     
     // Client authority tracking (which player is manipulating which object)
     clientAuthority: new Map(), // objectId -> {playerId, type, timestamp}
@@ -2465,7 +2451,6 @@ const multiplayer = {
         
         // Sync mobs (enemies) - only host manages and syncs mobs
         if (this.isHost && typeof mob !== 'undefined' && mob.length) {
-            // Sync ALL mobs every update to prevent phantom mobs
             for (let i = 0; i < mob.length; i++) {
                 const m = mob[i];
                 if (m && m.position && m.alive) { // Only sync alive mobs
@@ -2479,11 +2464,7 @@ const multiplayer = {
                     }
                     
                     // Assign persistent netId lazily on host
-                    if (!m.netId) {
-                        m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
-                        // Register in tracking map immediately  
-                        this.mobIndexByNetId.set(m.netId, i);
-                    }
+                    if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
                     physicsData.mobs.push({
                         index: i,
                         netId: m.netId || null,
@@ -2507,8 +2488,12 @@ const multiplayer = {
                 }
             }
             // Debug: log mob sync count occasionally
-            if (Math.random() < 0.02) {
-                console.log(`📡 Syncing ${physicsData.mobs.length} alive mobs out of ${mob.length} total, netId map size: ${this.mobIndexByNetId.size}`);
+            if (physicsData.mobs.length > 0 && Math.random() < 0.05) {
+                console.log(`📡 Syncing ${physicsData.mobs.length} alive mobs out of ${mob.length} total`);
+                const mobsWithVerts = physicsData.mobs.filter(m => m.verts && m.verts.length > 0);
+                if (mobsWithVerts.length > 0) {
+                    console.log(`📡 ${mobsWithVerts.length} mobs have vertex data, sample:`, mobsWithVerts[0].verts.length, 'vertices');
+                }
             }
         }
         
@@ -2758,7 +2743,7 @@ const multiplayer = {
                         Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
                         Matter.Body.setAngle(bodyRef, target.angle);
                     } else {
-                        const alpha = 0.5; // Increased for better sync
+                        const alpha = 0.3; // Gentle interpolation to avoid jitter
                         Matter.Body.setPosition(bodyRef, { x: cur.x + dx * alpha, y: cur.y + dy * alpha });
                         Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
                         // Angle wrap smoothing
@@ -2794,17 +2779,8 @@ const multiplayer = {
                     if (mobData.alive !== undefined) {
                         const wasAlive = mob[targetIndex].alive;
                         mob[targetIndex].alive = mobData.alive;
-                        if (wasAlive && mobData.alive === false) {
-                            // Mark for immediate removal instead of calling death()
-                            console.log(`💀 Host reports mob ${targetIndex} dead, removing immediately`);
-                            try {
-                                Matter.World.remove(engine.world, mob[targetIndex]);
-                            } catch(e) { /* ignore */ }
-                            this.mobIndexByNetId.delete(mob[targetIndex].netId);
-                            this.lastSeenMobs.delete(mob[targetIndex].netId);
-                            mob.splice(targetIndex, 1);
-                            // Rebuild index map after removal
-                            this.rebuildMobIndexMap();
+                        if (wasAlive && mobData.alive === false && typeof mob[targetIndex].death === 'function') {
+                            mob[targetIndex].death();
                         }
                     }
                 } else if (!mobExists && mobData.netId && mobData.alive !== false && (typeof mob !== 'undefined') && !this.isHost && fromPlayerId === this.hostId) {
@@ -2912,30 +2888,16 @@ const multiplayer = {
                 }
             }
             
-            // Track which mobs we've seen this update
-            const now = Date.now();
-            for (const netId of updatedNetIds) {
-                this.lastSeenMobs.set(netId, now);
-            }
-            
-            // CLEANUP: Remove stale ghost mobs that haven't been synced recently
+            // CLEANUP: Remove stale ghost mobs that host stopped syncing (off-screen or dead)
             if (!this.isHost) {
-                const staleTime = now - this.mobCleanupInterval;
                 for (let i = mob.length - 1; i >= 0; i--) {
-                    if (mob[i] && mob[i].isGhost && mob[i].netId) {
-                        const lastSeen = this.lastSeenMobs.get(mob[i].netId) || 0;
-                        // Remove if we haven't seen this mob in the last cleanup interval
-                        if (lastSeen < staleTime || (!updatedNetIds.has(mob[i].netId) && mob[i].health <= 0)) {
-                            console.log(`🗑️ Removing stale/dead ghost mob ${i} with netId ${mob[i].netId}`);
-                            try {
-                                Matter.World.remove(engine.world, mob[i]);
-                            } catch(e) { /* ignore */ }
-                            this.mobIndexByNetId.delete(mob[i].netId);
-                            this.lastSeenMobs.delete(mob[i].netId);
-                            mob.splice(i, 1);
-                            // Rebuild index map after removal
-                            this.rebuildMobIndexMap();
-                        }
+                    if (mob[i] && mob[i].isGhost && mob[i].netId && !updatedNetIds.has(mob[i].netId)) {
+                        console.log(`🗑️ Removing stale ghost mob ${i} with netId ${mob[i].netId} - no longer synced by host`);
+                        try {
+                            Matter.World.remove(engine.world, mob[i]);
+                        } catch(e) { /* ignore */ }
+                        this.mobIndexByNetId.delete(mob[i].netId);
+                        mob.splice(i, 1);
                     }
                 }
             }
