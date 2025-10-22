@@ -2680,6 +2680,40 @@ const spawn = {
             // if (dist > 50) this.force = Vector.mult(Vector.normalise(sub), this.mass * 0.0002)
         };
     },
+    sniperBullet(x, y, radius = 7, sides = 4) {
+        // Create a small fast bullet for the sniper mob
+        currentSpawnFunction = "sniperBullet"; currentSpawnParams = { radius, sides };
+        mobs.spawn(x, y, sides, radius, "rgb(255,50,50)");
+        let me = mob[mob.length - 1];
+        me.stroke = "#f00";
+        me.leaveBody = false;
+        me.isDropPowerUp = false;
+        me.showHealthBar = false;
+        me.isBadTarget = true;
+        me.collisionFilter.category = cat.mobBullet;
+        me.collisionFilter.mask = cat.player | cat.map | cat.body | cat.bullet;
+        Matter.Body.setDensity(me, 0.002); // Light and fast
+        
+        me.do = function() {
+            // Bullet damages player on contact
+            if (Matter.Query.collides(this, [player]).length > 0 && !(m.isCloak && tech.isIntangible) && m.immuneCycle < m.cycle) {
+                m.immuneCycle = m.cycle + tech.collisionImmuneCycles;
+                const dmg = 0.06 * simulation.dmgScale;
+                m.damage(dmg);
+                simulation.drawList.push({
+                    x: this.position.x,
+                    y: this.position.y,
+                    radius: dmg * 500,
+                    color: simulation.mobDmgColor,
+                    time: simulation.drawTime
+                });
+                this.death();
+            }
+            // Die after some time or distance
+            if (!this.timeToLive) this.timeToLive = simulation.cycle + 300; // 5 seconds
+            if (simulation.cycle > this.timeToLive) this.death();
+        };
+    },
     sniper(x, y, radius = 35 + Math.ceil(Math.random() * 30)) {
         currentSpawnFunction = "sniper"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "transparent"); //"rgb(25,0,50)")
