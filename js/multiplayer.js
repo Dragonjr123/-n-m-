@@ -2438,18 +2438,12 @@ const multiplayer = {
         this.networkPowerups.clear();
         this.powerupIdCounter = 0;
         
-        // Clear client authority claims (old objects are gone)
+        // Clear client authority claims LOCALLY (old objects are gone)
+        // NOTE: We do NOT clear Firebase authority database because:
+        // 1. Old claims will expire naturally (they have timestamps)
+        // 2. New level has new body IDs that won't match old claims
+        // 3. Clearing Firebase triggers listener to wipe local map, breaking new claims
         this.clientAuthority.clear();
-        
-        // CRITICAL: Clear Firebase authority database (old body/mob IDs are invalid)
-        if (this.lobbyId) {
-            const authRef = database.ref(`lobbies/${this.lobbyId}/authority`);
-            authRef.remove().then(() => {
-                console.log('🔓 Firebase authority database cleared');
-            }).catch(err => {
-                console.error('❌ Failed to clear Firebase authority:', err);
-            });
-        }
         
         // Clear ghost mob tracking if it exists
         if (this.ghostMobLastUpdate) {

@@ -1140,8 +1140,8 @@ const m = {
             });
             Matter.Body.setVelocity(m.holdingTarget, player.velocity);
             Matter.Body.rotate(m.holdingTarget, 0.01 / m.holdingTarget.mass); //gently spin the block
-            // Multiplayer: while holding, let host move this block for us
-            if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            // Multiplayer: sync block holding for ALL players (host and clients)
+            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
                 // Throttle to ~20 Hz assuming m.cycle ~60 fps
                 if (!(m.cycle % 3)) {
                     const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
