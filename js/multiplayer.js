@@ -1952,8 +1952,8 @@ const multiplayer = {
             return;
         }
         
-        // Reset block sync flag for new level
-        this.hasInitialBlockSync = false;
+        // CRITICAL: Clear tracking data BEFORE level transition to prevent phantom mobs
+        this.clearLevelData();
         
         // Follow the same transition path as local nextLevel, without rebroadcasting
         if (typeof level !== 'undefined' && typeof level.nextLevel === 'function') {
@@ -2363,6 +2363,35 @@ const multiplayer = {
                 if (callback) callback();
             }
         });
+    },
+    
+    // ===== LEVEL TRANSITION CLEANUP =====
+    
+    // Clear all multiplayer tracking data during level transitions
+    clearLevelData() {
+        console.log('🧹 Clearing multiplayer tracking data for level transition');
+        
+        // Clear mob tracking
+        this.mobIndexByNetId.clear();
+        this.mobNetIdCounter = 0; // Reset counter for new level
+        
+        // Clear powerup tracking
+        this.localPowerupIds.clear();
+        this.networkPowerups.clear();
+        this.powerupIdCounter = 0;
+        
+        // Clear client authority claims (old objects are gone)
+        this.clientAuthority.clear();
+        
+        // Clear ghost mob tracking if it exists
+        if (this.ghostMobLastUpdate) {
+            this.ghostMobLastUpdate.clear();
+        }
+        
+        // Reset physics sync flag to force full resync on new level
+        this.hasInitialBlockSync = false;
+        
+        console.log('✅ Multiplayer tracking data cleared');
     },
     
     // ===== POWERUP NETWORKING =====

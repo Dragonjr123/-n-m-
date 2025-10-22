@@ -1321,7 +1321,23 @@ const mobs = {
                         shrink(body[len], 7 + 4 * Math.random())
                     }
                     Matter.World.remove(engine.world, this);
+                    
+                    // CRITICAL: Clean up tracking map before splice
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled && this.netId) {
+                        multiplayer.mobIndexByNetId.delete(this.netId);
+                    }
+                    
                     mob.splice(i, 1);
+                    
+                    // CRITICAL: Update all indices after this one in tracking map
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        for (let j = i; j < mob.length; j++) {
+                            if (mob[j] && mob[j].netId) {
+                                multiplayer.mobIndexByNetId.set(mob[j].netId, j);
+                            }
+                        }
+                    }
+                    
                     if (tech.isMobBlockFling) {
                         const who = body[body.length - 1]
                         b.targetedBlock(who, true)
@@ -1329,7 +1345,22 @@ const mobs = {
                     }
                 } else {
                     Matter.World.remove(engine.world, this);
+                    
+                    // CRITICAL: Clean up tracking map before splice
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled && this.netId) {
+                        multiplayer.mobIndexByNetId.delete(this.netId);
+                    }
+                    
                     mob.splice(i, 1);
+                    
+                    // CRITICAL: Update all indices after this one in tracking map
+                    if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                        for (let j = i; j < mob.length; j++) {
+                            if (mob[j] && mob[j].netId) {
+                                multiplayer.mobIndexByNetId.set(mob[j].netId, j);
+                            }
+                        }
+                    }
                 }
             },
             //default AI behavior - can be overridden by specific mob types
@@ -1347,6 +1378,9 @@ const mobs = {
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
             // Assign netId NOW (only once) before any shields/orbitals are spawned
             mob[i].netId = `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}`;
+            
+            // CRITICAL: Register in tracking map immediately to prevent phantom mobs
+            multiplayer.mobIndexByNetId.set(mob[i].netId, i);
             
             // CRITICAL: Capture spawn tracking NOW before setTimeout (prevents race condition with batch spawns)
             const capturedMobType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;

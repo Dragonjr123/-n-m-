@@ -694,6 +694,11 @@ const simulation = {
     },
     clearNow: false,
     clearMap() {
+        // CRITICAL: Clear multiplayer tracking data BEFORE clearing arrays
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            multiplayer.clearLevelData();
+        }
+        
         if (tech.isMineAmmoBack) {
             let count = 0;
             for (i = 0, len = bullet.length; i < len; i++) { //count mines left on map
