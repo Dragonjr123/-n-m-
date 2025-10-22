@@ -61,6 +61,8 @@ const multiplayer = {
     hostId: null,
     // Pagination for mob sync so large counts eventually update
     mobSyncCursor: 0,
+    // Track level changes for increased resync frequency
+    lastLevelChangeTime: 0,
     maxMobsPerSync: 100, // Increase limit for better sync coverage
     // Stable mob identifiers
     mobNetIdCounter: 0,
@@ -1407,7 +1409,8 @@ const multiplayer = {
         console.log('📤 Syncing level change:', levelName);
         // Reset block sync flag for new level
         this.hasInitialBlockSync = false;
-        this.fullBlockSyncCount = 0; // Reset counter to trigger full syncs
+        // Track level change time for increased resync frequency
+        this.lastLevelChangeTime = Date.now();
         // generate and store a seed to be used by all clients during level build
         const rngSeed = Date.now() ^ Math.floor(Math.random() * 1e9);
         this.pendingRngSeed = rngSeed;
@@ -2005,6 +2008,9 @@ const multiplayer = {
     handleRemoteLevelChange(event) {
         console.log('🗺️ Remote level change:', event.levelName, 'by player:', event.playerId);
         
+        // Track level change time for increased resync frequency
+        this.lastLevelChangeTime = Date.now();
+        
         // ONLY sync if game is actually running (not in lobby/menu)
         if (typeof simulation === 'undefined' || simulation.paused || !level || level.onLevel === -1) {
             console.log('⚠️ Ignoring level change - game not started yet');
@@ -2453,7 +2459,6 @@ const multiplayer = {
         
         // Reset physics sync flag to force full resync on new level
         this.hasInitialBlockSync = false;
-        this.fullBlockSyncCount = 0; // Reset counter to trigger full syncs
         
         console.log('✅ Multiplayer tracking data cleared');
     },
@@ -2822,14 +2827,12 @@ const multiplayer = {
         
         // Sync blocks (physics bodies) - sync ALL blocks for consistency
         if (typeof body !== 'undefined') {
-            // Track how many full syncs we've done for this level
-            if (!this.fullBlockSyncCount) this.fullBlockSyncCount = 0;
-            
-            // On first sync or for first 10 syncs after level change, sync ALL blocks with full data
-            // This ensures all clients reliably receive block shapes after level transitions
-            const syncAllBlocks = this.isHost && (this.fullBlockSyncCount < 10 || Math.random() < 0.01); // First 10 syncs or 1% chance
+            // On first sync or periodically, sync ALL blocks
+            // Increase resync frequency for 10 seconds after level change (20% chance vs 1%)
+            const timeSinceLevelChange = now - this.lastLevelChangeTime;
+            const resyncChance = (timeSinceLevelChange < 10000) ? 0.20 : 0.01;
+            const syncAllBlocks = this.isHost && (!this.hasInitialBlockSync || Math.random() < resyncChance);
             if (syncAllBlocks) {
-                if (this.fullBlockSyncCount < 10) this.fullBlockSyncCount++;
                 this.hasInitialBlockSync = true;
                 // Sync ALL blocks
                 for (let i = 0; i < body.length; i++) {
@@ -2863,7 +2866,9 @@ const multiplayer = {
                     if (this.isHost) {
                         // Host syncs ALL moving blocks (host has final authority)
                         const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
-                        if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001) {
+                        const isHeld = (typeof m !== 'undefined' && m.holdingTarget && m.holdingTarget.id === bodyId);
+                        // Sync if moving OR being held by host
+                        if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001 || isHeld) {
                             physicsData.blocks.push({
                                 bodyId: bodyId,
                                 x: body[i].position.x,
@@ -2871,7 +2876,12 @@ const multiplayer = {
                                 vx: body[i].velocity.x,
                                 vy: body[i].velocity.y,
                                 angle: body[i].angle,
-                                angularVelocity: body[i].angularVelocity
+                                angularVelocity: body[i].angularVelocity,
+                                // Include vertices for held blocks so clients can render correct shape
+                                vertices: isHeld && body[i].vertices ? body[i].vertices.map(v => ({ x: v.x, y: v.y })) : null,
+                                mass: isHeld ? body[i].mass : undefined,
+                                friction: isHeld ? body[i].friction : undefined,
+                                restitution: isHeld ? body[i].restitution : undefined
                             });
                             count++;
                         }
@@ -2886,12 +2896,7 @@ const multiplayer = {
                                 vx: body[i].velocity.x,
                                 vy: body[i].velocity.y,
                                 angle: body[i].angle,
-                                angularVelocity: body[i].angularVelocity,
-                                // Include vertex data so other clients see correct shapes
-                                vertices: body[i].vertices ? body[i].vertices.map(v => ({ x: v.x, y: v.y })) : null,
-                                mass: body[i].mass,
-                                friction: body[i].friction,
-                                restitution: body[i].restitution
+                                angularVelocity: body[i].angularVelocity
                             });
                             count++;
                         }
@@ -2912,12 +2917,7 @@ const multiplayer = {
                         vx: m.holdingTarget.velocity.x,
                         vy: m.holdingTarget.velocity.y,
                         angle: m.holdingTarget.angle,
-                        angularVelocity: m.holdingTarget.angularVelocity,
-                        // Include vertex data so other clients see correct shapes
-                        vertices: m.holdingTarget.vertices ? m.holdingTarget.vertices.map(v => ({ x: v.x, y: v.y })) : null,
-                        mass: m.holdingTarget.mass,
-                        friction: m.holdingTarget.friction,
-                        restitution: m.holdingTarget.restitution
+                        angularVelocity: m.holdingTarget.angularVelocity
                     });
                 }
             }
