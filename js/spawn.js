@@ -3792,11 +3792,6 @@ const spawn = {
     //**********************************************************************************************
     wireHead() {
         //not a mob, just a graphic for level 1
-        // MULTIPLAYER FIX: Only host creates visual mobs
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            return; // Clients skip visual-only mob spawns
-        }
-        
         const breakingPoint = 1300
         mobs.spawn(breakingPoint, -100, 0, 7.5, "transparent");
         let me = mob[mob.length - 1];
@@ -3863,11 +3858,6 @@ const spawn = {
     },
     wireKnee() {
         //not a mob, just a graphic for level 1
-        // MULTIPLAYER FIX: Only host creates visual mobs
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            return; // Clients skip visual-only mob spawns
-        }
-        
         const breakingPoint = 1425
         mobs.spawn(breakingPoint, -100, 0, 2, "transparent");
         let me = mob[mob.length - 1];
@@ -3919,11 +3909,6 @@ const spawn = {
     },
     wireKneeLeft() {
         //not a mob, just a graphic for level 1
-        // MULTIPLAYER FIX: Only host creates visual mobs
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            return; // Clients skip visual-only mob spawns
-        }
-        
         const breakingPoint = 1400
         mobs.spawn(breakingPoint, -100, 0, 2, "transparent");
         let me = mob[mob.length - 1];
@@ -3975,11 +3960,6 @@ const spawn = {
     },
     wireFoot() {
         //not a mob, just a graphic for level 1
-        // MULTIPLAYER FIX: Only host creates visual mobs
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            return; // Clients skip visual-only mob spawns
-        }
-        
         const breakingPoint = 1350
         mobs.spawn(breakingPoint, -100, 0, 2, "transparent");
         let me = mob[mob.length - 1];
@@ -4030,11 +4010,6 @@ const spawn = {
     },
     wireFootLeft() {
         //not a mob, just a graphic for level 1
-        // MULTIPLAYER FIX: Only host creates visual mobs
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            return; // Clients skip visual-only mob spawns
-        }
-        
         const breakingPoint = 1325
         mobs.spawn(breakingPoint, -100, 0, 2, "transparent");
         let me = mob[mob.length - 1];

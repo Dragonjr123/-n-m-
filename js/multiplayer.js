@@ -1519,46 +1519,49 @@ const multiplayer = {
                             // Call the proper spawn function if mobType is provided
                             if (event.mobType && typeof spawn !== 'undefined') {
                                 const params = event.spawnParams || {};
-                                
-                                // SET FLAG: Allow client to spawn mobs in response to network event
-                                if (typeof window !== 'undefined') window._allowClientMobSpawn = true;
-                                
-                                // Special handling for shields and orbitals (need to find target mob)
-                                if (event.mobType === 'shield' && params.targetNetId) {
-                                    // Find the target mob by netId
-                                    const targetMob = mob.find(m => m && m.netId === params.targetNetId);
-                                    if (targetMob && typeof spawn.shield === 'function') {
-                                        spawn.shield(targetMob, mobData.x, mobData.y, 1); // Force spawn with chance=1
-                                        console.log(`✅ Created shield for mob ${params.targetNetId}`);
-                                    } else {
-                                        console.warn(`⚠️ Could not find target mob ${params.targetNetId} for shield`);
+                                // Enable replay mode so mob.js spawn guard allows this on clients
+                                const prevReplay = multiplayer.replaySpawn || false;
+                                multiplayer.replaySpawn = true;
+                                try {
+                                    // Special handling for shields and orbitals (need to find target mob)
+                                    if (event.mobType === 'shield' && params.targetNetId) {
+                                        // Find the target mob by netId
+                                        const targetMob = mob.find(m => m && m.netId === params.targetNetId);
+                                        if (targetMob && typeof spawn.shield === 'function') {
+                                            spawn.shield(targetMob, mobData.x, mobData.y, 1); // Force spawn with chance=1
+                                            console.log(`✅ Created shield for mob ${params.targetNetId}`);
+                                        } else {
+                                            console.warn(`⚠️ Could not find target mob ${params.targetNetId} for shield`);
+                                        }
+                                    } else if (event.mobType === 'orbital' && params.targetNetId) {
+                                        // Find the target mob by netId
+                                        const targetMob = mob.find(m => m && m.netId === params.targetNetId);
+                                        if (targetMob && typeof spawn.orbital === 'function') {
+                                            spawn.orbital(targetMob, params.radius, params.phase, params.speed);
+                                            console.log(`✅ Created orbital for mob ${params.targetNetId}`);
+                                        } else {
+                                            console.warn(`⚠️ Could not find target mob ${params.targetNetId} for orbital`);
+                                        }
+                                    } else if (typeof spawn[event.mobType] === 'function') {
+                                        // Call the specific spawn function (e.g., spawn.hopper, spawn.shooter)
+                                        spawn[event.mobType](mobData.x, mobData.y, params.radius);
+                                        console.log(`✅ Created ${event.mobType} with full behaviors`);
                                     }
-                                } else if (event.mobType === 'orbital' && params.targetNetId) {
-                                    // Find the target mob by netId
-                                    const targetMob = mob.find(m => m && m.netId === params.targetNetId);
-                                    if (targetMob && typeof spawn.orbital === 'function') {
-                                        spawn.orbital(targetMob, params.radius, params.phase, params.speed);
-                                        console.log(`✅ Created orbital for mob ${params.targetNetId}`);
-                                    } else {
-                                        console.warn(`⚠️ Could not find target mob ${params.targetNetId} for orbital`);
-                                    }
-                                } else if (typeof spawn[event.mobType] === 'function') {
-                                    // Call the specific spawn function (e.g., spawn.hopper, spawn.shooter)
-                                    spawn[event.mobType](mobData.x, mobData.y, params.radius);
-                                    console.log(`✅ Created ${event.mobType} with full behaviors`);
+                                } finally {
+                                    multiplayer.replaySpawn = prevReplay;
                                 }
-                                
-                                // CLEAR FLAG: Done with network-initiated spawn
-                                if (typeof window !== 'undefined') window._allowClientMobSpawn = false;
                             } else {
-                                // Fallback to basic spawn for generic mobs (mobType is null)
+                                // Fallback to basic spawn (no specific mobType)
                                 const radius = mobData.radius || 30;
                                 const sides = Math.max(3, Math.min(8, Math.floor(mobData.sides) || 6));
-                                
                                 if (typeof mobs !== 'undefined' && typeof mobs.spawn === 'function') {
-                                    // Pass allowClient=true to permit this network-initiated spawn
-                                    mobs.spawn(mobData.x, mobData.y, sides, radius, mobData.fill || '#735084', true);
-                                    console.log(`✅ Created generic mob with ${sides} sides`);
+                                    const prevReplay = multiplayer.replaySpawn || false;
+                                    multiplayer.replaySpawn = true;
+                                    try {
+                                        mobs.spawn(mobData.x, mobData.y, sides, radius, mobData.fill || '#735084');
+                                    } finally {
+                                        multiplayer.replaySpawn = prevReplay;
+                                    }
                                 }
                             }
                             
@@ -1869,14 +1872,6 @@ const multiplayer = {
             }
             // Advance without syncing
             level.nextLevel(true);
-            
-            // Initialize map path for rendering after level loads
-            if (typeof simulation !== 'undefined' && typeof simulation.draw !== 'undefined' && typeof simulation.draw.setPaths === 'function') {
-                setTimeout(() => {
-                    simulation.draw.setPaths();
-                    console.log('✅ Initialized map rendering path for client');
-                }, 100); // Small delay to ensure map is fully loaded
-            }
         }
     },
     
@@ -2489,22 +2484,15 @@ const multiplayer = {
                     
                     // Assign persistent netId lazily on host
                     if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
-                    
-                    // CRITICAL: Validate position to prevent NaN from breaking Firebase
-                    if (!isFinite(m.position.x) || !isFinite(m.position.y)) {
-                        console.warn(`⚠️ Mob ${i} (${m.netId}) has invalid position: (${m.position.x}, ${m.position.y}) - skipping sync`);
-                        continue; // Skip this mob
-                    }
-                    
                     physicsData.mobs.push({
                         index: i,
                         netId: m.netId || null,
                         x: m.position.x,
                         y: m.position.y,
-                        vx: isFinite(m.velocity.x) ? m.velocity.x : 0,
-                        vy: isFinite(m.velocity.y) ? m.velocity.y : 0,
-                        angle: isFinite(m.angle) ? m.angle : 0,
-                        health: isFinite(m.health) ? m.health : 1,
+                        vx: m.velocity.x,
+                        vy: m.velocity.y,
+                        angle: m.angle,
+                        health: m.health,
                         alive: m.alive,
                         radius: m.radius || 30,
                         sides: m.vertices ? m.vertices.length : 6,
@@ -2538,22 +2526,15 @@ const multiplayer = {
                     // Only sync if we have authority and it hasn't expired
                     if (auth && auth.playerId === this.playerId && now < auth.expiry) {
                         if (!m.netId) m.netId = `client_${this.playerId}_m${i}`;
-                        
-                        // CRITICAL: Validate position to prevent NaN
-                        if (!isFinite(m.position.x) || !isFinite(m.position.y)) {
-                            console.warn(`⚠️ Client mob ${i} has invalid position - skipping sync`);
-                            continue;
-                        }
-                        
                         physicsData.mobs.push({
                             index: i,
                             netId: m.netId || null,
                             x: m.position.x,
                             y: m.position.y,
-                            vx: isFinite(m.velocity.x) ? m.velocity.x : 0,
-                            vy: isFinite(m.velocity.y) ? m.velocity.y : 0,
-                            angle: isFinite(m.angle) ? m.angle : 0,
-                            health: isFinite(m.health) ? m.health : 1,
+                            vx: m.velocity.x,
+                            vy: m.velocity.y,
+                            angle: m.angle,
+                            health: m.health,
                             alive: m.alive,
                             radius: m.radius || 30,
                             sides: m.vertices ? m.vertices.length : 6,

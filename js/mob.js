@@ -206,16 +206,14 @@ const mobs = {
 
     //**********************************************************************************************
     //**********************************************************************************************
-    spawn(xPos, yPos, sides, radius, color, allowClient = false) {
-        // CRITICAL: In multiplayer, ONLY the host can spawn mobs!
-        // Clients receive mob data via network sync
-        // UNLESS this is an explicit network-initiated spawn (allowClient = true or global flag set)
-        const isNetworkSpawn = allowClient || (typeof window !== 'undefined' && window._allowClientMobSpawn);
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost && !isNetworkSpawn) {
-            return; // Silently exit - clients never create mobs locally
-        }
-        
+    spawn(xPos, yPos, sides, radius, color) {
         let i = mob.length;
+        // Multiplayer guard: only host spawns mobs unless replaying a networked spawn
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+            if (!multiplayer.isHost && !multiplayer.replaySpawn) {
+                return; // Clients should not spawn mobs from local game logic
+            }
+        }
         
         // DON'T assign netId here - it will be assigned later in the World.add section
         // to avoid double assignment issues
@@ -1347,33 +1345,18 @@ const mobs = {
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
             // Assign netId NOW (only once) before any shields/orbitals are spawned
             mob[i].netId = `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}`;
-            
-            // CRITICAL: Store reference to THIS mob, not the index!
-            // Shields use mob.unshift() which changes all indices
-            const thisMob = mob[i];
-            const thisMobNetId = thisMob.netId;
-            
+
+            // CAPTURE spawn metadata NOW to avoid races when many spawns occur in same tick
+            const capturedType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
+            const capturedParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
+            // Reset globals immediately so next spawn can set them independently
+            if (typeof currentSpawnFunction !== 'undefined') currentSpawnFunction = null;
+            if (typeof currentSpawnParams !== 'undefined') currentSpawnParams = {};
+
             // Use setTimeout to sync after the spawn function completes (including shields/orbitals)
             setTimeout(() => {
-                if (thisMob && thisMob.alive) {
-                    // Get mob type from global tracker (set by spawn functions)
-                    // Most spawn functions don't set this, so it will be null (uses generic sync)
-                    const mobType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
-                    const spawnParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
-                    
-                    // Find current index of this mob (may have changed due to unshift)
-                    const currentIndex = mob.indexOf(thisMob);
-                    if (currentIndex !== -1) {
-                        console.log(`📤 HOST sending mob_spawn event for ${mobType || 'generic'} with netId ${thisMobNetId} at index ${currentIndex}`);
-                        multiplayer.syncMobSpawn(currentIndex, mobType, spawnParams);
-                    } else {
-                        console.warn(`⚠️ Mob with netId ${thisMobNetId} no longer in mob array - may have been removed`);
-                    }
-                    // Reset tracker
-                    if (typeof currentSpawnFunction !== 'undefined') currentSpawnFunction = null;
-                    if (typeof currentSpawnParams !== 'undefined') currentSpawnParams = {};
-                } else {
-                    console.warn(`⚠️ Mob ${thisMobNetId} died or was removed before sync event could fire`);
+                if (mob[i] && mob[i].alive) {
+                    multiplayer.syncMobSpawn(i, capturedType, capturedParams);
                 }
             }, 0);
         }
