@@ -119,10 +119,10 @@ const spawn = {
     },
     //mob templates *********************************************************************************************
     //***********************************************************************************************************
-    MACHO(x = m.pos.x, y = m.pos.y) { //immortal mob that follows player         //if you have the tech it spawns at start of every level at the player
-        // In multiplayer, only the host spawns mobs
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            return; // Clients don't spawn mobs
+    MACHO(x = m.pos.x, y = m.pos.y, forceSpawn = false) { //immortal mob that follows player         //if you have the tech it spawns at start of every level at the player
+        // In multiplayer, only the host spawns mobs (unless forceSpawn is true for multiplayer sync)
+        if (!forceSpawn && typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients don't spawn mobs during normal gameplay
         }
         currentSpawnFunction = "MACHO"; currentSpawnParams = {};
         mobs.spawn(x, y, 3, 0.1, "transparent");
@@ -729,11 +729,11 @@ const spawn = {
             this.checkStatus();
         };
     },
-    angelicHexil(x, y, radius = 40 + Math.floor(15 * Math.random())) {
+    angelicHexil(x, y, radius = 40 + Math.floor(15 * Math.random()), forceSpawn = false) {
         // Rare angelic mob that drops revive powerups - ONLY spawns in multiplayer
-        // In multiplayer, ONLY the host spawns mobs
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            return; // Clients never spawn mobs
+        // In multiplayer, ONLY the host spawns mobs (unless forceSpawn is true for multiplayer sync)
+        if (!forceSpawn && typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs during normal gameplay
         }
         
         currentSpawnFunction = "angelicHexil"; currentSpawnParams = { radius };

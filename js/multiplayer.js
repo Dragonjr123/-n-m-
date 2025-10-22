@@ -1591,7 +1591,8 @@ const multiplayer = {
                                     }
                                 } else if (typeof spawn[event.mobType] === 'function') {
                                     // Call the specific spawn function (e.g., spawn.hopper, spawn.shooter)
-                                    spawn[event.mobType](mobData.x, mobData.y, params.radius);
+                                    // Pass forceSpawn=true to bypass client guards in spawn functions
+                                    spawn[event.mobType](mobData.x, mobData.y, params.radius, true);
                                     console.log(`✅ Created ${event.mobType} with full behaviors`);
                                 }
                             } else {
