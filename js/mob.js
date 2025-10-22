@@ -5,6 +5,7 @@ const mobs = {
     loop() {
         let i = mob.length;
         while (i--) {
+            if (!mob[i]) continue; // Skip undefined mob entries
             if (mob[i].alive) {
                 mob[i].do();
             } else {
@@ -16,6 +17,7 @@ const mobs = {
         ctx.lineWidth = 2;
         let i = mob.length;
         while (i--) {
+            if (!mob[i]) continue; // Skip undefined mob entries
             ctx.beginPath();
             const vertices = mob[i].vertices;
             ctx.moveTo(vertices[0].x, vertices[0].y);
@@ -31,7 +33,7 @@ const mobs = {
     },
     healthBar() {
         for (let i = 0, len = mob.length; i < len; i++) {
-            if (mob[i].seePlayer.recall && mob[i].showHealthBar) {
+            if (mob[i] && mob[i].seePlayer && mob[i].seePlayer.recall && mob[i].showHealthBar) {
                 const h = mob[i].radius * 0.3;
                 const w = mob[i].radius * 2;
                 const x = mob[i].position.x - w / 2;

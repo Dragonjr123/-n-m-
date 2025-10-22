@@ -2384,6 +2384,16 @@ const multiplayer = {
         // Clear client authority claims (old objects are gone)
         this.clientAuthority.clear();
         
+        // CRITICAL: Clear Firebase authority database (old body/mob IDs are invalid)
+        if (this.lobbyId) {
+            const authRef = database.ref(`lobbies/${this.lobbyId}/authority`);
+            authRef.remove().then(() => {
+                console.log('🔓 Firebase authority database cleared');
+            }).catch(err => {
+                console.error('❌ Failed to clear Firebase authority:', err);
+            });
+        }
+        
         // Clear ghost mob tracking if it exists
         if (this.ghostMobLastUpdate) {
             this.ghostMobLastUpdate.clear();

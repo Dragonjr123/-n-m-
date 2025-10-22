@@ -3456,20 +3456,24 @@ const spawn = {
         // Store references before swap
         const shieldIndex = mob.length - 1;
         const targetIndex = mob.length - 1 - nodes;
-        const shieldMob = mob[shieldIndex];
-        const targetMob = mob[targetIndex];
         
-        // Swap array positions
-        mob[shieldIndex] = targetMob;
-        mob[targetIndex] = shieldMob;
-        
-        // CRITICAL: Update tracking map after swap
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-            if (shieldMob.netId) {
-                multiplayer.mobIndexByNetId.set(shieldMob.netId, targetIndex);
-            }
-            if (targetMob.netId) {
-                multiplayer.mobIndexByNetId.set(targetMob.netId, shieldIndex);
+        // SAFETY: Only swap if targetIndex is valid
+        if (targetIndex >= 0 && targetIndex < mob.length) {
+            const shieldMob = mob[shieldIndex];
+            const targetMob = mob[targetIndex];
+            
+            // Swap array positions
+            mob[shieldIndex] = targetMob;
+            mob[targetIndex] = shieldMob;
+            
+            // CRITICAL: Update tracking map after swap
+            if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
+                if (shieldMob && shieldMob.netId) {
+                    multiplayer.mobIndexByNetId.set(shieldMob.netId, targetIndex);
+                }
+                if (targetMob && targetMob.netId) {
+                    multiplayer.mobIndexByNetId.set(targetMob.netId, shieldIndex);
+                }
             }
         }
         

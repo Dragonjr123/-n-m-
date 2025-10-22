@@ -85,7 +85,7 @@ function collisionChecks(event) {
     for (let i = 0, j = pairs.length; i != j; i++) {
         //mob + (player,bullet,body) collisions
         for (let k = 0; k < mob.length; k++) {
-            if (mob[k].alive && m.alive) {
+            if (mob[k] && mob[k].alive && m.alive) {
                 if (pairs[i].bodyA === mob[k]) {
                     collideMob(pairs[i].bodyB);
                     break;
