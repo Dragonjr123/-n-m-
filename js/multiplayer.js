@@ -66,6 +66,9 @@ const multiplayer = {
     mobNetIdCounter: 0,
     mobIndexByNetId: new Map(), // netId -> index
     
+    // Block ID tracking for synced blocks
+    syncedBodyIdToLocal: new Map(), // host bodyId -> local body object
+    
     // Client authority tracking (which player is manipulating which object)
     clientAuthority: new Map(), // objectId -> {playerId, type, timestamp}
     
@@ -2447,6 +2450,9 @@ const multiplayer = {
         this.networkPowerups.clear();
         this.powerupIdCounter = 0;
         
+        // Clear synced block ID mapping
+        this.syncedBodyIdToLocal.clear();
+        
         // Clear client authority claims LOCALLY (old objects are gone)
         // NOTE: We do NOT clear Firebase authority database because:
         // 1. Old claims will expire naturally (they have timestamps)
@@ -3288,13 +3294,29 @@ const multiplayer = {
         // Update blocks (use interpolation to smooth the updates) - accept from any player
         if (physicsData.blocks && typeof body !== 'undefined') {
             if (physicsData.blocks.length > 0 && Math.random() < 0.02) {
-                console.log(`📥 Applying ${physicsData.blocks.length} block updates from player ${fromPlayerId}`);
+                console.log(`📥 Applying ${physicsData.blocks.length} block updates from player ${fromPlayerId}, map size: ${this.syncedBodyIdToLocal.size}`);
             }
             for (const blockData of physicsData.blocks) {
-                // Find body by ID instead of index (indices change when bodies are removed)
-                let targetBody = body.find(b => b && b.id === blockData.bodyId);
+                // Find body using our synced ID map (prevents duplicate creation)
+                let targetBody = this.syncedBodyIdToLocal.get(blockData.bodyId);
                 
-                // If body doesn't exist and we have vertex data, create it
+                // Verify the cached body still exists in the body array
+                if (targetBody && !body.includes(targetBody)) {
+                    // Body was removed, clear from map
+                    this.syncedBodyIdToLocal.delete(blockData.bodyId);
+                    targetBody = null;
+                }
+                
+                // Fallback: Try to find by actual body.id (for locally created blocks)
+                if (!targetBody) {
+                    targetBody = body.find(b => b && b.id === blockData.bodyId);
+                    if (targetBody) {
+                        // Found by ID, cache it in our map
+                        this.syncedBodyIdToLocal.set(blockData.bodyId, targetBody);
+                    }
+                }
+                
+                // If body doesn't exist and we have vertex data, create it ONCE
                 if (!targetBody && blockData.vertices && blockData.vertices.length >= 3) {
                     console.log(`🆕 Creating new body ${blockData.bodyId} from sync data`);
                     try {
@@ -3320,7 +3342,11 @@ const multiplayer = {
                         Matter.Body.setVelocity(targetBody, { x: blockData.vx, y: blockData.vy });
                         Matter.World.add(engine.world, targetBody);
                         body.push(targetBody);
-                        console.log(`✅ Created body with ${blockData.vertices.length} vertices and collision filters`);
+                        
+                        // CRITICAL: Map the synced bodyId to our newly created body to prevent duplication
+                        this.syncedBodyIdToLocal.set(blockData.bodyId, targetBody);
+                        
+                        console.log(`✅ Created body ${blockData.bodyId} with ${blockData.vertices.length} vertices and collision filters`);
                     } catch (e) {
                         console.error('❌ Failed to create body from vertices:', e);
                     }
