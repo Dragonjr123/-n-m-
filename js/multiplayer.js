@@ -1520,6 +1520,9 @@ const multiplayer = {
                             if (event.mobType && typeof spawn !== 'undefined') {
                                 const params = event.spawnParams || {};
                                 
+                                // SET FLAG: Allow client to spawn mobs in response to network event
+                                if (typeof window !== 'undefined') window._allowClientMobSpawn = true;
+                                
                                 // Special handling for shields and orbitals (need to find target mob)
                                 if (event.mobType === 'shield' && params.targetNetId) {
                                     // Find the target mob by netId
@@ -1544,13 +1547,18 @@ const multiplayer = {
                                     spawn[event.mobType](mobData.x, mobData.y, params.radius);
                                     console.log(`✅ Created ${event.mobType} with full behaviors`);
                                 }
+                                
+                                // CLEAR FLAG: Done with network-initiated spawn
+                                if (typeof window !== 'undefined') window._allowClientMobSpawn = false;
                             } else {
-                                // Fallback to basic spawn
+                                // Fallback to basic spawn for generic mobs (mobType is null)
                                 const radius = mobData.radius || 30;
                                 const sides = Math.max(3, Math.min(8, Math.floor(mobData.sides) || 6));
                                 
                                 if (typeof mobs !== 'undefined' && typeof mobs.spawn === 'function') {
-                                    mobs.spawn(mobData.x, mobData.y, sides, radius, mobData.fill || '#735084');
+                                    // Pass allowClient=true to permit this network-initiated spawn
+                                    mobs.spawn(mobData.x, mobData.y, sides, radius, mobData.fill || '#735084', true);
+                                    console.log(`✅ Created generic mob with ${sides} sides`);
                                 }
                             }
                             

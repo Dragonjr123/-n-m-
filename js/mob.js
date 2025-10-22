@@ -206,10 +206,12 @@ const mobs = {
 
     //**********************************************************************************************
     //**********************************************************************************************
-    spawn(xPos, yPos, sides, radius, color) {
+    spawn(xPos, yPos, sides, radius, color, allowClient = false) {
         // CRITICAL: In multiplayer, ONLY the host can spawn mobs!
         // Clients receive mob data via network sync
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+        // UNLESS this is an explicit network-initiated spawn (allowClient = true or global flag set)
+        const isNetworkSpawn = allowClient || (typeof window !== 'undefined' && window._allowClientMobSpawn);
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost && !isNetworkSpawn) {
             return; // Silently exit - clients never create mobs locally
         }
         
@@ -1346,16 +1348,32 @@ const mobs = {
             // Assign netId NOW (only once) before any shields/orbitals are spawned
             mob[i].netId = `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}`;
             
+            // CRITICAL: Store reference to THIS mob, not the index!
+            // Shields use mob.unshift() which changes all indices
+            const thisMob = mob[i];
+            const thisMobNetId = thisMob.netId;
+            
             // Use setTimeout to sync after the spawn function completes (including shields/orbitals)
             setTimeout(() => {
-                if (mob[i] && mob[i].alive) {
+                if (thisMob && thisMob.alive) {
                     // Get mob type from global tracker (set by spawn functions)
+                    // Most spawn functions don't set this, so it will be null (uses generic sync)
                     const mobType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
                     const spawnParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
-                    multiplayer.syncMobSpawn(i, mobType, spawnParams);
+                    
+                    // Find current index of this mob (may have changed due to unshift)
+                    const currentIndex = mob.indexOf(thisMob);
+                    if (currentIndex !== -1) {
+                        console.log(`📤 HOST sending mob_spawn event for ${mobType || 'generic'} with netId ${thisMobNetId} at index ${currentIndex}`);
+                        multiplayer.syncMobSpawn(currentIndex, mobType, spawnParams);
+                    } else {
+                        console.warn(`⚠️ Mob with netId ${thisMobNetId} no longer in mob array - may have been removed`);
+                    }
                     // Reset tracker
                     if (typeof currentSpawnFunction !== 'undefined') currentSpawnFunction = null;
                     if (typeof currentSpawnParams !== 'undefined') currentSpawnParams = {};
+                } else {
+                    console.warn(`⚠️ Mob ${thisMobNetId} died or was removed before sync event could fire`);
                 }
             }, 0);
         }
