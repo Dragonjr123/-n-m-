@@ -3960,6 +3960,11 @@ const spawn = {
     },
     wireFoot() {
         //not a mob, just a graphic for level 1
+        // MULTIPLAYER FIX: Only host creates visual mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients skip visual-only mob spawns
+        }
+        
         const breakingPoint = 1350
         mobs.spawn(breakingPoint, -100, 0, 2, "transparent");
         let me = mob[mob.length - 1];

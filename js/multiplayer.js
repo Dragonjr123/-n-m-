@@ -2489,15 +2489,22 @@ const multiplayer = {
                     
                     // Assign persistent netId lazily on host
                     if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
+                    
+                    // CRITICAL: Validate position to prevent NaN from breaking Firebase
+                    if (!isFinite(m.position.x) || !isFinite(m.position.y)) {
+                        console.warn(`⚠️ Mob ${i} (${m.netId}) has invalid position: (${m.position.x}, ${m.position.y}) - skipping sync`);
+                        continue; // Skip this mob
+                    }
+                    
                     physicsData.mobs.push({
                         index: i,
                         netId: m.netId || null,
                         x: m.position.x,
                         y: m.position.y,
-                        vx: m.velocity.x,
-                        vy: m.velocity.y,
-                        angle: m.angle,
-                        health: m.health,
+                        vx: isFinite(m.velocity.x) ? m.velocity.x : 0,
+                        vy: isFinite(m.velocity.y) ? m.velocity.y : 0,
+                        angle: isFinite(m.angle) ? m.angle : 0,
+                        health: isFinite(m.health) ? m.health : 1,
                         alive: m.alive,
                         radius: m.radius || 30,
                         sides: m.vertices ? m.vertices.length : 6,
@@ -2531,15 +2538,22 @@ const multiplayer = {
                     // Only sync if we have authority and it hasn't expired
                     if (auth && auth.playerId === this.playerId && now < auth.expiry) {
                         if (!m.netId) m.netId = `client_${this.playerId}_m${i}`;
+                        
+                        // CRITICAL: Validate position to prevent NaN
+                        if (!isFinite(m.position.x) || !isFinite(m.position.y)) {
+                            console.warn(`⚠️ Client mob ${i} has invalid position - skipping sync`);
+                            continue;
+                        }
+                        
                         physicsData.mobs.push({
                             index: i,
                             netId: m.netId || null,
                             x: m.position.x,
                             y: m.position.y,
-                            vx: m.velocity.x,
-                            vy: m.velocity.y,
-                            angle: m.angle,
-                            health: m.health,
+                            vx: isFinite(m.velocity.x) ? m.velocity.x : 0,
+                            vy: isFinite(m.velocity.y) ? m.velocity.y : 0,
+                            angle: isFinite(m.angle) ? m.angle : 0,
+                            health: isFinite(m.health) ? m.health : 1,
                             alive: m.alive,
                             radius: m.radius || 30,
                             sides: m.vertices ? m.vertices.length : 6,
