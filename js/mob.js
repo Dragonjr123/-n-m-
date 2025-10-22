@@ -1114,7 +1114,7 @@ const mobs = {
                     //this.fill = this.color + this.health + ')';
                     this.onDamage(dmg); //custom damage effects
                     
-                    // Sync mob damage to multiplayer for team combat
+                    // Sync mob damage to multiplayer for team combat BEFORE death check
                     if (typeof multiplayer !== 'undefined' && multiplayer.enabled && this.netId) {
                         multiplayer.syncMobDamage(this.netId, dmg, this.health, this.alive);
                     }
@@ -1137,12 +1137,9 @@ const mobs = {
                 this.removeConsBB();
                 this.alive = false; //triggers mob removal in mob[i].replace(i)
                 
-                // MULTIPLAYER FIX: Sync death event to all players
-                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
-                    const mobIndex = mob.indexOf(this);
-                    if (mobIndex !== -1) {
-                        multiplayer.syncMobAction(mobIndex, 'death', {});
-                    }
+                // MULTIPLAYER FIX: Sync death event to all players using netId
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && this.netId) {
+                    multiplayer.syncMobDeath(this.netId);
                 }
 
                 // Award polys in progressive mode

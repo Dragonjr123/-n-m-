@@ -1426,6 +1426,20 @@ const multiplayer = {
         });
     },
     
+    // Sync mob death (separate from damage for reliability)
+    syncMobDeath(mobNetId) {
+        if (!this.enabled || !this.lobbyId) return;
+        if (!mobNetId) return; // Must have netId
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'mob_death',
+            playerId: this.playerId,
+            mobNetId: mobNetId,
+            timestamp: Date.now()
+        });
+    },
+    
     // Listen for field interaction events from other players
     listenToFieldEvents() {
         if (!this.enabled || !this.lobbyId) return;
@@ -1481,6 +1495,9 @@ const multiplayer = {
                 break;
             case 'mob_damage':
                 this.handleRemoteMobDamage(event);
+                break;
+            case 'mob_death':
+                this.handleRemoteMobDeath(event);
                 break;
             case 'mob_action':
                 this.handleRemoteMobAction(event);
@@ -1879,11 +1896,18 @@ const multiplayer = {
                         time: simulation.drawTime
                     });
                 }
-                
-                // Kill mob if dead
-                if (!event.alive && targetMob.alive) {
-                    targetMob.death();
-                }
+            }
+        }
+    },
+    
+    // Handle remote mob death (separate from damage for reliability)
+    handleRemoteMobDeath(event) {
+        if (typeof mob !== 'undefined' && event.mobNetId) {
+            // Find mob by netId
+            const targetMob = mob.find(m => m && m.netId === event.mobNetId);
+            if (targetMob && targetMob.alive) {
+                // Kill the mob on this client
+                targetMob.death();
             }
         }
     },
@@ -2560,14 +2584,14 @@ const multiplayer = {
                 for (let i = 0; i < body.length && count < maxBlocks; i++) {
                     if (!body[i] || !body[i].position || !body[i].id) continue;
                     const bodyId = body[i].id;
+                    const authKey = `block_${bodyId}`;
+                    
                     if (this.isHost) {
-                        // Host syncs moving blocks not under client authority
-                        const authKey = `block_${bodyId}`;
-                        if (this.clientAuthority.has(authKey)) continue;
+                        // Host syncs ALL moving blocks (host has final authority)
                         const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
                         if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001) {
                             physicsData.blocks.push({
-                                bodyId: bodyId, // Use Matter.js body ID instead of array index
+                                bodyId: bodyId,
                                 x: body[i].position.x,
                                 y: body[i].position.y,
                                 vx: body[i].velocity.x,
@@ -2578,20 +2602,20 @@ const multiplayer = {
                             count++;
                         }
                     } else {
-                        // Clients: only sync blocks we have authority over (e.g., pushing or holding)
-                        const authKey = `block_${bodyId}`;
+                        // Clients: only sync blocks we're actively touching
                         const auth = this.clientAuthority.get(authKey);
-                        if (!auth || auth.playerId !== this.playerId) continue;
-                        physicsData.blocks.push({
-                            bodyId: bodyId, // Use Matter.js body ID instead of array index
-                            x: body[i].position.x,
-                            y: body[i].position.y,
-                            vx: body[i].velocity.x,
-                            vy: body[i].velocity.y,
-                            angle: body[i].angle,
-                            angularVelocity: body[i].angularVelocity
-                        });
-                        count++;
+                        if (auth && auth.playerId === this.playerId) {
+                            physicsData.blocks.push({
+                                bodyId: bodyId,
+                                x: body[i].position.x,
+                                y: body[i].position.y,
+                                vx: body[i].velocity.x,
+                                vy: body[i].velocity.y,
+                                angle: body[i].angle,
+                                angularVelocity: body[i].angularVelocity
+                            });
+                            count++;
+                        }
                     }
                 }
             }
@@ -2890,16 +2914,29 @@ const multiplayer = {
                 }
             }
             
-            // CLEANUP: Remove stale ghost mobs that host stopped syncing (off-screen or dead)
+            // CLEANUP: Track last update time for ghost mobs, only remove if not updated for 5 seconds
             if (!this.isHost) {
+                const now = Date.now();
+                if (!this.ghostMobLastUpdate) this.ghostMobLastUpdate = new Map();
+                
+                // Update timestamps for synced mobs
+                for (const netId of updatedNetIds) {
+                    this.ghostMobLastUpdate.set(netId, now);
+                }
+                
+                // Remove ghost mobs that haven't been updated in 5 seconds (likely dead/despawned)
                 for (let i = mob.length - 1; i >= 0; i--) {
-                    if (mob[i] && mob[i].isGhost && mob[i].netId && !updatedNetIds.has(mob[i].netId)) {
-                        console.log(`🗑️ Removing stale ghost mob ${i} with netId ${mob[i].netId} - no longer synced by host`);
-                        try {
-                            Matter.World.remove(engine.world, mob[i]);
-                        } catch(e) { /* ignore */ }
-                        this.mobIndexByNetId.delete(mob[i].netId);
-                        mob.splice(i, 1);
+                    if (mob[i] && mob[i].isGhost && mob[i].netId) {
+                        const lastUpdate = this.ghostMobLastUpdate.get(mob[i].netId) || 0;
+                        if (now - lastUpdate > 5000) { // 5 seconds timeout
+                            console.log(`🗑️ Removing stale ghost mob ${i} with netId ${mob[i].netId} - not updated for 5s`);
+                            try {
+                                Matter.World.remove(engine.world, mob[i]);
+                            } catch(e) { /* ignore */ }
+                            this.mobIndexByNetId.delete(mob[i].netId);
+                            this.ghostMobLastUpdate.delete(mob[i].netId);
+                            mob.splice(i, 1);
+                        }
                     }
                 }
             }
@@ -2914,12 +2951,15 @@ const multiplayer = {
                 // Find body by ID instead of index (indices change when bodies are removed)
                 const targetBody = body.find(b => b && b.id === blockData.bodyId);
                 if (targetBody) {
-                    // Skip blocks under local authority
+                    // If update is from host, always accept (host has final authority)
+                    // If from client, only skip if we're currently touching it
                     const authKey = `block_${blockData.bodyId}`;
-                    if (this.clientAuthority.has(authKey) && 
+                    const isFromHost = this.players[fromPlayerId] && this.players[fromPlayerId].isHost;
+                    
+                    if (!isFromHost && this.clientAuthority.has(authKey) && 
                         this.clientAuthority.get(authKey).playerId === this.playerId) {
                         if (Math.random() < 0.01) {
-                            console.log(`⏭️ Skipping block ${blockData.bodyId} - under my authority`);
+                            console.log(`⏭️ Skipping block ${blockData.bodyId} - under my authority (from client)`);
                         }
                         continue;
                     }
