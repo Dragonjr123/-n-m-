@@ -208,12 +208,6 @@ const mobs = {
     //**********************************************************************************************
     spawn(xPos, yPos, sides, radius, color) {
         let i = mob.length;
-        // Multiplayer guard: only host spawns mobs unless replaying a networked spawn
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
-            if (!multiplayer.isHost && !multiplayer.replaySpawn) {
-                return; // Clients should not spawn mobs from local game logic
-            }
-        }
         
         // DON'T assign netId here - it will be assigned later in the World.add section
         // to avoid double assignment issues
@@ -1150,7 +1144,7 @@ const mobs = {
                 if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
                     const mobIndex = mob.indexOf(this);
                     if (mobIndex !== -1) {
-                        multiplayer.syncMobAction(mobIndex, 'death', {});
+                        multiplayer.syncMobAction('death', mobIndex, {});
                     }
                 }
 
@@ -1341,24 +1335,21 @@ const mobs = {
         mob[i].alertRange2 = Math.pow(mob[i].radius * 3 + 550, 2);
         World.add(engine.world, mob[i]); //add to world
         
-        // INSTANT MULTIPLAYER SYNC: Assign netId immediately so shields/orbitals can reference it
+        // MULTIPLAYER: Assign a stable network ID and announce new mob spawn to other players
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled && multiplayer.isHost) {
-            // Assign netId NOW (only once) before any shields/orbitals are spawned
+            // Assign netId immediately
             mob[i].netId = `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}`;
-
-            // CAPTURE spawn metadata NOW to avoid races when many spawns occur in same tick
-            const capturedType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
-            const capturedParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
-            // Reset globals immediately so next spawn can set them independently
+            // Register in tracking map immediately
+            multiplayer.mobIndexByNetId.set(mob[i].netId, i);
+            
+            // Sync spawn immediately with current mob data
+            const mobType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
+            const spawnParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
+            multiplayer.syncMobSpawn(i, mobType, spawnParams);
+            
+            // Reset tracker
             if (typeof currentSpawnFunction !== 'undefined') currentSpawnFunction = null;
             if (typeof currentSpawnParams !== 'undefined') currentSpawnParams = {};
-
-            // Use setTimeout to sync after the spawn function completes (including shields/orbitals)
-            setTimeout(() => {
-                if (mob[i] && mob[i].alive) {
-                    multiplayer.syncMobSpawn(i, capturedType, capturedParams);
-                }
-            }, 0);
         }
     }
 };

@@ -61,10 +61,24 @@ const multiplayer = {
     hostId: null,
     // Pagination for mob sync so large counts eventually update
     mobSyncCursor: 0,
-    maxMobsPerSync: 100, // Increase limit for better sync coverage
+    maxMobsPerSync: 200, // Increased for better coverage
     // Stable mob identifiers
     mobNetIdCounter: 0,
     mobIndexByNetId: new Map(), // netId -> index
+    lastSeenMobs: new Map(), // Track last seen mobs for cleanup
+    mobCleanupInterval: 2000, // Cleanup phantom mobs every 2 seconds
+    
+    // Rebuild mob index mapping after any mob removal
+    rebuildMobIndexMap() {
+        this.mobIndexByNetId.clear();
+        if (typeof mob !== 'undefined') {
+            for (let i = 0; i < mob.length; i++) {
+                if (mob[i] && mob[i].netId) {
+                    this.mobIndexByNetId.set(mob[i].netId, i);
+                }
+            }
+        }
+    },
     
     // Client authority tracking (which player is manipulating which object)
     clientAuthority: new Map(), // objectId -> {playerId, type, timestamp}
@@ -1501,16 +1515,8 @@ const multiplayer = {
                     console.log('👹 Instant mob spawn from host:', event.mobType, event.mobData.netId);
                     const mobData = event.mobData;
                     
-                    // CRITICAL: Check if we already have this mob (prevent duplicates)
-                    let exists = false;
-                    for (let i = 0; i < mob.length; i++) {
-                        if (mob[i] && mob[i].netId === mobData.netId) {
-                            exists = true;
-                            console.log('⚠️ Mob already exists with netId:', mobData.netId);
-                            break;
-                        }
-                    }
-                    
+                    // Check if we already have this mob
+                    const exists = mob.some(m => m && m.netId === mobData.netId);
                     if (!exists) {
                         // Create ghost mob immediately using the PROPER spawn function
                         try {
@@ -1519,49 +1525,38 @@ const multiplayer = {
                             // Call the proper spawn function if mobType is provided
                             if (event.mobType && typeof spawn !== 'undefined') {
                                 const params = event.spawnParams || {};
-                                // Enable replay mode so mob.js spawn guard allows this on clients
-                                const prevReplay = multiplayer.replaySpawn || false;
-                                multiplayer.replaySpawn = true;
-                                try {
-                                    // Special handling for shields and orbitals (need to find target mob)
-                                    if (event.mobType === 'shield' && params.targetNetId) {
-                                        // Find the target mob by netId
-                                        const targetMob = mob.find(m => m && m.netId === params.targetNetId);
-                                        if (targetMob && typeof spawn.shield === 'function') {
-                                            spawn.shield(targetMob, mobData.x, mobData.y, 1); // Force spawn with chance=1
-                                            console.log(`✅ Created shield for mob ${params.targetNetId}`);
-                                        } else {
-                                            console.warn(`⚠️ Could not find target mob ${params.targetNetId} for shield`);
-                                        }
-                                    } else if (event.mobType === 'orbital' && params.targetNetId) {
-                                        // Find the target mob by netId
-                                        const targetMob = mob.find(m => m && m.netId === params.targetNetId);
-                                        if (targetMob && typeof spawn.orbital === 'function') {
-                                            spawn.orbital(targetMob, params.radius, params.phase, params.speed);
-                                            console.log(`✅ Created orbital for mob ${params.targetNetId}`);
-                                        } else {
-                                            console.warn(`⚠️ Could not find target mob ${params.targetNetId} for orbital`);
-                                        }
-                                    } else if (typeof spawn[event.mobType] === 'function') {
-                                        // Call the specific spawn function (e.g., spawn.hopper, spawn.shooter)
-                                        spawn[event.mobType](mobData.x, mobData.y, params.radius);
-                                        console.log(`✅ Created ${event.mobType} with full behaviors`);
+                                
+                                // Special handling for shields and orbitals (need to find target mob)
+                                if (event.mobType === 'shield' && params.targetNetId) {
+                                    // Find the target mob by netId
+                                    const targetMob = mob.find(m => m && m.netId === params.targetNetId);
+                                    if (targetMob && typeof spawn.shield === 'function') {
+                                        spawn.shield(targetMob, mobData.x, mobData.y, 1); // Force spawn with chance=1
+                                        console.log(`✅ Created shield for mob ${params.targetNetId}`);
+                                    } else {
+                                        console.warn(`⚠️ Could not find target mob ${params.targetNetId} for shield`);
                                     }
-                                } finally {
-                                    multiplayer.replaySpawn = prevReplay;
+                                } else if (event.mobType === 'orbital' && params.targetNetId) {
+                                    // Find the target mob by netId
+                                    const targetMob = mob.find(m => m && m.netId === params.targetNetId);
+                                    if (targetMob && typeof spawn.orbital === 'function') {
+                                        spawn.orbital(targetMob, params.radius, params.phase, params.speed);
+                                        console.log(`✅ Created orbital for mob ${params.targetNetId}`);
+                                    } else {
+                                        console.warn(`⚠️ Could not find target mob ${params.targetNetId} for orbital`);
+                                    }
+                                } else if (typeof spawn[event.mobType] === 'function') {
+                                    // Call the specific spawn function (e.g., spawn.hopper, spawn.shooter)
+                                    spawn[event.mobType](mobData.x, mobData.y, params.radius);
+                                    console.log(`✅ Created ${event.mobType} with full behaviors`);
                                 }
                             } else {
-                                // Fallback to basic spawn (no specific mobType)
+                                // Fallback to basic spawn
                                 const radius = mobData.radius || 30;
                                 const sides = Math.max(3, Math.min(8, Math.floor(mobData.sides) || 6));
+                                
                                 if (typeof mobs !== 'undefined' && typeof mobs.spawn === 'function') {
-                                    const prevReplay = multiplayer.replaySpawn || false;
-                                    multiplayer.replaySpawn = true;
-                                    try {
-                                        mobs.spawn(mobData.x, mobData.y, sides, radius, mobData.fill || '#735084');
-                                    } finally {
-                                        multiplayer.replaySpawn = prevReplay;
-                                    }
+                                    mobs.spawn(mobData.x, mobData.y, sides, radius, mobData.fill || '#735084');
                                 }
                             }
                             
@@ -2470,6 +2465,7 @@ const multiplayer = {
         
         // Sync mobs (enemies) - only host manages and syncs mobs
         if (this.isHost && typeof mob !== 'undefined' && mob.length) {
+            // Sync ALL mobs every update to prevent phantom mobs
             for (let i = 0; i < mob.length; i++) {
                 const m = mob[i];
                 if (m && m.position && m.alive) { // Only sync alive mobs
@@ -2483,7 +2479,11 @@ const multiplayer = {
                     }
                     
                     // Assign persistent netId lazily on host
-                    if (!m.netId) m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
+                    if (!m.netId) {
+                        m.netId = `${this.playerId}_m${this.mobNetIdCounter++}`;
+                        // Register in tracking map immediately  
+                        this.mobIndexByNetId.set(m.netId, i);
+                    }
                     physicsData.mobs.push({
                         index: i,
                         netId: m.netId || null,
@@ -2507,12 +2507,8 @@ const multiplayer = {
                 }
             }
             // Debug: log mob sync count occasionally
-            if (physicsData.mobs.length > 0 && Math.random() < 0.05) {
-                console.log(`📡 Syncing ${physicsData.mobs.length} alive mobs out of ${mob.length} total`);
-                const mobsWithVerts = physicsData.mobs.filter(m => m.verts && m.verts.length > 0);
-                if (mobsWithVerts.length > 0) {
-                    console.log(`📡 ${mobsWithVerts.length} mobs have vertex data, sample:`, mobsWithVerts[0].verts.length, 'vertices');
-                }
+            if (Math.random() < 0.02) {
+                console.log(`📡 Syncing ${physicsData.mobs.length} alive mobs out of ${mob.length} total, netId map size: ${this.mobIndexByNetId.size}`);
             }
         }
         
@@ -2738,26 +2734,12 @@ const multiplayer = {
                     }
                 }
                 
-                // If we don't have this mob tracked yet, search for it by netId in the mob array
-                if (!mobExists && mobData.netId) {
-                    // Linear search for mob with matching netId (more reliable than index)
-                    for (let i = 0; i < mob.length; i++) {
-                        if (mob[i] && mob[i].netId === mobData.netId) {
-                            targetIndex = i;
-                            mobExists = true;
-                            // Update the tracking map with correct index
-                            this.mobIndexByNetId.set(mobData.netId, i);
-                            break;
-                        }
-                    }
-                }
-                
-                // Last resort: try by index if no netId match found
+                // If we don't have this mob tracked yet, try to find it by index
                 if (!mobExists && isFinite(mobData.index) && mob[mobData.index]) {
                     targetIndex = mobData.index;
                     mobExists = true;
                     // Register the netId if we have one
-                    if (mobData.netId && !mob[mobData.index].netId) {
+                    if (mobData.netId) {
                         this.mobIndexByNetId.set(mobData.netId, mobData.index);
                         mob[mobData.index].netId = mobData.netId;
                     }
@@ -2776,7 +2758,7 @@ const multiplayer = {
                         Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
                         Matter.Body.setAngle(bodyRef, target.angle);
                     } else {
-                        const alpha = 0.3; // Gentle interpolation to avoid jitter
+                        const alpha = 0.5; // Increased for better sync
                         Matter.Body.setPosition(bodyRef, { x: cur.x + dx * alpha, y: cur.y + dy * alpha });
                         Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
                         // Angle wrap smoothing
@@ -2812,31 +2794,151 @@ const multiplayer = {
                     if (mobData.alive !== undefined) {
                         const wasAlive = mob[targetIndex].alive;
                         mob[targetIndex].alive = mobData.alive;
-                        if (wasAlive && mobData.alive === false && typeof mob[targetIndex].death === 'function') {
-                            mob[targetIndex].death();
+                        if (wasAlive && mobData.alive === false) {
+                            // Mark for immediate removal instead of calling death()
+                            console.log(`💀 Host reports mob ${targetIndex} dead, removing immediately`);
+                            try {
+                                Matter.World.remove(engine.world, mob[targetIndex]);
+                            } catch(e) { /* ignore */ }
+                            this.mobIndexByNetId.delete(mob[targetIndex].netId);
+                            this.lastSeenMobs.delete(mob[targetIndex].netId);
+                            mob.splice(targetIndex, 1);
+                            // Rebuild index map after removal
+                            this.rebuildMobIndexMap();
                         }
                     }
                 } else if (!mobExists && mobData.netId && mobData.alive !== false && (typeof mob !== 'undefined') && !this.isHost && fromPlayerId === this.hostId) {
-                    console.log(`⚠️ Ignoring untracked mob ${mobData.netId} - should have been created by mob_spawn event`);
-                }
-            }
-            
-            // DISABLED CLEANUP: This was removing valid mobs that just weren't in view
-            // The host already manages mob lifecycle, clients shouldn't remove mobs on their own
-            /*
-            if (!this.isHost) {
-                for (let i = mob.length - 1; i >= 0; i--) {
-                    if (mob[i] && mob[i].isGhost && mob[i].netId && !updatedNetIds.has(mob[i].netId)) {
-                        console.log(`🗑️ Removing stale ghost mob ${i} with netId ${mob[i].netId} - no longer synced by host`);
-                        try {
-                            Matter.World.remove(engine.world, mob[i]);
-                        } catch(e) { }
-                        this.mobIndexByNetId.delete(mob[i].netId);
-                        mob.splice(i, 1);
+                    // Create a simple ghost mob for clients when HOST reports a new mob
+                    // Only create if we don't have this mob yet, have a netId, the mob is alive, we're not the host, and this update is from the host
+                    console.log(`👻 Client creating ghost mob with netId: ${mobData.netId} at (${Math.round(mobData.x)}, ${Math.round(mobData.y)})`);
+                    try {
+                        const radius = mobData.radius || 30; // Use actual radius if available
+                        // Clamp sides to a reasonable small polygon to avoid near-circles from high vertex counts
+                        const sides = Math.max(3, Math.min(8, isFinite(mobData.sides) ? Math.floor(mobData.sides) : 6));
+                        let ghost;
+                        const baseOpts = {
+                            inertia: Infinity,
+                            frictionAir: 0.005,
+                            restitution: 0.5,
+                            density: 0.001,
+                            // Ensure ghost mobs behave like real mobs re: collisions
+                            collisionFilter: {
+                                group: 0,
+                                category: cat.mob,
+                                mask: cat.player | cat.map | cat.body | cat.bullet | cat.mob
+                            },
+                            classType: 'mob',
+                            mob: true,
+                            isGhost: true,
+                            alive: true,
+                            health: isFinite(mobData.health) ? mobData.health : 1,
+                            radius: radius,
+                            seePlayer: { recall: mobData.seePlayerYes || false, yes: mobData.seePlayerYes || false, position: { x: mobData.x || 0, y: mobData.y || 0 } },
+                            showHealthBar: true,
+                            fill: mobData.fill || '#735084', // Use actual fill or default purple
+                            stroke: mobData.stroke || '#000000' // Use actual stroke or black
+                        };
+                        if (Array.isArray(mobData.verts) && mobData.verts.length >= 3) {
+                            try {
+                                ghost = Matter.Bodies.fromVertices(mobData.x || 0, mobData.y || 0, mobData.verts, baseOpts);
+                                // Validate: if body has no vertices or degenerate, fall back to polygon
+                                if (!ghost || !ghost.vertices || ghost.vertices.length < 3) {
+                                    console.warn('fromVertices created invalid body, falling back to polygon');
+                                    ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
+                                }
+                            } catch(e) {
+                                console.warn('fromVertices failed:', e, 'falling back to polygon');
+                                ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
+                            }
+                        } else {
+                            ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
+                        }
+                        
+                        // Add minimal required methods
+                        ghost.damage = function() { /* no-op on clients */ };
+                        ghost.locatePlayer = function() { /* no-op on clients */ };
+                        ghost.foundPlayer = function() { /* no-op on clients */ };
+                        ghost.death = function() {
+                            this.alive = false;
+                            Matter.World.remove(engine.world, this);
+                            for (let i = 0; i < mob.length; i++) {
+                                if (mob[i] === this) { mob.splice(i, 1); break; }
+                            }
+                        };
+                        // Ensure mob loop can safely call replace(i) on ghost
+                        ghost.replace = function(i) {
+                            try {
+                                Matter.World.remove(engine.world, this);
+                            } catch(e) { /* no-op */ }
+                            if (isFinite(i) && i >= 0 && i < mob.length && mob[i] === this) {
+                                mob.splice(i, 1);
+                            } else {
+                                for (let j = 0; j < mob.length; j++) {
+                                    if (mob[j] === this) { mob.splice(j, 1); break; }
+                                }
+                            }
+                        };
+                        ghost.do = function() { /* no-op */ };
+                        ghost.onDeath = function() { /* no-op */ };
+                        ghost.onDamage = function() { /* no-op */ };
+                        ghost.checkStatus = function() { /* no-op */ };
+                        ghost.gravity = function() { this.force.y += this.mass * simulation.g; };
+                        ghost.distanceToPlayer = function() { 
+                            const dx = this.position.x - player.position.x;
+                            const dy = this.position.y - player.position.y;
+                            return Math.sqrt(dx * dx + dy * dy);
+                        };
+                        ghost.distanceToPlayer2 = function() {
+                            const dx = this.position.x - player.position.x;
+                            const dy = this.position.y - player.position.y;
+                            return dx * dx + dy * dy;
+                        };
+                        
+                        // Add to world and mob array
+                        World.add(engine.world, ghost);
+                        const newIndex = mob.length;
+                        mob[newIndex] = ghost;
+                        
+                        // Register netId mapping
+                        this.mobIndexByNetId.set(mobData.netId, newIndex);
+                        ghost.netId = mobData.netId;
+                        
+                        // Set initial physics
+                        Matter.Body.setVelocity(ghost, { x: mobData.vx || 0, y: mobData.vy || 0 });
+                        Matter.Body.setAngle(ghost, mobData.angle || 0);
+                    } catch (e) {
+                        console.warn('Failed to create ghost mob:', e);
                     }
                 }
             }
-            */
+            
+            // Track which mobs we've seen this update
+            const now = Date.now();
+            for (const netId of updatedNetIds) {
+                this.lastSeenMobs.set(netId, now);
+            }
+            
+            // CLEANUP: Remove stale ghost mobs that haven't been synced recently
+            if (!this.isHost) {
+                const staleTime = now - this.mobCleanupInterval;
+                for (let i = mob.length - 1; i >= 0; i--) {
+                    if (mob[i] && mob[i].isGhost && mob[i].netId) {
+                        const lastSeen = this.lastSeenMobs.get(mob[i].netId) || 0;
+                        // Remove if we haven't seen this mob in the last cleanup interval
+                        if (lastSeen < staleTime || (!updatedNetIds.has(mob[i].netId) && mob[i].health <= 0)) {
+                            console.log(`🗑️ Removing stale/dead ghost mob ${i} with netId ${mob[i].netId}`);
+                            try {
+                                Matter.World.remove(engine.world, mob[i]);
+                            } catch(e) { /* ignore */ }
+                            this.mobIndexByNetId.delete(mob[i].netId);
+                            this.lastSeenMobs.delete(mob[i].netId);
+                            mob.splice(i, 1);
+                            // Rebuild index map after removal
+                            this.rebuildMobIndexMap();
+                        }
+                    }
+                }
+            }
         }
         
         // Update blocks (use interpolation to smooth the updates) - accept from any player
