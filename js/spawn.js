@@ -25,7 +25,7 @@ const spawn = {
         "spawner",
         "ghoster",
         "sneaker",
-        "angelicHexil", // Rare angelic mob that drops revive powerups
+        "angelicHexil", "angelicHexil", "angelicHexil", // Angelic mob that drops revive powerups - more common for multiplayer
     ],
     allowedGroupList: ["chaser", "spinner", "striker", "springer", "laser", "focuser", "beamer", "exploder", "spawner", "shooter", "launcher", "stabber", "sniper", "pulsar"],
     setSpawnList() { //this is run at the start of each new level to determine the possible mobs for the level

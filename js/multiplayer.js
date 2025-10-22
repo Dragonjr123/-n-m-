@@ -1405,8 +1405,9 @@ const multiplayer = {
     },
     
     // Sync mob damage (for team combat)
-    syncMobDamage(mobIndex, damage, health, alive) {
+    syncMobDamage(mobNetId, damage, health, alive) {
         if (!this.enabled || !this.lobbyId) return;
+        if (!mobNetId) return; // Must have netId
         
         // Throttle mob damage sync (only sync every few frames)
         const now = Date.now();
@@ -1417,7 +1418,7 @@ const multiplayer = {
         eventRef.set({
             type: 'mob_damage',
             playerId: this.playerId,
-            mobIndex: mobIndex,
+            mobNetId: mobNetId, // Use netId instead of index
             damage: damage,
             health: health,
             alive: alive,
@@ -1858,15 +1859,15 @@ const multiplayer = {
     
     // Handle remote mob damage (team combat)
     handleRemoteMobDamage(event) {
-        // Apply damage to the mob on this client
-        if (typeof mob !== 'undefined' && mob[event.mobIndex]) {
-            const targetMob = mob[event.mobIndex];
+        // Apply damage to the mob on this client using netId
+        if (typeof mob !== 'undefined' && event.mobNetId) {
+            // Find mob by netId instead of index (indices change when mobs die)
+            const targetMob = mob.find(m => m && m.netId === event.mobNetId);
             if (targetMob && targetMob.alive) {
                 // Only sync if health is valid (prevent negative health)
                 if (isFinite(event.health) && event.health >= 0) {
                     targetMob.health = event.health;
                 }
-                targetMob.alive = event.alive;
                 
                 // Show damage indicator
                 if (typeof simulation !== 'undefined' && simulation.drawList && event.damage > 0) {
@@ -2071,7 +2072,7 @@ const multiplayer = {
         
         // Check for collisions with blocks (physics bodies)
         for (let i = 0; i < body.length; i++) {
-            if (!body[i] || !body[i].position) continue;
+            if (!body[i] || !body[i].position || !body[i].id) continue;
             
             // Calculate distance to player
             const dx = body[i].position.x - player.position.x;
@@ -2080,12 +2081,12 @@ const multiplayer = {
             
             // If player is touching this block (within 80 units)
             if (dist2 < 6400) {
-                const authKey = `block_${i}`;
+                const authKey = `block_${body[i].id}`; // Use body.id instead of array index
                 const existing = this.clientAuthority.get(authKey);
                 
                 // Only claim if not already claimed or if expired
                 if (!existing || now > existing.expiry) {
-                    this.claimAuthority('block', i, 500); // 500ms authority
+                    this.claimAuthority('block', body[i].id, 500); // 500ms authority - use bodyId
                 }
             }
         }
@@ -2539,9 +2540,9 @@ const multiplayer = {
                 this.hasInitialBlockSync = true;
                 // Sync ALL blocks
                 for (let i = 0; i < body.length; i++) {
-                    if (body[i] && body[i].position) {
+                    if (body[i] && body[i].position && body[i].id) {
                         physicsData.blocks.push({
-                            index: i,
+                            bodyId: body[i].id, // Use Matter.js body ID instead of array index
                             x: body[i].position.x,
                             y: body[i].position.y,
                             vx: body[i].velocity.x,
@@ -2557,15 +2558,16 @@ const multiplayer = {
                 const maxBlocks = 50;
                 let count = 0;
                 for (let i = 0; i < body.length && count < maxBlocks; i++) {
-                    if (!body[i] || !body[i].position) continue;
+                    if (!body[i] || !body[i].position || !body[i].id) continue;
+                    const bodyId = body[i].id;
                     if (this.isHost) {
                         // Host syncs moving blocks not under client authority
-                        const authKey = `block_${i}`;
+                        const authKey = `block_${bodyId}`;
                         if (this.clientAuthority.has(authKey)) continue;
                         const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
                         if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001) {
                             physicsData.blocks.push({
-                                index: i,
+                                bodyId: bodyId, // Use Matter.js body ID instead of array index
                                 x: body[i].position.x,
                                 y: body[i].position.y,
                                 vx: body[i].velocity.x,
@@ -2577,11 +2579,11 @@ const multiplayer = {
                         }
                     } else {
                         // Clients: only sync blocks we have authority over (e.g., pushing or holding)
-                        const authKey = `block_${i}`;
+                        const authKey = `block_${bodyId}`;
                         const auth = this.clientAuthority.get(authKey);
                         if (!auth || auth.playerId !== this.playerId) continue;
                         physicsData.blocks.push({
-                            index: i,
+                            bodyId: bodyId, // Use Matter.js body ID instead of array index
                             x: body[i].position.x,
                             y: body[i].position.y,
                             vx: body[i].velocity.x,
@@ -2594,20 +2596,20 @@ const multiplayer = {
                 }
             }
             // Always include currently held block if any (prioritize for visibility)
-            if (typeof m !== 'undefined' && m.holdingTarget) {
-                const heldIdx = body.indexOf(m.holdingTarget);
-                if (heldIdx !== -1 && !physicsData.blocks.some(b => b.index === heldIdx)) {
+            if (typeof m !== 'undefined' && m.holdingTarget && m.holdingTarget.id) {
+                const heldBodyId = m.holdingTarget.id;
+                if (!physicsData.blocks.some(b => b.bodyId === heldBodyId)) {
                     if (Math.random() < 0.05) {
-                        console.log(`📦 Syncing held block index ${heldIdx} at (${body[heldIdx].position.x.toFixed(0)}, ${body[heldIdx].position.y.toFixed(0)})`);
+                        console.log(`📦 Syncing held block ID ${heldBodyId} at (${m.holdingTarget.position.x.toFixed(0)}, ${m.holdingTarget.position.y.toFixed(0)})`);
                     }
                     physicsData.blocks.unshift({
-                        index: heldIdx,
-                        x: body[heldIdx].position.x,
-                        y: body[heldIdx].position.y,
-                        vx: body[heldIdx].velocity.x,
-                        vy: body[heldIdx].velocity.y,
-                        angle: body[heldIdx].angle,
-                        angularVelocity: body[heldIdx].angularVelocity
+                        bodyId: heldBodyId,
+                        x: m.holdingTarget.position.x,
+                        y: m.holdingTarget.position.y,
+                        vx: m.holdingTarget.velocity.x,
+                        vy: m.holdingTarget.velocity.y,
+                        angle: m.holdingTarget.angle,
+                        angularVelocity: m.holdingTarget.angularVelocity
                     });
                 }
             }
@@ -2909,18 +2911,20 @@ const multiplayer = {
                 console.log(`📥 Applying ${physicsData.blocks.length} block updates from player ${fromPlayerId}`);
             }
             for (const blockData of physicsData.blocks) {
-                if (body[blockData.index]) {
+                // Find body by ID instead of index (indices change when bodies are removed)
+                const targetBody = body.find(b => b && b.id === blockData.bodyId);
+                if (targetBody) {
                     // Skip blocks under local authority
-                    const authKey = `block_${blockData.index}`;
+                    const authKey = `block_${blockData.bodyId}`;
                     if (this.clientAuthority.has(authKey) && 
                         this.clientAuthority.get(authKey).playerId === this.playerId) {
                         if (Math.random() < 0.01) {
-                            console.log(`⏭️ Skipping block ${blockData.index} - under my authority`);
+                            console.log(`⏭️ Skipping block ${blockData.bodyId} - under my authority`);
                         }
                         continue;
                     }
                     
-                    const currentPos = body[blockData.index].position;
+                    const currentPos = targetBody.position;
                     const dx = blockData.x - currentPos.x;
                     const dy = blockData.y - currentPos.y;
                     const dist2 = dx*dx + dy*dy;
@@ -2940,23 +2944,24 @@ const multiplayer = {
                     const newY = currentPos.y + dy * lerpFactor;
                     
                     if (Math.random() < 0.01) {
-                        console.log(`✅ Applying block ${blockData.index} update: (${currentPos.x.toFixed(0)},${currentPos.y.toFixed(0)}) -> (${newX.toFixed(0)},${newY.toFixed(0)}) [dist: ${Math.sqrt(dist2).toFixed(0)}]`);
+                        console.log(`✅ Applying block ${blockData.bodyId} update: (${currentPos.x.toFixed(0)},${currentPos.y.toFixed(0)}) -> (${newX.toFixed(0)},${newY.toFixed(0)}) [dist: ${Math.sqrt(dist2).toFixed(0)}]`);
                     }
                     
-                    Matter.Body.setPosition(body[blockData.index], { x: newX, y: newY });
-                    Matter.Body.setVelocity(body[blockData.index], { x: blockData.vx, y: blockData.vy });
+                    Matter.Body.setPosition(targetBody, { x: newX, y: newY });
+                    Matter.Body.setVelocity(targetBody, { x: blockData.vx, y: blockData.vy });
                     
                     // Smooth angle interpolation
-                    const currentAngle = body[blockData.index].angle;
+                    const currentAngle = targetBody.angle;
                     const targetAngle = blockData.angle;
                     const angleDiff = ((targetAngle - currentAngle + Math.PI) % (2*Math.PI)) - Math.PI;
-                    Matter.Body.setAngle(body[blockData.index], currentAngle + angleDiff * lerpFactor);
-                    Matter.Body.setAngularVelocity(body[blockData.index], blockData.angularVelocity);
+                    const newAngle = currentAngle + angleDiff * lerpFactor;
+                    Matter.Body.setAngle(targetBody, newAngle);
+                    Matter.Body.setAngularVelocity(targetBody, blockData.angularVelocity || 0);
                 }
             }
         }
         
-        // Update powerups (use interpolation)
+        // Update powerups (they move with physics)
         if (physicsData.powerups && typeof powerUp !== 'undefined') {
             for (const powerupData of physicsData.powerups) {
                 const localIndex = this.networkPowerups.get(powerupData.id);
