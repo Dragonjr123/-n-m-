@@ -2834,7 +2834,12 @@ const multiplayer = {
                             vx: body[i].velocity.x,
                             vy: body[i].velocity.y,
                             angle: body[i].angle,
-                            angularVelocity: body[i].angularVelocity
+                            angularVelocity: body[i].angularVelocity,
+                            // CRITICAL: Include shape data so clients render correct shapes
+                            vertices: body[i].vertices ? body[i].vertices.map(v => ({ x: v.x, y: v.y })) : null,
+                            mass: body[i].mass,
+                            friction: body[i].friction,
+                            restitution: body[i].restitution
                         });
                     }
                 }
@@ -3248,7 +3253,35 @@ const multiplayer = {
             }
             for (const blockData of physicsData.blocks) {
                 // Find body by ID instead of index (indices change when bodies are removed)
-                const targetBody = body.find(b => b && b.id === blockData.bodyId);
+                let targetBody = body.find(b => b && b.id === blockData.bodyId);
+                
+                // If body doesn't exist and we have vertex data, create it
+                if (!targetBody && blockData.vertices && blockData.vertices.length >= 3) {
+                    console.log(`🆕 Creating new body ${blockData.bodyId} from sync data`);
+                    try {
+                        targetBody = Matter.Bodies.fromVertices(
+                            blockData.x, 
+                            blockData.y, 
+                            blockData.vertices,
+                            {
+                                friction: blockData.friction || 0.4,
+                                frictionStatic: 1,
+                                frictionAir: 0.001,
+                                restitution: blockData.restitution || 0,
+                                classType: "body"
+                            }
+                        );
+                        if (blockData.mass) Matter.Body.setDensity(targetBody, blockData.mass / (targetBody.area || 1));
+                        Matter.Body.setAngle(targetBody, blockData.angle);
+                        Matter.Body.setVelocity(targetBody, { x: blockData.vx, y: blockData.vy });
+                        Matter.World.add(engine.world, targetBody);
+                        body.push(targetBody);
+                        console.log(`✅ Created body with ${blockData.vertices.length} vertices`);
+                    } catch (e) {
+                        console.error('❌ Failed to create body from vertices:', e);
+                    }
+                }
+                
                 if (targetBody) {
                     // If update is from host, always accept (host has final authority)
                     // If from client, accept if we're NOT touching it (or if we're the host accepting client authority)
