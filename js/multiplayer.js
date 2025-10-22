@@ -1407,6 +1407,7 @@ const multiplayer = {
         console.log('📤 Syncing level change:', levelName);
         // Reset block sync flag for new level
         this.hasInitialBlockSync = false;
+        this.fullBlockSyncCount = 0; // Reset counter to trigger full syncs
         // generate and store a seed to be used by all clients during level build
         const rngSeed = Date.now() ^ Math.floor(Math.random() * 1e9);
         this.pendingRngSeed = rngSeed;
@@ -2452,6 +2453,7 @@ const multiplayer = {
         
         // Reset physics sync flag to force full resync on new level
         this.hasInitialBlockSync = false;
+        this.fullBlockSyncCount = 0; // Reset counter to trigger full syncs
         
         console.log('✅ Multiplayer tracking data cleared');
     },
@@ -2820,9 +2822,14 @@ const multiplayer = {
         
         // Sync blocks (physics bodies) - sync ALL blocks for consistency
         if (typeof body !== 'undefined') {
-            // On first sync or periodically, sync ALL blocks
-            const syncAllBlocks = this.isHost && (!this.hasInitialBlockSync || Math.random() < 0.01); // 1% chance to resync all
+            // Track how many full syncs we've done for this level
+            if (!this.fullBlockSyncCount) this.fullBlockSyncCount = 0;
+            
+            // On first sync or for first 10 syncs after level change, sync ALL blocks with full data
+            // This ensures all clients reliably receive block shapes after level transitions
+            const syncAllBlocks = this.isHost && (this.fullBlockSyncCount < 10 || Math.random() < 0.01); // First 10 syncs or 1% chance
             if (syncAllBlocks) {
+                if (this.fullBlockSyncCount < 10) this.fullBlockSyncCount++;
                 this.hasInitialBlockSync = true;
                 // Sync ALL blocks
                 for (let i = 0; i < body.length; i++) {
@@ -2879,7 +2886,12 @@ const multiplayer = {
                                 vx: body[i].velocity.x,
                                 vy: body[i].velocity.y,
                                 angle: body[i].angle,
-                                angularVelocity: body[i].angularVelocity
+                                angularVelocity: body[i].angularVelocity,
+                                // Include vertex data so other clients see correct shapes
+                                vertices: body[i].vertices ? body[i].vertices.map(v => ({ x: v.x, y: v.y })) : null,
+                                mass: body[i].mass,
+                                friction: body[i].friction,
+                                restitution: body[i].restitution
                             });
                             count++;
                         }
@@ -2900,7 +2912,12 @@ const multiplayer = {
                         vx: m.holdingTarget.velocity.x,
                         vy: m.holdingTarget.velocity.y,
                         angle: m.holdingTarget.angle,
-                        angularVelocity: m.holdingTarget.angularVelocity
+                        angularVelocity: m.holdingTarget.angularVelocity,
+                        // Include vertex data so other clients see correct shapes
+                        vertices: m.holdingTarget.vertices ? m.holdingTarget.vertices.map(v => ({ x: v.x, y: v.y })) : null,
+                        mass: m.holdingTarget.mass,
+                        friction: m.holdingTarget.friction,
+                        restitution: m.holdingTarget.restitution
                     });
                 }
             }
