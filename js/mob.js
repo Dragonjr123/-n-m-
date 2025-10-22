@@ -1340,16 +1340,15 @@ const mobs = {
             // Assign netId NOW (only once) before any shields/orbitals are spawned
             mob[i].netId = `${multiplayer.playerId}_m${multiplayer.mobNetIdCounter++}`;
             
+            // CRITICAL: Capture spawn tracking NOW before setTimeout (prevents race condition with batch spawns)
+            const capturedMobType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
+            const capturedSpawnParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
+            
             // Use setTimeout to sync after the spawn function completes (including shields/orbitals)
             setTimeout(() => {
                 if (mob[i] && mob[i].alive) {
-                    // Get mob type from global tracker (set by spawn functions)
-                    const mobType = (typeof currentSpawnFunction !== 'undefined') ? currentSpawnFunction : null;
-                    const spawnParams = (typeof currentSpawnParams !== 'undefined') ? currentSpawnParams : {};
-                    multiplayer.syncMobSpawn(i, mobType, spawnParams);
-                    // Reset tracker
-                    if (typeof currentSpawnFunction !== 'undefined') currentSpawnFunction = null;
-                    if (typeof currentSpawnParams !== 'undefined') currentSpawnParams = {};
+                    // Use the captured values (not the current global which may have changed)
+                    multiplayer.syncMobSpawn(i, capturedMobType, capturedSpawnParams);
                 }
             }, 0);
         }
