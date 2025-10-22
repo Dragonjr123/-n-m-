@@ -70,6 +70,14 @@ const mobs = {
                     if (whom.status[i].type === "slow") whom.status.splice(i, 1); //remove other "slow" effects on this mob
                 }
                 whom.isSlowed = true;
+                
+                // MULTIPLAYER: Sync slow effect to all players
+                if (typeof multiplayer !== 'undefined' && multiplayer.enabled && whom.netId) {
+                    multiplayer.syncMobStatusEffect(whom.netId, 'slow', {
+                        duration: cycles,
+                        radius: whom.radius * 2
+                    });
+                }
                 whom.status.push({
                     effect() {
                         const speedCap = 2
@@ -1117,6 +1125,8 @@ const mobs = {
                     // Sync mob damage to multiplayer for team combat BEFORE death check
                     if (typeof multiplayer !== 'undefined' && multiplayer.enabled && this.netId) {
                         multiplayer.syncMobDamage(this.netId, dmg, this.health, this.alive);
+                        // Also sync damage VFX
+                        multiplayer.syncMobStatusEffect(this.netId, 'damage', {});
                     }
                     
                     if (this.health < 0.05 && this.alive) this.death();
@@ -1139,7 +1149,11 @@ const mobs = {
                 
                 // MULTIPLAYER FIX: Sync death event to all players using netId
                 if (typeof multiplayer !== 'undefined' && multiplayer.enabled && this.netId) {
-                    multiplayer.syncMobDeath(this.netId);
+                    multiplayer.syncMobDeath(this.netId, {
+                        position: { x: this.position.x, y: this.position.y },
+                        radius: this.radius || 30,
+                        fill: this.fill || '#735084'
+                    });
                 }
 
                 // Award polys in progressive mode

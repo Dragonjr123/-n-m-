@@ -54,7 +54,7 @@ const multiplayer = {
     
     // Physics networking
     lastPhysicsSyncTime: 0,
-    physicsSyncInterval: 50, // Sync physics every 50ms (20 times/sec) for smoother mob movement
+    physicsSyncInterval: 33, // Sync physics every 33ms (30 times/sec) for smoother mob movement
     // Interpolation caches
     mobInterp: new Map(), // index -> {x,y,angle,t}
     // Host authority
@@ -1091,7 +1091,25 @@ const multiplayer = {
             type: 'visual_effect',
             playerId: this.playerId,
             effectType: effectType,
-            data: data,
+            data: data || {},
+            timestamp: Date.now()
+        });
+    },
+    
+    // Sync mob status effect (slow, stun, etc.)
+    syncMobStatusEffect(mobNetId, effectType, effectData = {}) {
+        if (!this.enabled || !this.lobbyId) return;
+        if (!mobNetId) return;
+        
+        console.log(`🎭 Syncing mob status effect: ${effectType} for ${mobNetId}`);
+        
+        const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
+        eventRef.set({
+            type: 'mob_status_effect',
+            playerId: this.playerId,
+            mobNetId: mobNetId,
+            effectType: effectType,
+            effectData: effectData,
             timestamp: Date.now()
         });
     },
@@ -1427,15 +1445,34 @@ const multiplayer = {
     },
     
     // Sync mob death (separate from damage for reliability)
-    syncMobDeath(mobNetId) {
+    syncMobDeath(mobNetId, mobData = {}) {
         if (!this.enabled || !this.lobbyId) return;
         if (!mobNetId) return; // Must have netId
+        
+        // Find the mob to get its position for death VFX
+        let deathPosition = null;
+        let mobRadius = 30;
+        let mobFill = '#735084';
+        if (typeof mob !== 'undefined') {
+            const targetMob = mob.find(m => m && m.netId === mobNetId);
+            if (targetMob) {
+                deathPosition = { x: targetMob.position.x, y: targetMob.position.y };
+                mobRadius = targetMob.radius || 30;
+                mobFill = targetMob.fill || '#735084';
+            }
+        }
+        
+        console.log(`💀 Syncing mob death: ${mobNetId} at`, deathPosition);
         
         const eventRef = database.ref(`lobbies/${this.lobbyId}/events`).push();
         eventRef.set({
             type: 'mob_death',
             playerId: this.playerId,
             mobNetId: mobNetId,
+            position: deathPosition,
+            radius: mobRadius,
+            fill: mobFill,
+            ...mobData,
             timestamp: Date.now()
         });
     },
@@ -1501,6 +1538,9 @@ const multiplayer = {
                 break;
             case 'mob_action':
                 this.handleRemoteMobAction(event);
+                break;
+            case 'mob_status_effect':
+                this.handleRemoteMobStatusEffect(event);
                 break;
             case 'bot_spawn':
                 if (event.playerId !== this.playerId && typeof b !== 'undefined') {
@@ -1796,6 +1836,97 @@ const multiplayer = {
         }
     },
     
+    // Handle remote mob status effect
+    handleRemoteMobStatusEffect(event) {
+        if (!event.mobNetId || !event.effectType) return;
+        
+        console.log(`🎭 Received mob status effect: ${event.effectType} for ${event.mobNetId}`);
+        
+        // Find the mob by netId
+        let targetMob = null;
+        if (typeof mob !== 'undefined') {
+            for (let i = 0; i < mob.length; i++) {
+                if (mob[i] && mob[i].netId === event.mobNetId) {
+                    targetMob = mob[i];
+                    break;
+                }
+            }
+        }
+        
+        if (!targetMob) {
+            console.log(`⚠️ Could not find mob with netId ${event.mobNetId} for status effect`);
+            return;
+        }
+        
+        const data = event.effectData || {};
+        
+        switch (event.effectType) {
+            case 'slow':
+                // Apply slow visual effect
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    // Blue slow effect circle
+                    simulation.drawList.push({
+                        x: targetMob.position.x,
+                        y: targetMob.position.y,
+                        radius: data.radius || targetMob.radius * 2,
+                        color: "rgba(0,100,255,0.3)",
+                        time: data.duration || 20
+                    });
+                }
+                
+                // Mark mob as slowed for visual indication
+                targetMob.isSlowed = true;
+                if (data.duration) {
+                    setTimeout(() => {
+                        if (targetMob) targetMob.isSlowed = false;
+                    }, data.duration * 16); // Convert frames to ms
+                }
+                break;
+                
+            case 'damage':
+                // Damage flash effect
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    simulation.drawList.push({
+                        x: targetMob.position.x,
+                        y: targetMob.position.y,
+                        radius: targetMob.radius * 1.5,
+                        color: "rgba(255,0,0,0.6)",
+                        time: 8
+                    });
+                }
+                break;
+                
+            case 'stun':
+                // Stun effect
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    simulation.drawList.push({
+                        x: targetMob.position.x,
+                        y: targetMob.position.y,
+                        radius: targetMob.radius * 1.8,
+                        color: "rgba(255,255,0,0.4)",
+                        time: data.duration || 15
+                    });
+                }
+                break;
+                
+            case 'explosion':
+                // Explosion at mob position
+                if (typeof simulation !== 'undefined' && simulation.drawList) {
+                    simulation.drawList.push({
+                        x: targetMob.position.x,
+                        y: targetMob.position.y,
+                        radius: data.radius || targetMob.radius * 3,
+                        color: data.color || "rgba(255,100,0,0.4)",
+                        time: data.time || 20
+                    });
+                }
+                break;
+                
+            default:
+                console.log(`Unknown mob status effect type: ${event.effectType}`);
+        }
+    },
+    
     // Handle remote tech selection
     handleRemoteTechSelection(event) {
         console.log('🔬 Remote tech selection:', event.techName, 'by player:', event.playerId);
@@ -1903,11 +2034,76 @@ const multiplayer = {
     // Handle remote mob death (separate from damage for reliability)
     handleRemoteMobDeath(event) {
         if (typeof mob !== 'undefined' && event.mobNetId) {
+            console.log(`💀 Received mob death event for ${event.mobNetId}`);
+            
             // Find mob by netId
-            const targetMob = mob.find(m => m && m.netId === event.mobNetId);
-            if (targetMob && targetMob.alive) {
-                // Kill the mob on this client
-                targetMob.death();
+            let targetMob = null;
+            let targetIndex = -1;
+            for (let i = 0; i < mob.length; i++) {
+                if (mob[i] && mob[i].netId === event.mobNetId) {
+                    targetMob = mob[i];
+                    targetIndex = i;
+                    break;
+                }
+            }
+            
+            if (targetMob) {
+                // Death VFX - explosion effect at death position
+                if (event.position && typeof simulation !== 'undefined' && simulation.drawList) {
+                    // Death explosion visual
+                    simulation.drawList.push({
+                        x: event.position.x,
+                        y: event.position.y, 
+                        radius: (event.radius || 30) * 2,
+                        color: event.fill ? event.fill.replace('rgb', 'rgba').replace(')', ',0.3)') : "rgba(115,80,132,0.3)",
+                        time: 20
+                    });
+                    
+                    // Add smaller secondary explosion for effect
+                    simulation.drawList.push({
+                        x: event.position.x,
+                        y: event.position.y,
+                        radius: (event.radius || 30) * 1.5,
+                        color: "rgba(255,50,50,0.5)",
+                        time: 15
+                    });
+                }
+                
+                if (targetMob.alive) {
+                    // Mark as dead first to prevent duplicate death calls
+                    targetMob.alive = false;
+                    
+                    // Try to call the mob's death method if it exists
+                    if (typeof targetMob.death === 'function') {
+                        try {
+                            targetMob.death();
+                        } catch (e) {
+                            console.warn('Error calling mob.death():', e);
+                            // Fallback: manually remove the mob
+                            try {
+                                Matter.World.remove(engine.world, targetMob);
+                            } catch (e2) { /* ignore */ }
+                            if (targetIndex >= 0) {
+                                mob.splice(targetIndex, 1);
+                            }
+                        }
+                    } else {
+                        // No death method, manually remove
+                        try {
+                            Matter.World.remove(engine.world, targetMob);
+                        } catch (e) { /* ignore */ }
+                        if (targetIndex >= 0) {
+                            mob.splice(targetIndex, 1);
+                        }
+                    }
+                    
+                    // Clean up netId tracking
+                    if (this.mobIndexByNetId.has(event.mobNetId)) {
+                        this.mobIndexByNetId.delete(event.mobNetId);
+                    }
+                }
+            } else {
+                console.log(`⚠️ Could not find mob with netId ${event.mobNetId} to kill`);
             }
         }
     },
@@ -2457,7 +2653,7 @@ const multiplayer = {
     
     // Sync physics state to Firebase
     syncPhysics() {
-        // Only host syncs mobs and most physics; clients only sync blocks they're pushing
+        // Both host and clients sync physics they have authority over
         if (!this.enabled || !this.lobbyId) return;
         
         const now = Date.now();
@@ -2474,17 +2670,26 @@ const multiplayer = {
             mobBullets: []
         };
         
-        // Sync mobs (enemies) - only host manages and syncs mobs
-        if (this.isHost && typeof mob !== 'undefined' && mob.length) {
+        // Sync mobs (enemies) - host syncs all mobs, clients sync those they're interacting with
+        if (typeof mob !== 'undefined' && mob.length) {
             for (let i = 0; i < mob.length; i++) {
                 const m = mob[i];
                 if (m && m.position && m.alive) { // Only sync alive mobs
-                    // Skip mobs under client authority (being pushed by client)
+                    // For host: skip mobs under client authority
+                    // For clients: only sync mobs they have authority over
                     const authKey = `mob_${i}`;
-                    if (this.clientAuthority.has(authKey)) {
+                    if (this.isHost) {
+                        if (this.clientAuthority.has(authKey)) {
+                            const auth = this.clientAuthority.get(authKey);
+                            if (auth.playerId !== this.playerId && now < auth.expiry) {
+                                continue; // Skip this mob, client has authority
+                            }
+                        }
+                    } else {
+                        // Clients only sync mobs they're actively interacting with
                         const auth = this.clientAuthority.get(authKey);
-                        if (auth.playerId !== this.playerId && now < auth.expiry) {
-                            continue; // Skip this mob, client has authority
+                        if (!auth || auth.playerId !== this.playerId || now >= auth.expiry) {
+                            continue; // Skip, we don't have authority
                         }
                     }
                     
@@ -2518,40 +2723,6 @@ const multiplayer = {
                 const mobsWithVerts = physicsData.mobs.filter(m => m.verts && m.verts.length > 0);
                 if (mobsWithVerts.length > 0) {
                     console.log(`📡 ${mobsWithVerts.length} mobs have vertex data, sample:`, mobsWithVerts[0].verts.length, 'vertices');
-                }
-            }
-        }
-        
-        // Clients also sync mobs they have authority over (e.g., pushing with body)
-        if (!this.isHost && typeof mob !== 'undefined' && mob.length) {
-            for (let i = 0; i < mob.length; i++) {
-                const m = mob[i];
-                if (m && m.position && m.alive) {
-                    const authKey = `mob_${i}`;
-                    const auth = this.clientAuthority.get(authKey);
-                    // Only sync if we have authority and it hasn't expired
-                    if (auth && auth.playerId === this.playerId && now < auth.expiry) {
-                        if (!m.netId) m.netId = `client_${this.playerId}_m${i}`;
-                        physicsData.mobs.push({
-                            index: i,
-                            netId: m.netId || null,
-                            x: m.position.x,
-                            y: m.position.y,
-                            vx: m.velocity.x,
-                            vy: m.velocity.y,
-                            angle: m.angle,
-                            health: m.health,
-                            alive: m.alive,
-                            radius: m.radius || 30,
-                            sides: m.vertices ? m.vertices.length : 6,
-                            fill: m.fill || '#735084',
-                            stroke: m.stroke || '#000000',
-                            seePlayerYes: m.seePlayer ? m.seePlayer.yes : false,
-                            targetX: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.x : null,
-                            targetY: (m.seePlayer && m.seePlayer.yes && m.seePlayer.position) ? m.seePlayer.position.y : null,
-                            verts: (m.vertices && m.vertices.length >= 3) ? m.vertices.map(v => ({ x: v.x, y: v.y })) : null
-                        });
-                    }
                 }
             }
         }
@@ -2769,7 +2940,8 @@ const multiplayer = {
                         Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
                         Matter.Body.setAngle(bodyRef, target.angle);
                     } else {
-                        const alpha = 0.3; // Gentle interpolation to avoid jitter
+                        // Increased alpha for more responsive physics
+                        const alpha = 0.7; // More aggressive interpolation for better sync
                         Matter.Body.setPosition(bodyRef, { x: cur.x + dx * alpha, y: cur.y + dy * alpha });
                         Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
                         // Angle wrap smoothing
@@ -2834,11 +3006,21 @@ const multiplayer = {
                             isGhost: true,
                             alive: true,
                             health: isFinite(mobData.health) ? mobData.health : 1,
+                            maxHealth: 1, // Add maxHealth for proper health bar rendering
                             radius: radius,
                             seePlayer: { recall: mobData.seePlayerYes || false, yes: mobData.seePlayerYes || false, position: { x: mobData.x || 0, y: mobData.y || 0 } },
                             showHealthBar: true,
                             fill: mobData.fill || '#735084', // Use actual fill or default purple
-                            stroke: mobData.stroke || '#000000' // Use actual stroke or black
+                            stroke: mobData.stroke || '#000000', // Use actual stroke or black
+                            // Add required mob properties
+                            cd: 0,
+                            seePlayerFreq: 30,
+                            isDropPowerUp: true,
+                            isShielded: false,
+                            isBoss: false,
+                            shield: null,
+                            status: [], // Status effects array
+                            vertices: [] // Will be set below
                         };
                         if (Array.isArray(mobData.verts) && mobData.verts.length >= 3) {
                             try {
@@ -2856,16 +3038,42 @@ const multiplayer = {
                             ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
                         }
                         
-                        // Add minimal required methods
-                        ghost.damage = function() { /* no-op on clients */ };
-                        ghost.locatePlayer = function() { /* no-op on clients */ };
+                        // Add minimal required methods for proper mob behavior
+                        ghost.damage = function(dmg) { 
+                            // Apply damage visually but don't actually kill (host has authority)
+                            this.health = Math.max(0, this.health - dmg);
+                        };
+                        ghost.locatePlayer = function() { 
+                            // Simple player tracking for ghost mobs
+                            if (this.seePlayer) {
+                                this.seePlayer.recall = true;
+                                this.seePlayer.yes = true;
+                                if (typeof m !== 'undefined' && m.pos) {
+                                    this.seePlayer.position = { x: m.pos.x, y: m.pos.y };
+                                }
+                            }
+                        };
                         ghost.foundPlayer = function() { /* no-op on clients */ };
                         ghost.death = function() {
                             this.alive = false;
-                            Matter.World.remove(engine.world, this);
+                            // Clean removal from world
+                            try {
+                                Matter.World.remove(engine.world, this);
+                            } catch(e) { /* ignore */ }
+                            // Remove from mob array
                             for (let i = 0; i < mob.length; i++) {
-                                if (mob[i] === this) { mob.splice(i, 1); break; }
+                                if (mob[i] === this) { 
+                                    mob.splice(i, 1); 
+                                    break; 
+                                }
                             }
+                        };
+                        ghost.onDamage = function() { /* no-op */ };
+                        ghost.onDeath = function() { /* no-op */ };
+                        ghost.replace = function(index) {
+                            // Simple cleanup without spawning bodies
+                            Matter.World.remove(engine.world, this);
+                            mob.splice(index, 1);
                         };
                         // Ensure mob loop can safely call replace(i) on ghost
                         ghost.replace = function(i) {
