@@ -3307,7 +3307,12 @@ const multiplayer = {
                                 frictionStatic: 1,
                                 frictionAir: 0.001,
                                 restitution: blockData.restitution || 0,
-                                classType: "body"
+                                classType: "body",
+                                // CRITICAL: Set collision filters so blocks actually collide!
+                                collisionFilter: {
+                                    category: typeof cat !== 'undefined' ? cat.body : 0x100,
+                                    mask: typeof cat !== 'undefined' ? (cat.player | cat.map | cat.body | cat.bullet | cat.mob | cat.mobBullet) : 0xFFFF
+                                }
                             }
                         );
                         if (blockData.mass) Matter.Body.setDensity(targetBody, blockData.mass / (targetBody.area || 1));
@@ -3315,7 +3320,7 @@ const multiplayer = {
                         Matter.Body.setVelocity(targetBody, { x: blockData.vx, y: blockData.vy });
                         Matter.World.add(engine.world, targetBody);
                         body.push(targetBody);
-                        console.log(`✅ Created body with ${blockData.vertices.length} vertices`);
+                        console.log(`✅ Created body with ${blockData.vertices.length} vertices and collision filters`);
                     } catch (e) {
                         console.error('❌ Failed to create body from vertices:', e);
                     }
