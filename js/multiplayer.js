@@ -111,6 +111,9 @@ const multiplayer = {
     deadPlayers: new Set(),
     allPlayersDeadCheckStarted: false,
     
+    // Vertex sync counter for periodic full mob vertex resyncs
+    mobVertexSyncCounter: 0,
+    
     // Initialize multiplayer system
     init() {
         if (!initFirebase()) {
@@ -3160,16 +3163,18 @@ const multiplayer = {
                 
                 if (mobExists && targetIndex !== null && mob[targetIndex]) {
                     const bodyRef = mob[targetIndex];
-                    const now = physicsData.timestamp || Date.now();
-                    const target = { x: mobData.x, y: mobData.y, angle: mobData.angle, t: now };
+                    // Smooth interpolation for position/angle
+                    const target = { x: mobData.x, y: mobData.y, angle: mobData.angle };
                     const cur = bodyRef.position;
                     const dx = target.x - cur.x, dy = target.y - cur.y;
                     const dist2 = dx*dx + dy*dy;
-                    // Snap if way off; otherwise smooth
-                    if (dist2 > 500*500) {
-                        Matter.Body.setPosition(bodyRef, { x: target.x, y: target.y });
-                        Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
+                    // Periodic full resync to correct accumulated drift (every ~100 updates)
+                    const forceExactSync = (this.mobVertexSyncCounter % 100 === 0);
+                    // Teleport if too far, interpolate otherwise
+                    if (dist2 > 10000 || forceExactSync) { // >100 units OR periodic resync
+                        Matter.Body.setPosition(bodyRef, target);
                         Matter.Body.setAngle(bodyRef, target.angle);
+                        Matter.Body.setVelocity(bodyRef, { x: mobData.vx, y: mobData.vy });
                     } else {
                         // Increased alpha for more responsive physics
                         const alpha = 0.7; // More aggressive interpolation for better sync
@@ -3181,14 +3186,20 @@ const multiplayer = {
                         Matter.Body.setAngle(bodyRef, ca + da * alpha);
                     }
                     // Apply exact vertex geometry when provided (special shapes)
+                    // Skip vertex sync for mobs with client-side vertex animations to reduce visual desync
                     if (Array.isArray(mobData.verts) && mobData.verts.length >= 3) {
-                        try { 
-                            Matter.Body.setVertices(bodyRef, mobData.verts);
-                            if (Math.random() < 0.05) {
-                                console.log(`🔷 Updated vertices for mob ${targetIndex}, ${mobData.verts.length} vertices`);
+                        // Only apply vertices if mob doesn't have ongoing client-side vertex changes
+                        // OR if this is a full resync (every ~30 updates to correct drift)
+                        const forceSync = (this.mobVertexSyncCounter++ % 30 === 0);
+                        if (forceSync || !mob[targetIndex].isVerticesChange) {
+                            try { 
+                                Matter.Body.setVertices(bodyRef, mobData.verts);
+                                if (Math.random() < 0.05) {
+                                    console.log(`🔷 Updated vertices for mob ${targetIndex}, ${mobData.verts.length} vertices`);
+                                }
+                            } catch(e) { 
+                                console.warn('Failed to update mob vertices:', e);
                             }
-                        } catch(e) { 
-                            console.warn('Failed to update mob vertices:', e);
                         }
                     }
                     if (mobData.health !== undefined) mob[targetIndex].health = mobData.health;
