@@ -17,6 +17,7 @@ const multiplayerUI = {
                     <div style="margin-bottom: 20px;">
                         <label style="display: block; margin-bottom: 5px; font-weight: bold;">Player Name:</label>
                         <input type="text" id="mp-player-name" value="${multiplayer.settings.name}" style="width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box;">
+                        <p style="margin: 5px 0 0 0; font-size: 12px; color: ${multiplayer.settings.nameColor === '#ffffff' || multiplayer.settings.nameColor === '#fff' ? '#000' : multiplayer.settings.nameColor};">Preview: ${multiplayer.settings.name}</p>
                     </div>
                     
                     <div style="margin-bottom: 20px; display: flex; gap: 10px;">
@@ -52,15 +53,26 @@ const multiplayerUI = {
         if (typeof simulation !== 'undefined') simulation.isMultiplayerLobby = true;
         
         // Update settings on change
-        document.getElementById('mp-player-name').addEventListener('input', (e) => {
-            multiplayer.settings.name = e.target.value || 'Player';
-        });
+        const nameInput = document.getElementById('mp-player-name');
+        const nameColorInput = document.getElementById('mp-name-color');
+        const previewText = nameInput.parentElement.querySelector('p');
+        
+        const updatePreview = () => {
+            const name = nameInput.value || 'Player';
+            const nameColor = nameColorInput.value;
+            multiplayer.settings.name = name;
+            multiplayer.settings.nameColor = nameColor;
+            // If name color is white, show as black in preview
+            const displayColor = (nameColor === '#ffffff' || nameColor === '#fff') ? '#000' : nameColor;
+            previewText.style.color = displayColor;
+            previewText.textContent = `Preview: ${name}`;
+        };
+        
+        nameInput.addEventListener('input', updatePreview);
         document.getElementById('mp-player-color').addEventListener('input', (e) => {
             multiplayer.settings.color = e.target.value;
         });
-        document.getElementById('mp-name-color').addEventListener('input', (e) => {
-            multiplayer.settings.nameColor = e.target.value;
-        });
+        nameColorInput.addEventListener('input', updatePreview);
     },
     
     // Show create lobby screen
@@ -69,6 +81,11 @@ const multiplayerUI = {
             <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 21; display: flex; align-items: center; justify-content: center;">
                 <div style="background: #fff; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
                     <h2 style="margin: 0 0 20px 0; text-align: center;">CREATE LOBBY</h2>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">Lobby Name:</label>
+                        <input type="text" id="mp-lobby-name" value="${multiplayer.settings.name}'s Lobby" maxlength="30" style="width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box;">
+                    </div>
                     
                     <div style="margin-bottom: 20px;">
                         <label style="display: block; margin-bottom: 10px;">
@@ -135,10 +152,11 @@ const multiplayerUI = {
         } else {
             lobbiesList = '<div style="max-height: 300px; overflow-y: auto;">';
             lobbies.forEach(lobby => {
+                const lobbyName = lobby.name || 'Unnamed Lobby';
                 lobbiesList += `
                     <div onclick="multiplayerUI.joinLobby('${lobby.id}')" style="padding: 15px; margin-bottom: 10px; background: #f0f0f0; border-radius: 5px; cursor: pointer; border: 2px solid #ccc;">
-                        <div style="font-weight: bold; font-size: 18px;">${lobby.gameMode.toUpperCase()}</div>
-                        <div style="color: #666;">Players: ${lobby.playerCount} | Created: ${new Date(lobby.createdAt).toLocaleTimeString()}</div>
+                        <div style="font-weight: bold; font-size: 18px;">${lobbyName}</div>
+                        <div style="color: #666;">${lobby.gameMode.toUpperCase()} | Players: ${lobby.playerCount}</div>
                     </div>
                 `;
             });
@@ -173,6 +191,7 @@ const multiplayerUI = {
     
     // Create lobby
     async createLobby() {
+        const lobbyName = document.getElementById('mp-lobby-name').value.trim() || `${multiplayer.settings.name}'s Lobby`;
         const isPrivate = document.getElementById('mp-private').checked;
         const password = isPrivate ? document.getElementById('mp-password').value : null;
         const gameMode = document.getElementById('mp-gamemode').value;
@@ -189,7 +208,7 @@ const multiplayerUI = {
         
         // Create lobby WITHOUT starting game
         try {
-            const lobbyId = await multiplayer.createLobby(isPrivate, password, gameMode);
+            const lobbyId = await multiplayer.createLobby(isPrivate, password, gameMode, lobbyName);
             
             // Set host-only exit if enabled
             if (hostOnlyExit) {

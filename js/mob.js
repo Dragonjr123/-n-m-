@@ -968,7 +968,7 @@ const mobs = {
                     Matter.Query.ray(map, this.position, this.mPosRange()).length === 0 && //see player
                     Matter.Query.ray(body, this.position, this.mPosRange()).length === 0
                 ) {
-                    spawn.bomb(this.position.x, this.position.y + this.radius * 0.7, 9 + Math.ceil(this.radius / 15), 5);
+                    spawn.exploder(this.position.x, this.position.y + this.radius * 0.7, 9 + Math.ceil(this.radius / 15));
                     //add spin and speed
                     Matter.Body.setAngularVelocity(mob[mob.length - 1], (Math.random() - 0.5) * 0.5);
                     Matter.Body.setVelocity(mob[mob.length - 1], {

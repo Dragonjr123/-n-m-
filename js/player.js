@@ -489,6 +489,8 @@ const m = {
                 document.getElementById("fade-out").style.opacity = 0;
                 simulation.paused = false;
                 if (typeof multiplayer.showSpectateUI === 'function') multiplayer.showSpectateUI();
+                // Check if all players are dead
+                if (typeof multiplayer.checkAllPlayersDead === 'function') multiplayer.checkAllPlayersDead();
                 return;
             } else {
                 if (!m.alive) return; // Already dead, prevent spam

@@ -83,6 +83,10 @@ const multiplayer = {
         nameColor: "#fff"
     },
     
+    // Track dead players
+    deadPlayers: new Set(),
+    allPlayersDeadCheckStarted: false,
+    
     // Initialize multiplayer system
     init() {
         if (!initFirebase()) {
@@ -95,7 +99,7 @@ const multiplayer = {
     },
     
     // Create a new lobby
-    async createLobby(isPrivate, password, gameMode) {
+    async createLobby(isPrivate, password, gameMode, lobbyName) {
         // Ensure we have a playerId
         if (!this.playerId) {
             const ok = this.init();
@@ -106,6 +110,7 @@ const multiplayer = {
         this.enabled = true;
         
         const lobbyData = {
+            name: lobbyName || 'Unnamed Lobby',
             host: this.playerId,
             isPrivate: isPrivate,
             password: password || null,
@@ -228,10 +233,13 @@ const multiplayer = {
         const lobbies = [];
         snapshot.forEach((childSnapshot) => {
             const lobby = childSnapshot.val();
-            if (!lobby.isPrivate) {
+            const playerCount = Object.keys(lobby.players || {}).length;
+            // Only show public lobbies with at least 1 player
+            if (!lobby.isPrivate && playerCount > 0) {
                 lobbies.push({
                     id: childSnapshot.key,
-                    playerCount: Object.keys(lobby.players || {}).length,
+                    name: lobby.name || 'Unnamed Lobby',
+                    playerCount: playerCount,
                     gameMode: lobby.gameMode,
                     createdAt: lobby.createdAt
                 });
@@ -1248,6 +1256,67 @@ const multiplayer = {
             data: { targetId: targetPlayerId },
             timestamp: Date.now()
         });
+        // Remove from dead players list
+        this.deadPlayers.delete(targetPlayerId);
+    },
+
+    // Check if all players are dead and return to lobby
+    checkAllPlayersDead() {
+        if (!this.enabled || this.allPlayersDeadCheckStarted) return;
+        
+        // Count total players (including self)
+        const totalPlayers = 1 + Object.keys(this.players || {}).length;
+        const deadCount = this.deadPlayers.size + (m.alive ? 0 : 1); // Add self if dead
+        
+        if (deadCount >= totalPlayers && totalPlayers > 0) {
+            console.log('🪦 All players are dead - returning to lobby');
+            this.allPlayersDeadCheckStarted = true;
+            
+            // White fade effect
+            if (typeof simulation !== 'undefined') {
+                simulation.wipe = function() {
+                    ctx.fillStyle = "rgba(255,255,255,0.05)";
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+                
+                // Show message
+                if (simulation.makeTextLog) {
+                    simulation.makeTextLog(`<span style='color:#f44; font-size: 24px;'>ALL PLAYERS ELIMINATED</span>`);
+                }
+                
+                // Gradually increase white fade
+                let fadeLevel = 0;
+                const fadeInterval = setInterval(() => {
+                    fadeLevel += 0.02;
+                    simulation.wipe = function() {
+                        ctx.fillStyle = `rgba(255,255,255,${Math.min(fadeLevel, 1)})`;
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    }
+                    if (fadeLevel >= 1) clearInterval(fadeInterval);
+                }, 50);
+                
+                // Return to lobby after 3 seconds
+                setTimeout(() => {
+                    World.clear(engine.world);
+                    Engine.clear(engine);
+                    
+                    // Reset simulation state
+                    simulation.paused = true;
+                    simulation.wipe = function() {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    }
+                    
+                    // Clear dead players list for next game
+                    this.deadPlayers.clear();
+                    this.allPlayersDeadCheckStarted = false;
+                    
+                    // Show lobby waiting room
+                    if (typeof multiplayerUI !== 'undefined' && typeof multiplayerUI.showLobbyRoom === 'function') {
+                        multiplayerUI.showLobbyRoom(this.lobbyId, false, null, this.gameMode || 'adventure');
+                    }
+                }, 3000);
+            }
+        }
     },
 
     // Host requests damage be applied to a specific player client-side
@@ -1673,7 +1742,10 @@ const multiplayer = {
                     if (typeof simulation !== 'undefined' && simulation.makeTextLog) {
                         simulation.makeTextLog(`<span class='color-text'>${p.name || 'Player'}</span> has died. Find an <span style='color:#FFD700'>ANGELIC-HEXIL</span> to revive them!`);
                     }
-                    // NO automatic revive spawn - revives only come from ANGELIC-HEXIL mobs
+                    // Track dead player
+                    this.deadPlayers.add(event.playerId);
+                    // Check if all players are dead
+                    this.checkAllPlayersDead();
                 } catch (e) { /* no-op */ }
                 break;
             }
@@ -1681,6 +1753,9 @@ const multiplayer = {
                 try {
                     const targetId = event.data && event.data.targetId;
                     if (targetId) {
+                        // Remove from dead players list
+                        this.deadPlayers.delete(targetId);
+                        
                         // If this client is the revive target, restore local player state
                         if (this.playerId === targetId && typeof this.reviveLocal === 'function') {
                             this.reviveLocal();
@@ -2309,6 +2384,10 @@ const multiplayer = {
         await lobbyRef.update({ gameStarted: true });
         
         this.gameStarted = true;
+        
+        // Reset dead players tracking for new game
+        this.deadPlayers.clear();
+        this.allPlayersDeadCheckStarted = false;
     },
     
     // Claim client authority over an object (prevents host from overwriting)
