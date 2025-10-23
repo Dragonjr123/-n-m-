@@ -1233,13 +1233,14 @@ const m = {
                     const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
                     multiplayer.syncBlockInteraction('throw', {
                         index: idx,
+                        bodyId: m.holdingTarget.id,
                         position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
                         velocity: throwVelocity,
                         mass: m.holdingTarget.mass,
                         charge: charge
                     });
-                    // Release authority after throw
-                    multiplayer.releaseAuthority('block', idx);
+                    // Release authority after throw using body.id
+                    multiplayer.releaseAuthority('block', m.holdingTarget.id);
                 }
                 
                 Matter.Body.setVelocity(m.holdingTarget, throwVelocity);
@@ -1375,14 +1376,14 @@ const m = {
             // Sync block push to multiplayer
             if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
                 const blockIndex = body.indexOf(who);
-                if (blockIndex !== -1) {
-                    console.log('Syncing block push:', blockIndex);
-                    multiplayer.syncFieldInteraction('block_push', { blockIndex: blockIndex });
-                    // Claim short-lived authority so client can sync this block's movement
+                if (blockIndex !== -1 && who.id) {
+                    console.log('Syncing block push:', blockIndex, 'bodyId:', who.id);
+                    multiplayer.syncFieldInteraction('block_push', { blockIndex: blockIndex, bodyId: who.id });
+                    // Claim short-lived authority so client can sync this block's movement using body.id
                     if (typeof multiplayer.claimAuthority === 'function') {
-                        multiplayer.claimAuthority('block', blockIndex);
+                        multiplayer.claimAuthority('block', who.id);
                         setTimeout(() => {
-                            if (typeof multiplayer.releaseAuthority === 'function') multiplayer.releaseAuthority('block', blockIndex);
+                            if (typeof multiplayer.releaseAuthority === 'function') multiplayer.releaseAuthority('block', who.id);
                         }, 700);
                     }
                 }
@@ -1541,10 +1542,11 @@ const m = {
         // Sync block pickup to multiplayer
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
             const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
-            // Claim authority over this block
-            multiplayer.claimAuthority('block', idx);
+            // Claim authority over this block using body.id (not array index)
+            multiplayer.claimAuthority('block', m.holdingTarget.id);
             multiplayer.syncBlockInteraction('pickup', {
                 index: idx,
+                bodyId: m.holdingTarget.id,
                 position: { x: m.holdingTarget.position.x, y: m.holdingTarget.position.y },
                 velocity: { x: m.holdingTarget.velocity.x, y: m.holdingTarget.velocity.y },
                 mass: m.holdingTarget.mass
