@@ -188,6 +188,10 @@ const spawn = {
         }
     },
     WIMP(x = level.exit.x + 300 * (Math.random() - 0.5), y = level.exit.y + 300 * (Math.random() - 0.5)) { //immortal mob that follows player //if you have the tech it spawns at start of every level at the exit
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "WIMP"; currentSpawnParams = {};
         mobs.spawn(x, y, 3, 0.1, "transparent");
         let me = mob[mob.length - 1];
@@ -858,6 +862,10 @@ const spawn = {
         }
     },
     cellBoss(x, y, radius = 20, cellID) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "cellBoss"; currentSpawnParams = { radius, cellID };
         mobs.spawn(x + Math.random(), y + Math.random(), 20, radius * (1 + 1.2 * Math.random()), "rgba(0,100,105,0.4)");
         let me = mob[mob.length - 1];
@@ -941,6 +949,10 @@ const spawn = {
         for (let i = 0; i < num; i++) spawn.spawnerBoss(x, y, radius, spawnID)
     },
     spawnerBoss(x, y, radius, spawnID) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "spawnerBoss"; currentSpawnParams = { radius, spawnID };
         mobs.spawn(x + Math.random(), y + Math.random(), 4, radius, "rgba(255,60,0,0.3)") //);
         let me = mob[mob.length - 1];
@@ -1371,6 +1383,10 @@ const spawn = {
         }
     },
     suckerBoss(x, y, radius = 25) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "suckerBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 12, radius, "#000");
         let me = mob[mob.length - 1];
@@ -1479,6 +1495,10 @@ const spawn = {
         }
     },
     spiderBoss(x, y, radius = 60 + Math.ceil(Math.random() * 10)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "spiderBoss"; currentSpawnParams = { radius };
         let targets = [] //track who is in the node boss, for shields
         mobs.spawn(x, y, 6, radius, "#b386e8");
@@ -1648,6 +1668,10 @@ const spawn = {
     //     }
     // },
     beamer(x, y, radius = 15 + Math.ceil(Math.random() * 15)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "beamer"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 4, radius, "rgb(255,0,190)");
         let me = mob[mob.length - 1];
@@ -1666,6 +1690,10 @@ const spawn = {
         };
     },
     historyBoss(x, y, radius = 30) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         if (tech.dynamoBotCount > 0) {
             spawn.randomLevelBoss(x, y, ["cellBossCulture", "bomberBoss", "powerUpBoss", "orbitalBoss", "spawnerBossCulture"])
             return
@@ -1752,6 +1780,10 @@ const spawn = {
         };
     },
     focuser(x, y, radius = 30 + Math.ceil(Math.random() * 10)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         radius = Math.ceil(radius * 0.7);
         currentSpawnFunction = "focuser"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 4, radius, "rgb(0,0,255)");
@@ -1818,6 +1850,10 @@ const spawn = {
         }
     },
     laserTargetingBoss(x, y, radius = 80) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         const color = "#05f"
         currentSpawnFunction = "laserTargetingBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, color);
@@ -1958,6 +1994,10 @@ const spawn = {
         };
     },
     pulsarBoss(x, y, radius = 90) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "pulsarBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "#a0f");
         let me = mob[mob.length - 1];
@@ -2104,6 +2144,10 @@ const spawn = {
         };
     },
     pulsar(x, y, radius = 40) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "pulsar"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "#f08");
         let me = mob[mob.length - 1];
@@ -2265,6 +2309,10 @@ const spawn = {
         };
     },
     laser(x, y, radius = 30) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "laser"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "#f00");
         let me = mob[mob.length - 1];
@@ -2283,6 +2331,10 @@ const spawn = {
         };
     },
     laserBoss(x, y, radius = 30) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "laserBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "#f00");
         let me = mob[mob.length - 1];
@@ -2432,6 +2484,10 @@ const spawn = {
         }
     },
     striker(x, y, radius = 14 + Math.ceil(Math.random() * 25)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "striker"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 5, radius, "rgb(221,102,119)");
         let me = mob[mob.length - 1];
@@ -2501,6 +2557,10 @@ const spawn = {
         };
     },
     sneaker(x, y, radius = 15 + Math.ceil(Math.random() * 20)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "sneaker"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 5, radius, "transparent");
         let me = mob[mob.length - 1];
@@ -2552,6 +2612,10 @@ const spawn = {
         };
     },
     ghoster(x, y, radius = 40 + Math.ceil(Math.random() * 100)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "ghoster"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 7, radius, "transparent");
         let me = mob[mob.length - 1];
@@ -2612,6 +2676,10 @@ const spawn = {
         };
     },
     bomberBoss(x, y, radius = 88) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "bomberBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "rgba(255,0,200,0.5)");
         let me = mob[mob.length - 1];
@@ -2657,6 +2725,10 @@ const spawn = {
         };
     },
     shooter(x, y, radius = 25 + Math.ceil(Math.random() * 50)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "shooter"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "rgb(255,100,150)");
         let me = mob[mob.length - 1];
@@ -2689,6 +2761,10 @@ const spawn = {
         };
     },
     shooterBoss(x, y, radius = 110) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "shooterBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "rgb(255,70,180)");
         let me = mob[mob.length - 1];
@@ -2778,6 +2854,10 @@ const spawn = {
         };
     },
     sniper(x, y, radius = 35 + Math.ceil(Math.random() * 30)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "sniper"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "transparent"); //"rgb(25,0,50)")
         let me = mob[mob.length - 1];
@@ -2894,6 +2974,10 @@ const spawn = {
         };
     },
     stabber(x, y, radius = 25 + Math.ceil(Math.random() * 12), spikeMax = 9) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "stabber"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 6, radius, "rgb(220,50,205)"); //can't have sides above 6 or collision events don't work (probably because of a convex problem)
         let me = mob[mob.length - 1];
@@ -2973,6 +3057,10 @@ const spawn = {
         };
     },
     launcher(x, y, radius = 30 + Math.ceil(Math.random() * 40)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "launcher"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 3, radius, "rgb(150,150,255)");
         let me = mob[mob.length - 1];
@@ -3003,6 +3091,10 @@ const spawn = {
         };
     },
     launcherBoss(x, y, radius = 85) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "launcherBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 6, radius, "rgb(150,150,255)");
         let me = mob[mob.length - 1];
@@ -3044,6 +3136,10 @@ const spawn = {
         };
     },
     shieldingBoss(x, y, radius = 200) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "shieldingBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 9, radius, "rgb(150, 150, 255)");
         let me = mob[mob.length - 1];
@@ -3119,6 +3215,10 @@ const spawn = {
         };
     },
     streamBoss(x, y, radius = 110) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "streamBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 5, radius, "rgb(245,180,255)");
         let me = mob[mob.length - 1];
@@ -3225,6 +3325,10 @@ const spawn = {
         };
     },
     spawner(x, y, radius = 55 + Math.ceil(Math.random() * 50)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "spawner"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 4, radius, "rgb(255,150,0)");
         let me = mob[mob.length - 1];
@@ -3278,6 +3382,10 @@ const spawn = {
         };
     },
     exploder(x, y, radius = 40 + Math.ceil(Math.random() * 50)) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "exploder"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 4, radius, "rgb(255,0,0)");
         let me = mob[mob.length - 1];
@@ -3294,6 +3402,10 @@ const spawn = {
         };
     },
     snakeBoss(x, y, radius = 75) { //snake boss with a laser head
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "snakeBoss"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 8, radius, "rgb(55,170,170)");
         let me = mob[mob.length - 1];
@@ -3380,6 +3492,10 @@ const spawn = {
     tetherBoss(x, y, constraint, radius = 90) {
         // constrained mob boss for the towers level
         // often has a ring of mobs around it
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "tetherBoss"; currentSpawnParams = { constraint, radius };
         mobs.spawn(x, y, 8, radius, "rgb(0,60,80)");
         let me = mob[mob.length - 1];
@@ -3597,6 +3713,10 @@ const spawn = {
         };
     },
     orbitalBoss(x, y, radius = 88) {
+        // In multiplayer, ONLY the host spawns mobs
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         const nodeBalance = Math.random()
         const nodes = Math.min(15, Math.floor(1 + 5 * nodeBalance + 0.75 * Math.sqrt(simulation.difficulty)))
         currentSpawnFunction = "orbitalBoss"; currentSpawnParams = { radius };
