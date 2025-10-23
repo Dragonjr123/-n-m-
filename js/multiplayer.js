@@ -261,11 +261,13 @@ const multiplayer = {
         snapshot.forEach((childSnapshot) => {
             const lobby = childSnapshot.val();
             const playerCount = Object.keys(lobby.players || {}).length;
-            // Only show public lobbies with at least 1 player
-            if (!lobby.isPrivate && playerCount > 0) {
+            const lobbyName = lobby.name || 'Unnamed Lobby';
+            
+            // Filter: only show public lobbies with at least 1 player and not named "Unnamed Lobby"
+            if (!lobby.isPrivate && playerCount > 0 && lobbyName !== 'Unnamed Lobby') {
                 lobbies.push({
                     id: childSnapshot.key,
-                    name: lobby.name || 'Unnamed Lobby',
+                    name: lobbyName,
                     playerCount: playerCount,
                     gameMode: lobby.gameMode,
                     createdAt: lobby.createdAt
