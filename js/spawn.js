@@ -2682,6 +2682,10 @@ const spawn = {
     },
     sniperBullet(x, y, radius = 7, sides = 4) {
         // Create a small fast bullet for the sniper mob
+        // In multiplayer, ONLY the host spawns mob bullets
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mob bullets
+        }
         currentSpawnFunction = "sniperBullet"; currentSpawnParams = { radius, sides };
         mobs.spawn(x, y, sides, radius, "rgb(255,50,50)");
         let me = mob[mob.length - 1];
