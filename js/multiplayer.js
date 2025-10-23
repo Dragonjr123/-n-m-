@@ -55,6 +55,9 @@ const multiplayer = {
     // Physics networking
     lastPhysicsSyncTime: 0,
     physicsSyncInterval: 33, // Sync physics every 33ms (30 times/sec) for smoother mob movement
+    // Block sync state
+    fullBlockSyncCount: 0, // How many times we've done a full block sync after level load
+    maxFullBlockSyncs: 5, // Do 5 full syncs after level transition to ensure all clients receive data
     // Interpolation caches
     mobInterp: new Map(), // index -> {x,y,angle,t}
     // Host authority
@@ -2452,6 +2455,7 @@ const multiplayer = {
         
         // Reset physics sync flag to force full resync on new level
         this.hasInitialBlockSync = false;
+        this.fullBlockSyncCount = 0; // Reset counter for multiple full syncs
         
         console.log('✅ Multiplayer tracking data cleared');
     },
@@ -2820,9 +2824,16 @@ const multiplayer = {
         
         // Sync blocks (physics bodies) - sync ALL blocks for consistency
         if (typeof body !== 'undefined') {
-            // On first sync or periodically, sync ALL blocks
-            const syncAllBlocks = this.isHost && (!this.hasInitialBlockSync || Math.random() < 0.01); // 1% chance to resync all
+            // After level load: do multiple full syncs to ensure all clients receive data
+            // Otherwise: periodically resync all blocks
+            const needsMultipleFullSyncs = this.fullBlockSyncCount < this.maxFullBlockSyncs;
+            const syncAllBlocks = this.isHost && (needsMultipleFullSyncs || Math.random() < 0.01); // 1% chance to resync all
             if (syncAllBlocks) {
+                if (needsMultipleFullSyncs) {
+                    this.fullBlockSyncCount++;
+                    console.log(`📦 Full block sync ${this.fullBlockSyncCount}/${this.maxFullBlockSyncs} after level load`);
+                }
+                this.hasInitialBlockSync = true;
                 // Sync ALL blocks
                 for (let i = 0; i < body.length; i++) {
                     if (body[i] && body[i].position && body[i].id) {
@@ -2842,14 +2853,7 @@ const multiplayer = {
                         });
                     }
                 }
-                // CRITICAL FIX: Only mark as synced if we actually synced some blocks
-                // This prevents marking sync complete during level transitions when blocks haven't loaded yet
-                if (physicsData.blocks.length > 0) {
-                    this.hasInitialBlockSync = true;
-                    console.log(`📦 Syncing ALL ${physicsData.blocks.length} blocks - initial sync complete`);
-                } else if (!this.hasInitialBlockSync) {
-                    console.log(`⚠️ No blocks to sync yet (level still loading), will retry next frame`);
-                }
+                console.log(`📦 Syncing ALL ${physicsData.blocks.length} blocks`);
             } else {
                 // Normal sync
                 const maxBlocks = 50;
