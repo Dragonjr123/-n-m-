@@ -1007,7 +1007,7 @@ const mobs = {
                             this.torque -= 0.000004 * this.inertia;
                         } else if (this.noseLength > 1.5 && dot > -0.2 && dot < 0.2) {
                             //fire
-                            spawn.bullet(this.vertices[1].x, this.vertices[1].y, 9 + Math.ceil(this.radius / 15));
+                            spawn.sniperBullet(this.vertices[1].x, this.vertices[1].y, 9 + Math.ceil(this.radius / 15));
                             const v = 15;
                             Matter.Body.setVelocity(mob[mob.length - 1], {
                                 x: this.velocity.x + this.fireDir.x * v + 3 * Math.random(),
