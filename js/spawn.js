@@ -3300,6 +3300,10 @@ const spawn = {
     },
     seeker(x, y, radius = 8, sides = 6) {
         //bullets
+        // In multiplayer, ONLY the host spawns mob bullets
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mob bullets
+        }
         currentSpawnFunction = "seeker"; currentSpawnParams = { radius, sides };
         mobs.spawn(x, y, sides, radius, "rgb(255,0,255)");
         let me = mob[mob.length - 1];
@@ -3353,6 +3357,10 @@ const spawn = {
         };
     },
     spawns(x, y, radius = 15) {
+        // In multiplayer, ONLY the host spawns mobs (spawned by other mobs)
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         currentSpawnFunction = "spawns"; currentSpawnParams = { radius };
         mobs.spawn(x, y, 4, radius, "rgb(255,0,0)");
         let me = mob[mob.length - 1];
@@ -3456,6 +3464,10 @@ const spawn = {
         spawn.shield(me, x, y, 1);
     },
     snakeBody(x, y, radius = 10) {
+        // In multiplayer, ONLY the host spawns mobs (part of snakeBoss)
+        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
+            return; // Clients never spawn mobs
+        }
         mobs.spawn(x, y, 8, radius, "rgba(0,180,180,0.4)");
         let me = mob[mob.length - 1];
         // me.onHit = function() {
@@ -3713,10 +3725,6 @@ const spawn = {
         };
     },
     orbitalBoss(x, y, radius = 88) {
-        // In multiplayer, ONLY the host spawns mobs
-        if (typeof multiplayer !== 'undefined' && multiplayer.enabled && !multiplayer.isHost) {
-            return; // Clients never spawn mobs
-        }
         const nodeBalance = Math.random()
         const nodes = Math.min(15, Math.floor(1 + 5 * nodeBalance + 0.75 * Math.sqrt(simulation.difficulty)))
         currentSpawnFunction = "orbitalBoss"; currentSpawnParams = { radius };
