@@ -3232,37 +3232,30 @@ const multiplayer = {
                         // Clamp sides to a reasonable small polygon to avoid near-circles from high vertex counts
                         const sides = Math.max(3, Math.min(8, isFinite(mobData.sides) ? Math.floor(mobData.sides) : 6));
                         let ghost;
+                        
+                        // Build collision filter safely - check if cat is defined
+                        let collisionFilter;
+                        if (typeof cat !== 'undefined' && cat.mob) {
+                            collisionFilter = {
+                                group: 0,
+                                category: cat.mob,
+                                mask: cat.player | cat.map | cat.body | cat.bullet | cat.mob
+                            };
+                        } else {
+                            // Fallback collision filter with numeric values (match cat definitions from index.js)
+                            collisionFilter = {
+                                group: 0,
+                                category: 0x1000, // cat.mob
+                                mask: 0x1 | 0x10 | 0x100 | 0x10000 | 0x1000 // player | map | body | bullet | mob
+                            };
+                        }
+                        
                         const baseOpts = {
                             inertia: Infinity,
                             frictionAir: 0.005,
                             restitution: 0.5,
                             density: 0.001,
-                            // Ensure ghost mobs behave like real mobs re: collisions
-                            collisionFilter: {
-                                group: 0,
-                                category: cat.mob,
-                                mask: cat.player | cat.map | cat.body | cat.bullet | cat.mob
-                            },
-                            classType: 'mob',
-                            mob: true,
-                            isGhost: true,
-                            alive: true,
-                            health: isFinite(mobData.health) ? mobData.health : 1,
-                            maxHealth: 1, // Add maxHealth for proper health bar rendering
-                            radius: radius,
-                            seePlayer: { recall: mobData.seePlayerYes || false, yes: mobData.seePlayerYes || false, position: { x: mobData.x || 0, y: mobData.y || 0 } },
-                            showHealthBar: true,
-                            fill: mobData.fill || '#735084', // Use actual fill or default purple
-                            stroke: mobData.stroke || '#000000', // Use actual stroke or black
-                            // Add required mob properties
-                            cd: 0,
-                            seePlayerFreq: 30,
-                            isDropPowerUp: true,
-                            isShielded: false,
-                            isBoss: false,
-                            shield: null,
-                            status: [], // Status effects array
-                            vertices: [] // Will be set below
+                            collisionFilter: collisionFilter
                         };
                         if (Array.isArray(mobData.verts) && mobData.verts.length >= 3) {
                             try {
@@ -3279,6 +3272,26 @@ const multiplayer = {
                         } else {
                             ghost = Matter.Bodies.polygon(mobData.x || 0, mobData.y || 0, sides, radius, baseOpts);
                         }
+                        
+                        // Add custom mob properties AFTER body creation
+                        ghost.classType = 'mob';
+                        ghost.mob = true;
+                        ghost.isGhost = true;
+                        ghost.alive = true;
+                        ghost.health = isFinite(mobData.health) ? mobData.health : 1;
+                        ghost.maxHealth = 1; // Add maxHealth for proper health bar rendering
+                        ghost.radius = radius;
+                        ghost.seePlayer = { recall: mobData.seePlayerYes || false, yes: mobData.seePlayerYes || false, position: { x: mobData.x || 0, y: mobData.y || 0 } };
+                        ghost.showHealthBar = true;
+                        ghost.fill = mobData.fill || '#735084'; // Use actual fill or default purple
+                        ghost.stroke = mobData.stroke || '#000000'; // Use actual stroke or black
+                        ghost.cd = 0;
+                        ghost.seePlayerFreq = 30;
+                        ghost.isDropPowerUp = true;
+                        ghost.isShielded = false;
+                        ghost.isBoss = false;
+                        ghost.shield = null;
+                        ghost.status = []; // Status effects array
                         
                         // Add minimal required methods for proper mob behavior
                         ghost.damage = function(dmg) { 
@@ -3300,33 +3313,36 @@ const multiplayer = {
                             this.alive = false;
                             // Clean removal from world
                             try {
-                                Matter.World.remove(engine.world, this);
+                                if (typeof Matter !== 'undefined' && typeof engine !== 'undefined' && engine.world) {
+                                    Matter.World.remove(engine.world, this);
+                                }
                             } catch(e) { /* ignore */ }
                             // Remove from mob array
-                            for (let i = 0; i < mob.length; i++) {
-                                if (mob[i] === this) { 
-                                    mob.splice(i, 1); 
-                                    break; 
+                            if (typeof mob !== 'undefined') {
+                                for (let i = 0; i < mob.length; i++) {
+                                    if (mob[i] === this) { 
+                                        mob.splice(i, 1); 
+                                        break; 
+                                    }
                                 }
                             }
                         };
                         ghost.onDamage = function() { /* no-op */ };
                         ghost.onDeath = function() { /* no-op */ };
-                        ghost.replace = function(index) {
-                            // Simple cleanup without spawning bodies
-                            Matter.World.remove(engine.world, this);
-                            mob.splice(index, 1);
-                        };
-                        // Ensure mob loop can safely call replace(i) on ghost
                         ghost.replace = function(i) {
+                            // Unified replace function with safety checks
                             try {
-                                Matter.World.remove(engine.world, this);
+                                if (typeof Matter !== 'undefined' && typeof engine !== 'undefined' && engine.world) {
+                                    Matter.World.remove(engine.world, this);
+                                }
                             } catch(e) { /* no-op */ }
-                            if (isFinite(i) && i >= 0 && i < mob.length && mob[i] === this) {
-                                mob.splice(i, 1);
-                            } else {
-                                for (let j = 0; j < mob.length; j++) {
-                                    if (mob[j] === this) { mob.splice(j, 1); break; }
+                            if (typeof mob !== 'undefined') {
+                                if (isFinite(i) && i >= 0 && i < mob.length && mob[i] === this) {
+                                    mob.splice(i, 1);
+                                } else {
+                                    for (let j = 0; j < mob.length; j++) {
+                                        if (mob[j] === this) { mob.splice(j, 1); break; }
+                                    }
                                 }
                             }
                         };
@@ -3334,19 +3350,33 @@ const multiplayer = {
                         ghost.onDeath = function() { /* no-op */ };
                         ghost.onDamage = function() { /* no-op */ };
                         ghost.checkStatus = function() { /* no-op */ };
-                        ghost.gravity = function() { this.force.y += this.mass * simulation.g; };
+                        ghost.gravity = function() { 
+                            if (typeof simulation !== 'undefined' && simulation.g) {
+                                this.force.y += this.mass * simulation.g; 
+                            }
+                        };
                         ghost.distanceToPlayer = function() { 
-                            const dx = this.position.x - player.position.x;
-                            const dy = this.position.y - player.position.y;
-                            return Math.sqrt(dx * dx + dy * dy);
+                            if (typeof player !== 'undefined' && player.position) {
+                                const dx = this.position.x - player.position.x;
+                                const dy = this.position.y - player.position.y;
+                                return Math.sqrt(dx * dx + dy * dy);
+                            }
+                            return Infinity;
                         };
                         ghost.distanceToPlayer2 = function() {
-                            const dx = this.position.x - player.position.x;
-                            const dy = this.position.y - player.position.y;
-                            return dx * dx + dy * dy;
+                            if (typeof player !== 'undefined' && player.position) {
+                                const dx = this.position.x - player.position.x;
+                                const dy = this.position.y - player.position.y;
+                                return dx * dx + dy * dy;
+                            }
+                            return Infinity;
                         };
                         
-                        // Add to world and mob array
+                        // Add to world and mob array - check if World and engine are defined
+                        if (typeof World === 'undefined' || typeof engine === 'undefined' || !engine.world) {
+                            console.error('Cannot create ghost mob: World or engine not initialized');
+                            return;
+                        }
                         World.add(engine.world, ghost);
                         const newIndex = mob.length;
                         mob[newIndex] = ghost;
