@@ -146,6 +146,10 @@ const multiplayerUI = {
     
     // Show join lobby screen
     async showJoinLobby() {
+        // Remove existing join lobby menu to prevent duplicate IDs
+        const existing = document.getElementById('join-lobby-menu');
+        if (existing) existing.remove();
+        
         const lobbies = await multiplayer.getPublicLobbies();
         
         let lobbiesList = '';
@@ -330,6 +334,7 @@ const multiplayerUI = {
         // Listen for game start if not host
         if (!multiplayer.isHost) {
             multiplayer.listenForGameStart(() => {
+                console.log('🎮 Client received game start signal - closing lobby UI');
                 this.startLobbyGame(gameMode);
             });
         }
@@ -385,18 +390,16 @@ const multiplayerUI = {
     
     // Start game from lobby
     async startLobbyGame(gameMode) {
+        console.log('🎮 startLobbyGame called, isHost:', multiplayer.isHost, 'gameMode:', gameMode);
+        
         // Host: toggle start flag, then proceed
         if (multiplayer.isHost) {
             await multiplayer.startGame();
-        } else {
-            // Client: do not start unless host has actually started
-            if (!multiplayer.gameStarted) {
-                console.log('[MultiplayerUI] Ignoring client start; waiting for host start signal');
-                return;
-            }
         }
+        // Clients will be called by listenForGameStart callback (gameStarted already verified)
 
         // Close lobby room UI but keep connection
+        console.log('🚪 Closing lobby room UI');
         this.leaveLobbyRoom(false);
         
         // Hide splash screen if still visible
@@ -415,13 +418,21 @@ const multiplayerUI = {
     
     // Leave lobby room
     async leaveLobbyRoom(disconnect = true) {
+        console.log('🚪 leaveLobbyRoom called, disconnect:', disconnect);
+        
         if (this.playerListInterval) {
             clearInterval(this.playerListInterval);
             this.playerListInterval = null;
         }
         
         const room = document.getElementById('lobby-room');
-        if (room) room.remove();
+        if (room) {
+            console.log('✅ Removing lobby room UI');
+            room.remove();
+        } else {
+            console.log('⚠️ Lobby room already removed');
+        }
+        
         const splash = document.getElementById('splash');
         if (splash) splash.style.pointerEvents = 'auto';
         if (disconnect && typeof simulation !== 'undefined') simulation.isMultiplayerLobby = false;
