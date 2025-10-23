@@ -2746,6 +2746,11 @@ const multiplayer = {
     
     // ===== PHYSICS NETWORKING =====
     
+    // Helper: Sanitize value for Firebase (no Infinity or NaN)
+    sanitizeValue(val, fallback = 0) {
+        return (isFinite(val) && !isNaN(val)) ? val : fallback;
+    },
+    
     // Sync physics state to Firebase
     syncPhysics() {
         // Both host and clients sync physics they have authority over
@@ -2837,19 +2842,24 @@ const multiplayer = {
                 // Sync ALL blocks
                 for (let i = 0; i < body.length; i++) {
                     if (body[i] && body[i].position && body[i].id) {
+                        // Firebase doesn't allow Infinity - clamp to large number
+                        const mass = isFinite(body[i].mass) ? body[i].mass : 999999;
+                        const friction = isFinite(body[i].friction) ? body[i].friction : 0.4;
+                        const restitution = isFinite(body[i].restitution) ? body[i].restitution : 0;
+                        
                         physicsData.blocks.push({
                             bodyId: body[i].id, // Use Matter.js body ID instead of array index
-                            x: body[i].position.x,
-                            y: body[i].position.y,
-                            vx: body[i].velocity.x,
-                            vy: body[i].velocity.y,
-                            angle: body[i].angle,
-                            angularVelocity: body[i].angularVelocity,
+                            x: this.sanitizeValue(body[i].position.x),
+                            y: this.sanitizeValue(body[i].position.y),
+                            vx: this.sanitizeValue(body[i].velocity.x),
+                            vy: this.sanitizeValue(body[i].velocity.y),
+                            angle: this.sanitizeValue(body[i].angle),
+                            angularVelocity: this.sanitizeValue(body[i].angularVelocity),
                             // CRITICAL: Include shape data so clients render correct shapes
                             vertices: body[i].vertices ? body[i].vertices.map(v => ({ x: v.x, y: v.y })) : null,
-                            mass: body[i].mass,
-                            friction: body[i].friction,
-                            restitution: body[i].restitution
+                            mass: mass,
+                            friction: friction,
+                            restitution: restitution
                         });
                     }
                 }
@@ -2873,12 +2883,12 @@ const multiplayer = {
                         if (isMoving || hasClientAuthority) {
                             physicsData.blocks.push({
                                 bodyId: bodyId,
-                                x: body[i].position.x,
-                                y: body[i].position.y,
-                                vx: body[i].velocity.x,
-                                vy: body[i].velocity.y,
-                                angle: body[i].angle,
-                                angularVelocity: body[i].angularVelocity
+                                x: this.sanitizeValue(body[i].position.x),
+                                y: this.sanitizeValue(body[i].position.y),
+                                vx: this.sanitizeValue(body[i].velocity.x),
+                                vy: this.sanitizeValue(body[i].velocity.y),
+                                angle: this.sanitizeValue(body[i].angle),
+                                angularVelocity: this.sanitizeValue(body[i].angularVelocity)
                             });
                             count++;
                         }
@@ -2891,12 +2901,12 @@ const multiplayer = {
                             }
                             physicsData.blocks.push({
                                 bodyId: bodyId,
-                                x: body[i].position.x,
-                                y: body[i].position.y,
-                                vx: body[i].velocity.x,
-                                vy: body[i].velocity.y,
-                                angle: body[i].angle,
-                                angularVelocity: body[i].angularVelocity
+                                x: this.sanitizeValue(body[i].position.x),
+                                y: this.sanitizeValue(body[i].position.y),
+                                vx: this.sanitizeValue(body[i].velocity.x),
+                                vy: this.sanitizeValue(body[i].velocity.y),
+                                angle: this.sanitizeValue(body[i].angle),
+                                angularVelocity: this.sanitizeValue(body[i].angularVelocity)
                             });
                             count++;
                         }
@@ -2912,12 +2922,12 @@ const multiplayer = {
                     }
                     physicsData.blocks.unshift({
                         bodyId: heldBodyId,
-                        x: m.holdingTarget.position.x,
-                        y: m.holdingTarget.position.y,
-                        vx: m.holdingTarget.velocity.x,
-                        vy: m.holdingTarget.velocity.y,
-                        angle: m.holdingTarget.angle,
-                        angularVelocity: m.holdingTarget.angularVelocity
+                        x: this.sanitizeValue(m.holdingTarget.position.x),
+                        y: this.sanitizeValue(m.holdingTarget.position.y),
+                        vx: this.sanitizeValue(m.holdingTarget.velocity.x),
+                        vy: this.sanitizeValue(m.holdingTarget.velocity.y),
+                        angle: this.sanitizeValue(m.holdingTarget.angle),
+                        angularVelocity: this.sanitizeValue(m.holdingTarget.angularVelocity)
                     });
                 }
             }
