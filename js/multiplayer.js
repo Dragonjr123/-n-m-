@@ -3262,33 +3262,19 @@ const multiplayer = {
                 console.log(`📥 Applying ${physicsData.blocks.length} block updates from player ${fromPlayerId}`);
             }
             for (const blockData of physicsData.blocks) {
-                // Find body by ID instead of index (indices change when bodies are removed)
-                let targetBody = body.find(b => b && b.id === blockData.bodyId);
+                // Find body by position matching instead of ID (IDs differ across clients)
+                // Match by closest position within a reasonable threshold
+                let targetBody = null;
+                let minDist2 = 100; // 10 unit threshold squared
                 
-                // If body doesn't exist and we have vertex data, create it
-                if (!targetBody && blockData.vertices && blockData.vertices.length >= 3) {
-                    console.log(`🆕 Creating new body ${blockData.bodyId} from sync data`);
-                    try {
-                        targetBody = Matter.Bodies.fromVertices(
-                            blockData.x, 
-                            blockData.y, 
-                            blockData.vertices,
-                            {
-                                friction: blockData.friction || 0.4,
-                                frictionStatic: 1,
-                                frictionAir: 0.001,
-                                restitution: blockData.restitution || 0,
-                                classType: "body"
-                            }
-                        );
-                        if (blockData.mass) Matter.Body.setDensity(targetBody, blockData.mass / (targetBody.area || 1));
-                        Matter.Body.setAngle(targetBody, blockData.angle);
-                        Matter.Body.setVelocity(targetBody, { x: blockData.vx, y: blockData.vy });
-                        Matter.World.add(engine.world, targetBody);
-                        body.push(targetBody);
-                        console.log(`✅ Created body with ${blockData.vertices.length} vertices`);
-                    } catch (e) {
-                        console.error('❌ Failed to create body from vertices:', e);
+                for (let i = 0; i < body.length; i++) {
+                    if (!body[i] || !body[i].position) continue;
+                    const dx = body[i].position.x - blockData.x;
+                    const dy = body[i].position.y - blockData.y;
+                    const dist2 = dx * dx + dy * dy;
+                    if (dist2 < minDist2) {
+                        minDist2 = dist2;
+                        targetBody = body[i];
                     }
                 }
                 
