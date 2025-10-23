@@ -80,6 +80,10 @@ const level = {
         } else {
             spawn.setSpawnList(); //picks a couple mobs types for a themed random mob spawns
             // spawn.pickList = ["focuser", "focuser"]
+            // Initialize seeded random for deterministic level generation in multiplayer
+            if (typeof levelSeed !== 'undefined') {
+                levelSeed = 1000 + level.onLevel * 137; // Deterministic seed based on level number
+            }
             level[level.levels[level.onLevel]](); //picks the current map from the the levels array
             if (!simulation.isCheating) {
                 localSettings.runCount += level.levelsCleared //track the number of total runs locally
