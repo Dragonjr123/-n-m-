@@ -1542,8 +1542,8 @@ const m = {
         // Sync block pickup to multiplayer
         if (typeof multiplayer !== 'undefined' && multiplayer.enabled) {
             const idx = (typeof body !== 'undefined') ? body.indexOf(m.holdingTarget) : -1;
-            // Claim authority over this block using body.id (not array index)
-            multiplayer.claimAuthority('block', m.holdingTarget.id);
+            // Claim authority over this block using body.id (not array index) with 5 second duration
+            multiplayer.claimAuthority('block', m.holdingTarget.id, 5000);
             multiplayer.syncBlockInteraction('pickup', {
                 index: idx,
                 bodyId: m.holdingTarget.id,

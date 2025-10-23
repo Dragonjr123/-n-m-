@@ -2365,9 +2365,9 @@ const multiplayer = {
                 const authKey = `block_${body[i].id}`; // Use body.id instead of array index
                 const existing = this.clientAuthority.get(authKey);
                 
-                // Only claim if not already claimed or if expired
-                if (!existing || now > existing.expiry) {
-                    this.claimAuthority('block', body[i].id, 500); // 500ms authority - use bodyId
+                // Renew if not claimed, expired, or about to expire (within 200ms)
+                if (!existing || now > existing.expiry - 200) {
+                    this.claimAuthority('block', body[i].id, 1000); // 1 second authority - continuously renewed
                 }
             }
         }
@@ -2388,9 +2388,9 @@ const multiplayer = {
                     const authKey = `mob_${i}`;
                     const existing = this.clientAuthority.get(authKey);
                     
-                    // Only claim if not already claimed or if expired
-                    if (!existing || now > existing.expiry) {
-                        this.claimAuthority('mob', i, 300); // 300ms authority for mobs
+                    // Renew if not claimed, expired, or about to expire (within 100ms)
+                    if (!existing || now > existing.expiry - 100) {
+                        this.claimAuthority('mob', i, 500); // 500ms authority for mobs - continuously renewed
                     }
                 }
             }
@@ -2864,9 +2864,13 @@ const multiplayer = {
                     const authKey = `block_${bodyId}`;
                     
                     if (this.isHost) {
-                        // Host syncs ALL moving blocks (host has final authority)
+                        // Host syncs moving blocks OR blocks under client authority
                         const speed = body[i].velocity.x * body[i].velocity.x + body[i].velocity.y * body[i].velocity.y;
-                        if (speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001) {
+                        const isMoving = speed > 0.01 || Math.abs(body[i].angularVelocity) > 0.001;
+                        const hasClientAuthority = this.clientAuthority.has(authKey) && 
+                                                    this.clientAuthority.get(authKey).playerId !== this.playerId;
+                        
+                        if (isMoving || hasClientAuthority) {
                             physicsData.blocks.push({
                                 bodyId: bodyId,
                                 x: body[i].position.x,
@@ -2882,6 +2886,9 @@ const multiplayer = {
                         // Clients: only sync blocks we're actively touching
                         const auth = this.clientAuthority.get(authKey);
                         if (auth && auth.playerId === this.playerId) {
+                            if (Math.random() < 0.05) {
+                                console.log(`📤 CLIENT syncing block ${bodyId} with authority at (${body[i].position.x.toFixed(0)}, ${body[i].position.y.toFixed(0)})`);
+                            }
                             physicsData.blocks.push({
                                 bodyId: bodyId,
                                 x: body[i].position.x,
@@ -3265,7 +3272,7 @@ const multiplayer = {
                 // Find body by position matching instead of ID (IDs differ across clients)
                 // Match by closest position within a reasonable threshold
                 let targetBody = null;
-                let minDist2 = 100; // 10 unit threshold squared
+                let minDist2 = 40000; // 200 unit threshold squared (blocks can move far when picked up)
                 
                 for (let i = 0; i < body.length; i++) {
                     if (!body[i] || !body[i].position) continue;
@@ -3278,11 +3285,15 @@ const multiplayer = {
                     }
                 }
                 
+                if (!targetBody && Math.random() < 0.01) {
+                    console.log(`⚠️ Could not find block at (${blockData.x.toFixed(0)}, ${blockData.y.toFixed(0)}) within 200 units`);
+                }
+                
                 if (targetBody) {
                     // If update is from host, always accept (host has final authority)
                     // If from client, accept if we're NOT touching it (or if we're the host accepting client authority)
                     const authKey = `block_${blockData.bodyId}`;
-                    const isFromHost = this.players[fromPlayerId] && this.players[fromPlayerId].isHost;
+                    const isFromHost = (fromPlayerId === this.hostId) || (this.players[fromPlayerId] && this.players[fromPlayerId].isHost);
                     
                     // Skip only if: update is from ANOTHER client AND we have our own authority
                     // Host should ALWAYS accept client updates (to rebroadcast them)
