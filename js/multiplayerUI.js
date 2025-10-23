@@ -27,7 +27,7 @@ const multiplayerUI = {
                         </div>
                         <div style="flex: 1;">
                             <label style="display: block; margin-bottom: 5px; font-weight: bold;">Name Color:</label>
-                            <input type="color" id="mp-name-color" value="#ffffff" style="width: 100%; height: 40px;">
+                            <input type="color" id="mp-name-color" value="${multiplayer.settings.nameColor}" style="width: 100%; height: 40px;">
                         </div>
                     </div>
                     
@@ -62,6 +62,7 @@ const multiplayerUI = {
             const nameColor = nameColorInput.value;
             multiplayer.settings.name = name;
             multiplayer.settings.nameColor = nameColor;
+            multiplayer.saveSettings(); // Save to localStorage
             // If name color is white, show as black in preview
             const displayColor = (nameColor === '#ffffff' || nameColor === '#fff') ? '#000' : nameColor;
             previewText.style.color = displayColor;
@@ -71,6 +72,7 @@ const multiplayerUI = {
         nameInput.addEventListener('input', updatePreview);
         document.getElementById('mp-player-color').addEventListener('input', (e) => {
             multiplayer.settings.color = e.target.value;
+            multiplayer.saveSettings(); // Save to localStorage
         });
         nameColorInput.addEventListener('input', updatePreview);
     },
@@ -341,22 +343,31 @@ const multiplayerUI = {
         const players = multiplayer.players;
         const playerCount = Object.keys(players).length + 1; // +1 for self
         
+        // Helper to fix white text on white background
+        const getVisibleColor = (color) => {
+            const c = (color || '#fff').toLowerCase();
+            return (c === '#ffffff' || c === '#fff' || c === 'white') ? '#000' : color;
+        };
+        
+        const myNameColor = getVisibleColor(multiplayer.settings.nameColor);
+        
         let html = `
             <div style="padding: 10px; background: #fff; border-radius: 5px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
                 <div>
                     <span style="display: inline-block; width: 20px; height: 20px; background: ${multiplayer.settings.color}; border-radius: 50%; margin-right: 10px; vertical-align: middle;"></span>
-                    <strong style="color: ${multiplayer.settings.nameColor};">${multiplayer.settings.name}</strong>
+                    <strong style="color: ${myNameColor};">${multiplayer.settings.name}</strong>
                     ${multiplayer.isHost ? ' <span style="color: #fa0;">(HOST)</span>' : ''}
                 </div>
             </div>
         `;
         
         for (const [id, player] of Object.entries(players)) {
+            const playerNameColor = getVisibleColor(player.nameColor);
             html += `
                 <div style="padding: 10px; background: #fff; border-radius: 5px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <span style="display: inline-block; width: 20px; height: 20px; background: ${player.color}; border-radius: 50%; margin-right: 10px; vertical-align: middle;"></span>
-                        <strong style="color: ${player.nameColor};">${player.name}</strong>
+                        <strong style="color: ${playerNameColor};">${player.name}</strong>
                     </div>
                     ${multiplayer.isHost ? `<button onclick="multiplayer.kickPlayer('${id}')" style="padding: 5px 10px; background: #f44; color: #fff; border: none; border-radius: 3px; cursor: pointer;">Kick</button>` : ''}
                 </div>

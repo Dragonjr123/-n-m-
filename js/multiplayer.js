@@ -80,7 +80,31 @@ const multiplayer = {
     settings: {
         name: "Player",
         color: "#4a9eff",
-        nameColor: "#fff"
+        nameColor: "#ffffff"
+    },
+    
+    // Save player settings to localStorage
+    saveSettings() {
+        try {
+            localStorage.setItem('n-gon-mp-settings', JSON.stringify(this.settings));
+        } catch (e) {
+            console.warn('Failed to save multiplayer settings:', e);
+        }
+    },
+    
+    // Load player settings from localStorage
+    loadSettings() {
+        try {
+            const saved = localStorage.getItem('n-gon-mp-settings');
+            if (saved) {
+                const settings = JSON.parse(saved);
+                this.settings.name = settings.name || 'Player';
+                this.settings.color = settings.color || '#4a9eff';
+                this.settings.nameColor = settings.nameColor || '#ffffff';
+            }
+        } catch (e) {
+            console.warn('Failed to load multiplayer settings:', e);
+        }
     },
     
     // Track dead players
@@ -93,6 +117,9 @@ const multiplayer = {
             console.error('Failed to initialize Firebase');
             return false;
         }
+        // Load saved settings
+        this.loadSettings();
+        
         this.playerId = 'player_' + Math.random().toString(36).substr(2, 9);
         console.log('Multiplayer initialized. Player ID:', this.playerId);
         return true;
